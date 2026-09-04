@@ -1,0 +1,13 @@
+{
+  "formatVersion": "1",
+  "id": "e_JKHlLG",
+  "name": "Development",
+  "variables": [
+    {
+      "key": "baseUrl",
+      "value": "https://httpbin.org",
+      "enabled": true,
+      "secret": false
+    }
+  ]
+}

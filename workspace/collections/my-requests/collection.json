@@ -1,0 +1,43 @@
+{
+  "formatVersion": "1",
+  "id": "c_G4k6Am",
+  "name": "My Requests",
+  "description": "",
+  "items": [
+    {
+      "type": "request",
+      "id": "r_J2yWCg",
+      "name": "Control API Demo",
+      "method": "GET",
+      "url": "{{baseUrl}}/get",
+      "body": {
+        "mode": "none",
+        "rawContentType": "application/json"
+      }
+    },
+    {
+      "type": "request",
+      "id": "r_8Row1P",
+      "name": "Test UI",
+      "method": "GET",
+      "url": "http://127.0.0.1:8090/api/collections/c_G4k6Am",
+      "body": {
+        "mode": "raw",
+        "raw": "{ \"action\": \"toggleEnvironmentEditor\" }",
+        "rawContentType": "application/json"
+      }
+    },
+    {
+      "type": "request",
+      "id": "r_z7wqx0",
+      "name": "Toggle Help",
+      "method": "POST",
+      "url": "http://127.0.0.1:8090/api/ui/action",
+      "body": {
+        "mode": "raw",
+        "raw": "{ \"action\": \"toggleHelp\" }",
+        "rawContentType": "application/json"
+      }
+    }
+  ]
+}

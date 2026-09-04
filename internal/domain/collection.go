@@ -1,0 +1,140 @@
+// Package domain holds Freeman's core data types (collections, requests,
+// environments). It has no I/O and no dependency on any other internal
+// package, so store, httpengine, script, and importer can each depend on it
+// without depending on each other.
+package domain
+
+// ItemType discriminates between a folder (a group of items) and a request
+// (a saved HTTP call) within a Collection's tree.
+type ItemType string
+
+const (
+	ItemTypeFolder  ItemType = "folder"
+	ItemTypeRequest ItemType = "request"
+)
+
+// Collection is a named tree of folders and requests, persisted as one
+// collections/<slug>/collection.json file.
+type Collection struct {
+	FormatVersion string `json:"formatVersion"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	Items         []Item `json:"items"`
+}
+
+// Item is either a folder (Items populated) or a request (the request
+// fields populated), selected by Type. Both shapes share one struct rather
+// than a Go interface so the on-disk JSON stays a flat, hand-editable tree.
+type Item struct {
+	Type ItemType `json:"type"`
+	ID   string   `json:"id"`
+	Name string   `json:"name"`
+
+	// Folder fields.
+	Items []Item `json:"items,omitempty"`
+
+	// Request fields.
+	Method           string       `json:"method,omitempty"`
+	URL              string       `json:"url,omitempty"`
+	Params           []QueryParam `json:"params,omitempty"`
+	Headers          []Header     `json:"headers,omitempty"`
+	Body             *Body        `json:"body,omitempty"`
+	PreRequestScript string       `json:"preRequestScript,omitempty"`
+	TestScript       string       `json:"testScript,omitempty"`
+}
+
+type QueryParam struct {
+	Key     string `json:"key"`
+	Value   string `json:"value"`
+	Enabled bool   `json:"enabled"`
+}
+
+type Header struct {
+	Key     string `json:"key"`
+	Value   string `json:"value"`
+	Enabled bool   `json:"enabled"`
+}
+
+// BodyMode selects how Body's fields should be interpreted when building
+// the outgoing request. Only "raw" is used by the request executor in v1;
+// the others are reserved so the schema doesn't need to change later.
+type BodyMode string
+
+const (
+	BodyModeNone       BodyMode = "none"
+	BodyModeRaw        BodyMode = "raw"
+	BodyModeForm       BodyMode = "form-data"
+	BodyModeURLEncoded BodyMode = "x-www-form-urlencoded"
+)
+
+type Body struct {
+	Mode           BodyMode `json:"mode"`
+	Raw            string   `json:"raw,omitempty"`
+	RawContentType string   `json:"rawContentType,omitempty"`
+}
+
+// UpsertItem replaces the item with a matching ID anywhere in the tree, or
+// appends it to the collection's root if no match is found.
+func (c *Collection) UpsertItem(item Item) {
+	if replaceItem(c.Items, item) {
+		return
+	}
+	c.Items = append(c.Items, item)
+}
+
+func replaceItem(items []Item, item Item) bool {
+	for i := range items {
+		if items[i].ID == item.ID {
+			items[i] = item
+			return true
+		}
+		if replaceItem(items[i].Items, item) {
+			return true
+		}
+	}
+	return false
+}
+
+// FindItem returns the item with the given ID anywhere in the tree.
+func (c *Collection) FindItem(id string) *Item {
+	return findItem(c.Items, id)
+}
+
+func findItem(items []Item, id string) *Item {
+	for i := range items {
+		if items[i].ID == id {
+			return &items[i]
+		}
+		if found := findItem(items[i].Items, id); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// RemoveItem deletes the item with the given ID anywhere in the tree
+// (including inside folders), reporting whether anything was removed.
+func (c *Collection) RemoveItem(id string) bool {
+	items, removed := removeItem(c.Items, id)
+	c.Items = items
+	return removed
+}
+
+func removeItem(items []Item, id string) ([]Item, bool) {
+	for i := range items {
+		if items[i].ID == id {
+			// items[:i:i] caps the slice at i so this append can't
+			// silently alias/overwrite the caller's backing array.
+			return append(items[:i:i], items[i+1:]...), true
+		}
+	}
+	for i := range items {
+		updated, removed := removeItem(items[i].Items, id)
+		if removed {
+			items[i].Items = updated
+			return items, true
+		}
+	}
+	return items, false
+}

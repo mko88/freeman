@@ -1,0 +1,66 @@
+# Working rules for this repo
+
+## Every interactive feature needs a Control API action
+
+Freeman has a "control API" (loopback HTTP on `:8090` on desktop, driving
+the Wails event bus — see `internal/wailsapp.DispatchUIAction`,
+`App.svelte`'s `dispatchUIAction`, and `cmd/freeman/main.go`'s
+`POST /api/ui/action`) so external scripts, test harnesses, and AI agents
+can drive the GUI itself, not just its data operations.
+
+**Rule: whenever a UI element the user can interact with is added or
+changed, add (or update) a matching `ui:action` so the same thing can be
+triggered through the control API.** This includes things like: a new
+button, a new toggle/modal, a new field, a new tab, a new per-row action
+(add/remove/set). It's not limited to brand-new screens — editing an
+existing interactive element (e.g. adding a field to a form) means
+updating its action's payload too.
+
+Concretely, each new interactive element needs:
+1. A `case` in `App.svelte`'s `dispatchUIAction` that performs the same
+   state change a click/keystroke would.
+2. A row in `App.svelte`'s `uiActions` array (shown in the in-app help
+   modal) documenting the action name, payload shape, and what it does.
+3. If it's a brand-new top-level capability (not just a UI action) rather
+   than something reachable via `ui:action`, also add a route to
+   `internal/httpapi/handler.go` and a row in `apiEndpoints`.
+
+Prefer reusing an existing action's shape/pattern (e.g. `{ index }` or
+`{ key }` for row targeting — see `removeRequestHeader`/`removeEnvironmentVariable`) over
+inventing a new convention. The action list is curated by design — there's
+no generic "click this selector" escape hatch, so a genuinely new kind of
+interaction needs its own named action, not a workaround.
+
+**Naming: spell out the target explicitly.** An action that operates on
+the request currently in the editor gets `Request` in its name
+(`saveRequest`, `addRequestHeader`, `setRequestField`); one that operates
+on the environment currently in the editor gets `Environment`
+(`saveEnvironment`, `addEnvironmentVariable`). Not a bare verb
+(`save`, `addHeader`) — the list should read unambiguously on its own,
+without needing the payload shape to disambiguate what it acts on.
+Actions with no such ambiguity (`selectCollection`, `newRequest`,
+`toggleHelp`, `openWorkspace`) don't need a target word added.
+
+When finishing such a change, verify the new action actually works by
+driving it through `POST http://127.0.0.1:8090/api/ui/action` (or the
+relevant `/api/*` route), not just by clicking the UI.
+
+## Control API regression script
+
+`scripts/test_control_api.py` (stdlib-only, run with `py
+scripts/test_control_api.py`) drives every documented control-API route
+and `ui:action` end to end against a running desktop build, verifying
+each step's effect over HTTP/on disk. It leaves no trace: everything it
+creates is deleted/removed again in a `finally` before it exits, and it
+also sweeps for and removes any leftovers from a previous interrupted
+run before it starts — the workspace should look identical before and
+after any run, or any number of runs. `--delay` (default 0.6s) paces it
+for watching the app window live; `--delay 0` runs it fast. It also
+carries a standing regression check for a real concurrency bug found
+2026-09-04 (rapid-fire `ui:action` calls racing; see git history / the
+script's own comments for the fix in `App.svelte` and
+`internal/store/format.go`).
+
+**Whenever a `ui:action` is added, removed, or its payload shape
+changes, update this script's matching section in the same change** —
+it's the regression suite for the rule above, not a one-off.

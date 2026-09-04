@@ -1,0 +1,9 @@
+services:
+  freeman:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./workspace:/workspace
+    environment:
+      FREEMAN_WORKSPACE: /workspace

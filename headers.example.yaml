@@ -1,0 +1,45 @@
+# headers.example.yaml — copy to "headers.yaml" in Freeman's config
+# directory to customise the header editor's autocomplete suggestions:
+#
+#   • Desktop app: %AppData%\freeman\headers.yaml   (Windows)
+#                  ~/.config/freeman/headers.yaml    (Linux/macOS)
+#   • Container server: <workspace>/headers.yaml     (the mounted volume)
+#
+# Entries here are MERGED onto Freeman's built-in catalog, matched by name
+# (case-insensitive):
+#
+#   • a name that already exists in the defaults  -> its value list is
+#     replaced by the one below (position kept)
+#   • a new name                                  -> appended to the list
+#   • an entry with no `values:` key              -> keeps the default's
+#     values (or adds a valueless entry for a new name)
+#   • an explicit `values: []`                    -> clears the suggestions
+#
+# The built-in defaults already cover Accept, Accept-Encoding,
+# Accept-Language, Authorization, Cache-Control, Connection, Content-Type,
+# Cookie, Host, If-Match, If-None-Match, Origin, Prefer, Referer,
+# User-Agent, X-Api-Key, X-Correlation-ID and X-Requested-With — you only
+# need to list what you want to change.
+
+headers:
+  # Add a company-specific header with its own common values.
+  - name: X-Tenant-ID
+    values:
+      - acme
+      - globex
+      - initech
+
+  # Add a header that's worth suggesting by name but has no fixed values.
+  - name: X-Request-ID
+
+  # Override a built-in: only ever send JSON, so trim Accept's suggestions.
+  - name: Accept
+    values:
+      - application/json
+
+  # Give Authorization a ready-made token scheme.
+  - name: Authorization
+    values:
+      - "Bearer "
+      - "Basic "
+      - "Token "

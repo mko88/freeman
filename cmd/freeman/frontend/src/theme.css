@@ -1,0 +1,21 @@
+/* Freeman's design tokens. :root below is the built-in "dark" theme,
+   mirrored exactly from internal/theme.Dark (Go) — keep the two in sync by
+   hand. Baking dark's values in here (rather than only setting them via JS
+   after GetTheme() resolves) means the very first paint is already
+   correct, with no flash while the Go round trip completes; theme.ts only
+   needs to apply inline overrides when a custom theme.yaml is active. */
+:root {
+  --fm-bg: #1b2636;
+  --fm-bg-panel: #141c28;
+  --fm-bg-elevated: rgba(255, 255, 255, 0.06);
+  --fm-bg-hover: rgba(255, 255, 255, 0.08);
+  --fm-bg-response: rgba(0, 0, 0, 0.25);
+  --fm-border: rgba(255, 255, 255, 0.15);
+  --fm-border-subtle: rgba(255, 255, 255, 0.1);
+  --fm-text: #ffffff;
+  --fm-text-muted: rgba(255, 255, 255, 0.6);
+  --fm-accent: #2f6fed;
+  --fm-error: #ff6b6b;
+  --fm-success: #51cf66;
+  --fm-warning: #ffa94d;
+}

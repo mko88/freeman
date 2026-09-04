@@ -1,0 +1,8 @@
+.git
+bin/
+cmd/freeman/build/
+cmd/freeman/frontend/node_modules/
+cmd/freeman/frontend/dist/
+cmd/freeman/frontend/dist-web/
+cmd/freeman-server/web/*
+!cmd/freeman-server/web/.gitignore
