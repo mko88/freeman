@@ -52,7 +52,14 @@
   let draftHeaders: domain.Header[] = []
   let draftBodyMode: BodyMode = 'none'
   let draftBodyRaw = ''
-  let draftBodyContentType = 'application/json'
+  // No hardcoded default (e.g. 'application/json') — Content-Type is a
+  // regular header now (addRequestHeader/setRequestHeader), same as any
+  // other header; a raw body with no Content-Type header just goes out
+  // without one (see internal/httpengine.Execute). This only round-trips
+  // whatever rawContentType a *previously saved* item already carries
+  // (selectRequest below) — e.g. one hand-edited on disk or imported
+  // from elsewhere — rather than forcing every new request to one.
+  let draftBodyContentType = ''
   let draftFormFields: domain.FormField[] = []
   let draftBinaryFilePath = ''
 
@@ -367,8 +374,9 @@
           // Headers tab's old Content-Type field — Content-Type is set
           // via a regular header row now (addRequestHeader/setRequestHeader),
           // same as any other header. draftBodyContentType itself still
-          // exists as saveRequest's fallback default (see below); it's
-          // just no longer independently settable here.
+          // exists (see its declaration above) purely to round-trip
+          // whatever an already-saved item's rawContentType is; it's not
+          // independently settable, and has no hardcoded default to set.
         }
         break
       }
@@ -499,7 +507,7 @@
     draftHeaders = item.headers ? item.headers.map((h) => ({ ...h })) : []
     draftBodyMode = (item.body?.mode as BodyMode) || 'none'
     draftBodyRaw = item.body?.raw || ''
-    draftBodyContentType = item.body?.rawContentType || 'application/json'
+    draftBodyContentType = item.body?.rawContentType || ''
     // { type: 'text', filePath: '', ...f } normalizes rows saved before
     // file fields existed (omitempty means those keys are simply absent,
     // never present-but-undefined, so the defaults only apply then).
@@ -519,7 +527,7 @@
     draftHeaders = []
     draftBodyMode = 'none'
     draftBodyRaw = ''
-    draftBodyContentType = 'application/json'
+    draftBodyContentType = ''
     draftFormFields = []
     draftBinaryFilePath = ''
     response = null

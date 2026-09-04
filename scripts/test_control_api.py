@@ -432,9 +432,9 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
     r.step("setRequestField bodyRaw = <json>")
     api.action("setRequestField", {"field": "bodyRaw", "value": body_raw})
     # No setRequestField bodyContentType: retired 2026-09-04 — Content-Type is a
-    # regular header now (see addRequestHeader below), not a separate field.
-    # draftBodyContentType still defaults to 'application/json' as
-    # saveRequest's fallback, checked below without setting it here.
+    # regular header now (see addRequestHeader below), not a separate field,
+    # and has no hardcoded default either (checked below) — a raw body with
+    # no Content-Type header just goes out without one.
 
     r.step("selectRequestTab 'headers'")
     api.action("selectRequestTab", {"tab": "headers"})
@@ -470,8 +470,9 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
     r.check("body.mode round-tripped to 'raw'", (saved.get("body") or {}).get("mode") == "raw")
     r.check("body.raw round-tripped", (saved.get("body") or {}).get("raw") == body_raw)
     r.check(
-        "body.rawContentType defaulted to 'application/json' (no longer separately settable)",
-        (saved.get("body") or {}).get("rawContentType") == "application/json",
+        "body.rawContentType is empty (no hardcoded default, no longer separately settable)",
+        not (saved.get("body") or {}).get("rawContentType"),
+        str(saved.get("body")),
     )
     r.check(
         "body.formFields cleared after switching back to 'raw'",
