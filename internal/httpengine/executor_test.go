@@ -3,8 +3,11 @@ package httpengine
 import (
 	"context"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -228,6 +231,111 @@ func TestExecuteFormDataOverridesExplicitContentTypeHeader(t *testing.T) {
 	}
 	if !strings.HasPrefix(gotContentType, "multipart/form-data; boundary=") {
 		t.Fatalf("expected the multipart Content-Type to win over the explicit header, got %q", gotContentType)
+	}
+}
+
+// writeTempFile writes content to name under a fresh temp directory and
+// returns the full path.
+func writeTempFile(t *testing.T, name, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	return path
+}
+
+func TestExecuteFormDataFileField(t *testing.T) {
+	path := writeTempFile(t, "profile.json", `{"greeting":"hi"}`)
+
+	var gotContentType string
+	var fileBytes []byte
+	var fileHeader *multipart.FileHeader
+	var caption string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		caption = r.FormValue("caption")
+		f, h, err := r.FormFile("avatar")
+		if err == nil {
+			defer f.Close()
+			fileHeader = h
+			fileBytes, _ = io.ReadAll(f)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	item := domain.Item{
+		Method: "POST",
+		URL:    srv.URL,
+		Body: &domain.Body{
+			Mode: domain.BodyModeForm,
+			FormFields: []domain.FormField{
+				{Key: "caption", Value: "a profile", Enabled: true, Type: domain.FormFieldTypeText},
+				{Key: "avatar", Enabled: true, Type: domain.FormFieldTypeFile, FilePath: "{{path}}"},
+			},
+		},
+	}
+
+	if _, err := Execute(context.Background(), item, map[string]string{"path": path}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.HasPrefix(gotContentType, "multipart/form-data; boundary=") {
+		t.Fatalf("unexpected Content-Type: %q", gotContentType)
+	}
+	if caption != "a profile" {
+		t.Fatalf("expected the text field to still work alongside the file field, got caption=%q", caption)
+	}
+	if fileHeader == nil {
+		t.Fatal("server did not receive the avatar file part")
+	}
+	if fileHeader.Filename != "profile.json" {
+		t.Fatalf("expected filename %q, got %q", "profile.json", fileHeader.Filename)
+	}
+	if string(fileBytes) != `{"greeting":"hi"}` {
+		t.Fatalf("unexpected file content: %q", fileBytes)
+	}
+	// .json is in Go's built-in extension table, so this doesn't depend
+	// on the host OS's mime.types.
+	if ct := fileHeader.Header.Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected the file part's Content-Type to be detected from its extension, got %q", ct)
+	}
+}
+
+func TestExecuteBinaryBody(t *testing.T) {
+	content := "binary payload, not that it matters here"
+	path := writeTempFile(t, "payload.json", content)
+
+	var gotContentType, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	item := domain.Item{
+		Method: "PUT",
+		URL:    srv.URL,
+		Body: &domain.Body{
+			Mode:           domain.BodyModeBinary,
+			BinaryFilePath: "{{path}}",
+		},
+	}
+
+	if _, err := Execute(context.Background(), item, map[string]string{"path": path}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if gotBody != content {
+		t.Fatalf("expected the file's exact bytes as the body, got %q", gotBody)
+	}
+	if gotContentType != "application/json" {
+		t.Fatalf("expected Content-Type detected from the .json extension, got %q", gotContentType)
 	}
 }
 

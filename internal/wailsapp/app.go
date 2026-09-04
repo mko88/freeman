@@ -47,6 +47,19 @@ func (a *App) SelectWorkspaceFolder() (string, error) {
 	})
 }
 
+// SelectFile opens a native file picker and returns the chosen path, or
+// "" if the user cancelled. No server equivalent — a browser can't open
+// the server's filesystem dialog. Used for form-data file fields and the
+// binary body mode; the control API sets a path directly instead (see
+// App.svelte's addRequestFormField/setRequestFormField/setRequestField
+// dispatch cases), the same "no dialog available" split OpenWorkspace has
+// against SelectWorkspaceFolder.
+func (a *App) SelectFile() (string, error) {
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Choose a file",
+	})
+}
+
 // OpenWorkspace shadows core.App's: same behavior, plus remembering root
 // as the workspace to reopen on next launch — meaningless for a server,
 // which is always told its (fixed) workspace via FREEMAN_WORKSPACE.

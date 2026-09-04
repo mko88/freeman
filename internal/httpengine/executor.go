@@ -3,10 +3,16 @@ package httpengine
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"freeman/internal/domain"
@@ -16,8 +22,8 @@ var client = &http.Client{Timeout: 30 * time.Second}
 
 // Execute builds an HTTP request from item — substituting {{var}} in the
 // URL, enabled query params, enabled headers, and the body (raw text,
-// form-data, or x-www-form-urlencoded) against vars — and runs it,
-// capturing the response.
+// form-data — text and/or file fields, x-www-form-urlencoded, or a whole
+// file as binary) against vars — and runs it, capturing the response.
 func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Response, error) {
 	reqURL, err := buildURL(item, vars)
 	if err != nil {
@@ -27,6 +33,17 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 	bodyReader, bodyContentType, err := buildBody(item.Body, vars)
 	if err != nil {
 		return nil, err
+	}
+	if closer, ok := bodyReader.(io.Closer); ok {
+		// buildBody's binary/file-field paths return an open *os.File.
+		// http.Client closes an io.ReadCloser request body itself once
+		// the request has actually been sent, but only then — if
+		// anything below returns early (NewRequestWithContext failing,
+		// say) nothing else ever closes it. This is safe either way:
+		// by the time Execute returns, the body has already been fully
+		// streamed (or never started), so a second Close is at worst a
+		// harmless "already closed" error, which is ignored.
+		defer closer.Close()
 	}
 
 	method := item.Method
@@ -84,7 +101,9 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 // at all, or raw with no explicit RawContentType). Execute decides
 // whether that Content-Type actually gets applied (form-data always
 // wins; the others only fill in a header the request doesn't already
-// have — see Execute).
+// have — see Execute). A returned io.Reader may also be an io.Closer
+// (an open file, for a form-data file field or BodyModeBinary) — Execute
+// takes care of closing it.
 func buildBody(body *domain.Body, vars map[string]string) (io.Reader, string, error) {
 	if body == nil {
 		return nil, "", nil
@@ -103,7 +122,18 @@ func buildBody(body *domain.Body, vars map[string]string) (io.Reader, string, er
 			if !f.Enabled {
 				continue
 			}
-			if err := w.WriteField(Substitute(f.Key, vars), Substitute(f.Value, vars)); err != nil {
+			key := Substitute(f.Key, vars)
+			if f.Type == domain.FormFieldTypeFile {
+				path := Substitute(f.FilePath, vars)
+				if path == "" {
+					continue
+				}
+				if err := writeFormFile(w, key, path); err != nil {
+					return nil, "", fmt.Errorf("form field %q: %w", f.Key, err)
+				}
+				continue
+			}
+			if err := w.WriteField(key, Substitute(f.Value, vars)); err != nil {
 				return nil, "", err
 			}
 		}
@@ -124,9 +154,81 @@ func buildBody(body *domain.Body, vars map[string]string) (io.Reader, string, er
 		}
 		return bytes.NewBufferString(values.Encode()), "application/x-www-form-urlencoded", nil
 
+	case domain.BodyModeBinary:
+		path := Substitute(body.BinaryFilePath, vars)
+		if path == "" {
+			return nil, "", nil
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, "", err
+		}
+		contentType, err := detectContentType(f, path)
+		if err != nil {
+			f.Close()
+			return nil, "", err
+		}
+		return f, contentType, nil
+
 	default:
 		return nil, "", nil
 	}
+}
+
+// writeFormFile streams path into a new multipart file part named
+// fieldName, with a Content-Type detected from the file itself (unlike
+// multipart.Writer.CreateFormFile, which always hardcodes
+// application/octet-stream).
+func writeFormFile(w *multipart.Writer, fieldName, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	contentType, err := detectContentType(f, path)
+	if err != nil {
+		return err
+	}
+
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", fmt.Sprintf(
+		`form-data; name="%s"; filename="%s"`,
+		escapeQuotes(fieldName), escapeQuotes(filepath.Base(path)),
+	))
+	header.Set("Content-Type", contentType)
+	part, err := w.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(part, f)
+	return err
+}
+
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+
+func escapeQuotes(s string) string {
+	return quoteEscaper.Replace(s)
+}
+
+// detectContentType prefers the file extension (more reliable for common
+// types like .json or .png than content sniffing) and falls back to
+// sniffing the first 512 bytes the way net/http itself does, defaulting
+// to application/octet-stream if neither yields anything. f is left
+// positioned at the start either way, ready to be sent as the body.
+func detectContentType(f *os.File, path string) (string, error) {
+	if ct := mime.TypeByExtension(filepath.Ext(path)); ct != "" {
+		return ct, nil
+	}
+	buf := make([]byte, 512)
+	n, err := f.Read(buf)
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	return http.DetectContentType(buf[:n]), nil
 }
 
 func buildURL(item domain.Item, vars map[string]string) (string, error) {

@@ -71,6 +71,8 @@ export namespace domain {
 	    key: string;
 	    value: string;
 	    enabled: boolean;
+	    type?: string;
+	    filePath?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new FormField(source);
@@ -81,6 +83,8 @@ export namespace domain {
 	        this.key = source["key"];
 	        this.value = source["value"];
 	        this.enabled = source["enabled"];
+	        this.type = source["type"];
+	        this.filePath = source["filePath"];
 	    }
 	}
 	export class Body {
@@ -88,6 +92,7 @@ export namespace domain {
 	    raw?: string;
 	    rawContentType?: string;
 	    formFields?: FormField[];
+	    binaryFilePath?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Body(source);
@@ -99,6 +104,7 @@ export namespace domain {
 	        this.raw = source["raw"];
 	        this.rawContentType = source["rawContentType"];
 	        this.formFields = this.convertValues(source["formFields"], FormField);
+	        this.binaryFilePath = source["binaryFilePath"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -33,6 +33,8 @@ export function SaveEnvironment(arg1:domain.Environment):Promise<domain.Environm
 
 export function SaveRequest(arg1:string,arg2:domain.Item):Promise<domain.Item>;
 
+export function SelectFile():Promise<string>;
+
 export function SelectWorkspaceFolder():Promise<string>;
 
 export function SetControlAPIAddr(arg1:string):Promise<void>;

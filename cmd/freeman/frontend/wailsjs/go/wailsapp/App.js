@@ -58,6 +58,10 @@ export function SaveRequest(arg1, arg2) {
   return window['go']['wailsapp']['App']['SaveRequest'](arg1, arg2);
 }
 
+export function SelectFile() {
+  return window['go']['wailsapp']['App']['SelectFile']();
+}
+
 export function SelectWorkspaceFolder() {
   return window['go']['wailsapp']['App']['SelectWorkspaceFolder']();
 }

@@ -45,6 +45,26 @@
         "raw": "{ \"action\": \"toggleHelp\" }",
         "rawContentType": "application/json"
       }
+    },
+    {
+      "type": "request",
+      "id": "r_2rMYmY",
+      "name": "Random Form-Data Demo",
+      "method": "POST",
+      "url": "{{baseUrl}}/post",
+      "body": {
+        "mode": "form-data",
+        "rawContentType": "application/json",
+        "formFields": [
+          {
+            "key": "blob",
+            "value": "",
+            "enabled": true,
+            "type": "file",
+            "filePath": "C:\\Git\\golang\\freeman\\scripts\\random-sample.bin"
+          }
+        ]
+      }
     }
   ]
 }

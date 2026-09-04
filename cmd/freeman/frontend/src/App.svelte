@@ -13,7 +13,7 @@
   } from '$backend'
   import type { domain, httpengine, core } from '../wailsjs/go/models'
   import { EventsOn } from '../wailsjs/runtime/runtime'
-  import { ControlAPIAddr, GetHeaderCatalog } from '../wailsjs/go/wailsapp/App.js'
+  import { ControlAPIAddr, GetHeaderCatalog, SelectFile } from '../wailsjs/go/wailsapp/App.js'
 
   // Common request headers (and, per header, common values) offered as
   // autocomplete in the header editor. Loaded from the desktop backend on
@@ -38,11 +38,13 @@
   let collection: domain.Collection | null = null
   let selectedItemId: string | null = null
 
-  // Mirrors domain.BodyMode's string constants — Wails' binding generator
-  // doesn't emit a type for a named string type, only struct classes, so
-  // this is redefined here (domain.Body.mode itself is typed as a plain
-  // string in models.ts).
-  type BodyMode = 'none' | 'raw' | 'form-data' | 'x-www-form-urlencoded'
+  // Mirrors domain.BodyMode's / domain.FormFieldType's string constants —
+  // Wails' binding generator doesn't emit a type for a named string type,
+  // only struct classes, so these are redefined here (domain.Body.mode
+  // and domain.FormField.type are themselves typed as plain strings in
+  // models.ts).
+  type BodyMode = 'none' | 'raw' | 'form-data' | 'x-www-form-urlencoded' | 'binary'
+  type FormFieldType = 'text' | 'file'
 
   let draftName = 'New Request'
   let draftMethod = 'GET'
@@ -52,12 +54,14 @@
   let draftBodyRaw = ''
   let draftBodyContentType = 'application/json'
   let draftFormFields: domain.FormField[] = []
+  let draftBinaryFilePath = ''
 
   const bodyModes: { value: BodyMode; label: string }[] = [
     { value: 'none', label: 'none' },
     { value: 'raw', label: 'raw' },
     { value: 'form-data', label: 'form-data' },
     { value: 'x-www-form-urlencoded', label: 'x-www-form-urlencoded' },
+    { value: 'binary', label: 'binary' },
   ]
 
   let environmentId = ''
@@ -114,8 +118,9 @@
     {
       action: 'setRequestField',
       payload:
-        "{ field, value }  // field: 'name'|'method'|'url'|'bodyRaw'|'bodyMode'\n" +
-        "  // bodyMode value: 'none'|'raw'|'form-data'|'x-www-form-urlencoded'",
+        "{ field, value }  // field: 'name'|'method'|'url'|'bodyRaw'|'bodyMode'|'binaryFilePath'\n" +
+        "  // bodyMode value: 'none'|'raw'|'form-data'|'x-www-form-urlencoded'|'binary'\n" +
+        "  // binaryFilePath: local path to send as the whole body (mode 'binary')",
       desc: "Set a field in the request currently in the editor (before saving).",
     },
     {
@@ -131,12 +136,14 @@
     { action: 'removeRequestHeader', payload: '{ index } | { key }', desc: 'Remove a header row by its position or by key.' },
     {
       action: 'addRequestFormField',
-      payload: '{ key?, value?, enabled? }',
-      desc: "Add a form-data / URL-encoded body field row, optionally pre-filled.",
+      payload: "{ key?, value?, enabled?, type?, filePath? }  // type: 'text'|'file'",
+      desc:
+        'Add a form-data / URL-encoded body field row, optionally pre-filled. ' +
+        "type 'file' + filePath uploads a local file (form-data only — urlencoded can't carry one).",
     },
     {
       action: 'setRequestFormField',
-      payload: '{ index, key?, value?, enabled? }',
+      payload: "{ index, key?, value?, enabled?, type?, filePath? }  // type: 'text'|'file'",
       desc: 'Populate an existing form field row by its position.',
     },
     {
@@ -294,6 +301,9 @@
           case 'bodyMode':
             if (bodyModes.some((m) => m.value === value)) draftBodyMode = value as BodyMode
             break
+          case 'binaryFilePath':
+            draftBinaryFilePath = value
+            break
           // No 'bodyContentType' case: retired 2026-09-04 along with the
           // Headers tab's old Content-Type field — Content-Type is set
           // via a regular header row now (addRequestHeader/setRequestHeader),
@@ -330,6 +340,8 @@
           key: typeof payload?.key === 'string' ? payload.key : '',
           value: typeof payload?.value === 'string' ? payload.value : '',
           enabled: typeof payload?.enabled === 'boolean' ? payload.enabled : true,
+          type: payload?.type === 'file' ? 'file' : 'text',
+          filePath: typeof payload?.filePath === 'string' ? payload.filePath : '',
         })
         break
       case 'setRequestFormField': {
@@ -339,6 +351,8 @@
         if (typeof payload?.key === 'string') fields.key = payload.key
         if (typeof payload?.value === 'string') fields.value = payload.value
         if (typeof payload?.enabled === 'boolean') fields.enabled = payload.enabled
+        if (payload?.type === 'text' || payload?.type === 'file') fields.type = payload.type
+        if (typeof payload?.filePath === 'string') fields.filePath = payload.filePath
         setRequestFormField(index, fields)
         break
       }
@@ -427,7 +441,13 @@
     draftBodyMode = (item.body?.mode as BodyMode) || 'none'
     draftBodyRaw = item.body?.raw || ''
     draftBodyContentType = item.body?.rawContentType || 'application/json'
-    draftFormFields = item.body?.formFields ? item.body.formFields.map((f) => ({ ...f })) : []
+    // { type: 'text', filePath: '', ...f } normalizes rows saved before
+    // file fields existed (omitempty means those keys are simply absent,
+    // never present-but-undefined, so the defaults only apply then).
+    draftFormFields = item.body?.formFields
+      ? item.body.formFields.map((f) => ({ type: 'text', filePath: '', ...f }))
+      : []
+    draftBinaryFilePath = item.body?.binaryFilePath || ''
     response = null
     sendError = ''
   }
@@ -442,6 +462,7 @@
     draftBodyRaw = ''
     draftBodyContentType = 'application/json'
     draftFormFields = []
+    draftBinaryFilePath = ''
     response = null
     sendError = ''
   }
@@ -459,7 +480,7 @@
   }
 
   function addRequestFormField(initial?: Partial<domain.FormField>) {
-    draftFormFields = [...draftFormFields, { key: '', value: '', enabled: true, ...initial }]
+    draftFormFields = [...draftFormFields, { key: '', value: '', enabled: true, type: 'text', filePath: '', ...initial }]
   }
 
   function setRequestFormField(index: number, fields: Partial<domain.FormField>) {
@@ -468,6 +489,21 @@
 
   function removeRequestFormField(index: number) {
     draftFormFields = draftFormFields.filter((_, i) => i !== index)
+  }
+
+  // Opens the native file picker (desktop only) and writes the chosen
+  // path into a form-data row. No control-API equivalent needs this
+  // function itself — a script sets filePath directly via
+  // addRequestFormField/setRequestFormField, the same "no dialog
+  // available" split as openWorkspace vs. the folder picker.
+  async function pickRequestFormFieldFile(index: number) {
+    const path = await SelectFile()
+    if (path) setRequestFormField(index, { filePath: path })
+  }
+
+  async function pickBinaryFile() {
+    const path = await SelectFile()
+    if (path) draftBinaryFilePath = path
   }
 
   async function saveRequest(): Promise<domain.Item> {
@@ -484,6 +520,7 @@
         raw: draftBodyMode === 'raw' ? draftBodyRaw : '',
         rawContentType: draftBodyContentType,
         formFields: isFormMode ? draftFormFields : [],
+        binaryFilePath: draftBodyMode === 'binary' ? draftBinaryFilePath : '',
       },
     } as domain.Item
     const saved = await SaveRequest(collectionId, item)
@@ -691,20 +728,48 @@
         {:else if draftBodyMode === 'form-data' || draftBodyMode === 'x-www-form-urlencoded'}
           <table class="kv-table">
             <thead>
-              <tr><th></th><th>Key</th><th>Value</th><th></th></tr>
+              <tr>
+                <th></th>
+                <th>Key</th>
+                {#if draftBodyMode === 'form-data'}<th class="form-field-type-col">Type</th>{/if}
+                <th>Value</th>
+                <th></th>
+              </tr>
             </thead>
             <tbody>
               {#each draftFormFields as f, i}
                 <tr>
                   <td><input type="checkbox" bind:checked={f.enabled} /></td>
                   <td><input type="text" bind:value={f.key} placeholder="key" /></td>
-                  <td><input type="text" bind:value={f.value} placeholder="value" /></td>
+                  {#if draftBodyMode === 'form-data'}
+                    <td>
+                      <select bind:value={f.type}>
+                        <option value="text">text</option>
+                        <option value="file">file</option>
+                      </select>
+                    </td>
+                  {/if}
+                  <td>
+                    {#if draftBodyMode === 'form-data' && f.type === 'file'}
+                      <div class="file-field">
+                        <input type="text" bind:value={f.filePath} placeholder="path to file" />
+                        <button on:click={() => pickRequestFormFieldFile(i)}>Browse…</button>
+                      </div>
+                    {:else}
+                      <input type="text" bind:value={f.value} placeholder="value" />
+                    {/if}
+                  </td>
                   <td><button class="icon-btn" on:click={() => removeRequestFormField(i)}>×</button></td>
                 </tr>
               {/each}
             </tbody>
           </table>
           <button on:click={() => addRequestFormField()}>Add field</button>
+        {:else if draftBodyMode === 'binary'}
+          <div class="file-field">
+            <input type="text" bind:value={draftBinaryFilePath} placeholder="Path to file — sent as the entire body" />
+            <button on:click={pickBinaryFile}>Browse…</button>
+          </div>
         {:else}
           <p class="muted">No body.</p>
         {/if}
@@ -1205,6 +1270,29 @@
     width: auto;
     padding: 0;
     accent-color: var(--fm-accent);
+  }
+
+  /* The form-data table's Type column (text/file) is narrow and doesn't
+     need to share the Key/Value split evenly, same reasoning as the
+     first/last narrow columns in .kv-table. table-layout: fixed means
+     declaring the width once on the header cell is enough for the whole
+     column. */
+  .form-field-type-col {
+    width: 6rem;
+  }
+
+  .file-field {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .file-field input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .file-field button {
+    flex-shrink: 0;
   }
 
   .response {

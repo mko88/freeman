@@ -56,14 +56,29 @@ type Header struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// FormFieldType selects whether a FormField's Value or its FilePath is
+// what actually goes on the wire. "" is treated as FormFieldTypeText —
+// existing saved data predates this field and has neither key.
+type FormFieldType string
+
+const (
+	FormFieldTypeText FormFieldType = "text"
+	FormFieldTypeFile FormFieldType = "file"
+)
+
 // FormField is one row of a form-data or x-www-form-urlencoded body. Both
 // modes share this shape (and Body.FormFields) — they differ only in how
-// httpengine.Execute encodes the enabled rows onto the wire. Text values
-// only in v1; no file-upload field type yet.
+// httpengine.Execute encodes the enabled rows onto the wire. FilePath (a
+// local path httpengine reads at execute time) is only meaningful for a
+// FormFieldTypeFile row under form-data — x-www-form-urlencoded has no
+// way to carry binary content, so a file-type row there just encodes as
+// empty.
 type FormField struct {
-	Key     string `json:"key"`
-	Value   string `json:"value"`
-	Enabled bool   `json:"enabled"`
+	Key      string        `json:"key"`
+	Value    string        `json:"value"`
+	Enabled  bool          `json:"enabled"`
+	Type     FormFieldType `json:"type,omitempty"`
+	FilePath string        `json:"filePath,omitempty"`
 }
 
 // BodyMode selects how Body's fields should be interpreted when building
@@ -75,6 +90,7 @@ const (
 	BodyModeRaw        BodyMode = "raw"
 	BodyModeForm       BodyMode = "form-data"
 	BodyModeURLEncoded BodyMode = "x-www-form-urlencoded"
+	BodyModeBinary     BodyMode = "binary"
 )
 
 type Body struct {
@@ -82,6 +98,9 @@ type Body struct {
 	Raw            string      `json:"raw,omitempty"`
 	RawContentType string      `json:"rawContentType,omitempty"`
 	FormFields     []FormField `json:"formFields,omitempty"`
+	// BinaryFilePath is a local path httpengine reads at execute time and
+	// sends as the entire request body, for BodyModeBinary.
+	BinaryFilePath string `json:"binaryFilePath,omitempty"`
 }
 
 // UpsertItem replaces the item with a matching ID anywhere in the tree, or

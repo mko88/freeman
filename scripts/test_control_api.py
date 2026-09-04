@@ -14,7 +14,10 @@ before it exits — in a `finally`, so a failed check or a crash mid-run
 doesn't leave fixtures behind either — and it also sweeps for and
 removes any leftovers from a *previous* interrupted run before it starts
 (a "Pre-clean" section runs first). Run it back-to-back as many times as
-you like; the workspace should look identical before and after.
+you like; the workspace should look identical before and after. The one
+exception is scripts/random-sample.bin, a committed random-bytes fixture
+the file-upload test only ever reads — reused across runs, not
+regenerated or deleted.
 
 KEEP THIS IN SYNC with App.svelte's `uiActions`/`apiEndpoints` tables —
 when an action's payload shape changes, or a new one is added, update
@@ -35,12 +38,14 @@ Freeman must already be running (desktop build) with a workspace open
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Optional
 
 # ---------------------------------------------------------------------------
@@ -58,6 +63,13 @@ TEST_VAR_KEY = "pyTestBase"
 TEST_VAR_VALUE = "https://httpbin.org"
 SCRATCH_VAR_KEY = "pyScratchVar"
 DELETE_TEST_NAME = "Python Delete Test (scratch)"
+FILE_UPLOAD_TEST_NAME = "Python File Upload Test (scratch)"
+
+# A committed, reusable fixture (real random bytes, not text) — read-only
+# to every test that uses it; nothing here ever writes to or deletes it.
+# Regenerate it if you ever want a fresh one:
+#   py -c "import pathlib,secrets; pathlib.Path('scripts/random-sample.bin').write_bytes(secrets.token_bytes(512))"
+RANDOM_FILE_PATH = Path(__file__).resolve().parent / "random-sample.bin"
 
 
 class ApiError(RuntimeError):
@@ -209,6 +221,16 @@ def find_variable_index(variables: Optional[list], key: str) -> Optional[int]:
     return None
 
 
+def decode_data_uri_bytes(data_uri: str) -> bytes:
+    """Decodes httpbin's "data:<mime-type>;base64,<...>" shape (what it
+    returns for a body it can't render as text — exactly what a random
+    binary fixture produces) back to raw bytes, for an exact comparison
+    against the original file instead of a fragile substring match."""
+    if ";base64," not in data_uri:
+        return data_uri.encode()
+    return base64.b64decode(data_uri.split(";base64,", 1)[1])
+
+
 # ---------------------------------------------------------------------------
 # Test sections
 # ---------------------------------------------------------------------------
@@ -223,7 +245,7 @@ def precleanup(api: ControlAPI, r: Report, collection_id: str, environment_id: s
 
     found_any = False
     collection = api.get(f"/api/collections/{collection_id}")
-    for name in (TEST_REQUEST_NAME, DELETE_TEST_NAME):
+    for name in (TEST_REQUEST_NAME, DELETE_TEST_NAME, FILE_UPLOAD_TEST_NAME):
         item = find_item(collection, name)
         while item is not None:
             found_any = True
@@ -525,6 +547,124 @@ def test_http_methods(api: ControlAPI, r: Report, collection_id: str, item_id: s
         )
 
 
+def test_file_upload(api: ControlAPI, r: Report, collection_id: str, environment_id: str) -> None:
+    """Uses the committed scripts/random-sample.bin fixture — real random
+    bytes, not text, so a substring check can't accidentally pass; this
+    test only ever reads it, never writes or deletes it, so it's reused
+    unchanged across runs (and by anyone poking at the app manually).
+    Exercises both ways Freeman can send a file — a form-data file field
+    alongside a plain text field, and the standalone binary body mode —
+    against httpbin, decoding its data:...;base64,... response back to
+    bytes each time for an exact comparison against the original file.
+    The scratch request itself is still deleted at the end. Neither
+    file-sending path can be driven through the native file *dialog*
+    headlessly (SelectFile opens a real OS picker); the control API sets
+    filePath/binaryFilePath directly instead, the same split as
+    openWorkspace vs. SelectWorkspaceFolder."""
+    r.section("File upload (form-data file field + binary body mode)")
+
+    if not RANDOM_FILE_PATH.exists():
+        r.check(f"skipped — fixture not found at {RANDOM_FILE_PATH}", False)
+        return
+    original_bytes = RANDOM_FILE_PATH.read_bytes()
+    path = str(RANDOM_FILE_PATH)
+
+    r.step(f"newRequest, setRequestField name={FILE_UPLOAD_TEST_NAME!r}, method=POST, url, selectRequestTab 'body'")
+    api.action("newRequest")
+    api.action("setRequestField", {"field": "name", "value": FILE_UPLOAD_TEST_NAME})
+    api.action("setRequestField", {"field": "method", "value": "POST"})
+    api.action("setRequestField", {"field": "url", "value": f"{{{{{TEST_VAR_KEY}}}}}/post"})
+    api.action("selectRequestTab", {"tab": "body"})
+
+    r.step("setRequestField bodyMode = 'form-data'")
+    api.action("setRequestField", {"field": "bodyMode", "value": "form-data"})
+    r.step("addRequestFormField {key: 'caption', type: 'text', value: 'from python'}")
+    api.action("addRequestFormField", {"key": "caption", "type": "text", "value": "from python"})
+    r.step(f"addRequestFormField {{key: 'blob', type: 'file', filePath: {path!r}}}")
+    api.action("addRequestFormField", {"key": "blob", "type": "file", "filePath": path})
+    r.step("saveRequest")
+    api.action("saveRequest")
+
+    collection = poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: find_item(c, FILE_UPLOAD_TEST_NAME) is not None,
+    )
+    saved = find_item(collection, FILE_UPLOAD_TEST_NAME)
+    r.check("scratch request with a file field was saved", saved is not None)
+    if saved is None:
+        return
+    item_id = saved["id"]
+
+    saved_fields = (saved.get("body") or {}).get("formFields") or []
+    blob_field = next((f for f in saved_fields if f.get("key") == "blob"), None)
+    r.check(
+        "the file field round-tripped as type 'file' with its path",
+        blob_field is not None and blob_field.get("type") == "file" and blob_field.get("filePath") == path,
+        str(blob_field),
+    )
+
+    r.step("sendRequest  (watch the app: response pane should show the uploaded file echoed back)")
+    api.action("sendRequest")
+    status, resp = api.post(
+        "/api/execute",
+        {"collectionId": collection_id, "itemId": item_id, "environmentId": environment_id},
+    )
+    ok = status == 200 and isinstance(resp, dict) and resp.get("statusCode") == 200
+    r.check("form-data file field: POST -> 200", ok, f"status={status} body={resp}")
+    if ok:
+        try:
+            parsed = json.loads(resp.get("body", ""))
+        except json.JSONDecodeError:
+            parsed = {}
+        received = decode_data_uri_bytes((parsed.get("files") or {}).get("blob", ""))
+        r.check(
+            "httpbin received the file's exact bytes",
+            received == original_bytes,
+            f"{len(received)} bytes back, {len(original_bytes)} expected",
+        )
+        r.check(
+            "httpbin received the accompanying text field",
+            (parsed.get("form") or {}).get("caption") == "from python",
+            str(parsed.get("form")),
+        )
+
+    r.step("setRequestField bodyMode = 'binary', binaryFilePath, sendRequest")
+    api.action("setRequestField", {"field": "bodyMode", "value": "binary"})
+    api.action("setRequestField", {"field": "binaryFilePath", "value": path})
+    api.action("saveRequest")
+    api.action("sendRequest")
+    status, resp = api.post(
+        "/api/execute",
+        {"collectionId": collection_id, "itemId": item_id, "environmentId": environment_id},
+    )
+    ok = status == 200 and isinstance(resp, dict) and resp.get("statusCode") == 200
+    r.check("binary body mode: POST -> 200", ok, f"status={status} body={resp}")
+    if ok:
+        try:
+            parsed = json.loads(resp.get("body", ""))
+        except json.JSONDecodeError:
+            parsed = {}
+        received = decode_data_uri_bytes(parsed.get("data", ""))
+        r.check(
+            "httpbin received the file's exact bytes as the whole body",
+            received == original_bytes,
+            f"{len(received)} bytes back, {len(original_bytes)} expected",
+        )
+        r.check(
+            "Content-Type detected as application/octet-stream (random bytes, no recognizable extension/content)",
+            (parsed.get("headers") or {}).get("Content-Type") == "application/octet-stream",
+            str(parsed.get("headers")),
+        )
+
+    r.step(f"deleteRequest {{id: {item_id}}}")
+    api.action("deleteRequest", {"id": item_id})
+    collection = poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: find_item(c, FILE_UPLOAD_TEST_NAME) is None,
+    )
+    r.check("scratch upload request removed", find_item(collection, FILE_UPLOAD_TEST_NAME) is None)
+
+
 def test_delete_request(api: ControlAPI, r: Report, collection_id: str) -> None:
     """Fully self-contained: creates DELETE_TEST_NAME and deletes it
     again within this function, regardless of what main()'s cleanup()
@@ -689,6 +829,7 @@ def main() -> int:
         item_id = test_request_editor(api, r, collection_id)
         test_execute(api, r, collection_id, item_id, environment_id)
         test_http_methods(api, r, collection_id, item_id, environment_id)
+        test_file_upload(api, r, collection_id, environment_id)
         test_delete_request(api, r, collection_id)
         test_help_modal(api, r)
         if not args.skip_rapid_fire:
