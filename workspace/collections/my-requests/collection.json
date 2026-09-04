@@ -9,10 +9,17 @@
       "id": "r_J2yWCg",
       "name": "Control API Demo",
       "method": "GET",
-      "url": "{{baseUrl}}/get",
+      "url": "{{baseUrl}}/post",
       "body": {
-        "mode": "none",
-        "rawContentType": "application/json"
+        "mode": "form-data",
+        "rawContentType": "application/json",
+        "formFields": [
+          {
+            "key": "x",
+            "value": "y",
+            "enabled": true
+          }
+        ]
       }
     },
     {

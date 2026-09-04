@@ -38,12 +38,27 @@
   let collection: domain.Collection | null = null
   let selectedItemId: string | null = null
 
+  // Mirrors domain.BodyMode's string constants — Wails' binding generator
+  // doesn't emit a type for a named string type, only struct classes, so
+  // this is redefined here (domain.Body.mode itself is typed as a plain
+  // string in models.ts).
+  type BodyMode = 'none' | 'raw' | 'form-data' | 'x-www-form-urlencoded'
+
   let draftName = 'New Request'
   let draftMethod = 'GET'
   let draftUrl = ''
   let draftHeaders: domain.Header[] = []
+  let draftBodyMode: BodyMode = 'none'
   let draftBodyRaw = ''
   let draftBodyContentType = 'application/json'
+  let draftFormFields: domain.FormField[] = []
+
+  const bodyModes: { value: BodyMode; label: string }[] = [
+    { value: 'none', label: 'none' },
+    { value: 'raw', label: 'raw' },
+    { value: 'form-data', label: 'form-data' },
+    { value: 'x-www-form-urlencoded', label: 'x-www-form-urlencoded' },
+  ]
 
   let environmentId = ''
   let environment: domain.Environment | null = null
@@ -98,7 +113,9 @@
     { action: 'selectRequestTab', payload: "{ tab }  // 'headers' | 'body'", desc: 'Switch the request editor tab.' },
     {
       action: 'setRequestField',
-      payload: "{ field, value }  // field: 'name'|'method'|'url'|'bodyRaw'",
+      payload:
+        "{ field, value }  // field: 'name'|'method'|'url'|'bodyRaw'|'bodyMode'\n" +
+        "  // bodyMode value: 'none'|'raw'|'form-data'|'x-www-form-urlencoded'",
       desc: "Set a field in the request currently in the editor (before saving).",
     },
     {
@@ -112,6 +129,21 @@
       desc: 'Populate an existing header row by its position.',
     },
     { action: 'removeRequestHeader', payload: '{ index } | { key }', desc: 'Remove a header row by its position or by key.' },
+    {
+      action: 'addRequestFormField',
+      payload: '{ key?, value?, enabled? }',
+      desc: "Add a form-data / URL-encoded body field row, optionally pre-filled.",
+    },
+    {
+      action: 'setRequestFormField',
+      payload: '{ index, key?, value?, enabled? }',
+      desc: 'Populate an existing form field row by its position.',
+    },
+    {
+      action: 'removeRequestFormField',
+      payload: '{ index } | { key }',
+      desc: 'Remove a form field row by its position or by key.',
+    },
     {
       action: 'addEnvironmentVariable',
       payload: '{ key?, value?, enabled?, secret? }',
@@ -259,6 +291,9 @@
           case 'bodyRaw':
             draftBodyRaw = value
             break
+          case 'bodyMode':
+            if (bodyModes.some((m) => m.value === value)) draftBodyMode = value as BodyMode
+            break
           // No 'bodyContentType' case: retired 2026-09-04 along with the
           // Headers tab's old Content-Type field — Content-Type is set
           // via a regular header row now (addRequestHeader/setRequestHeader),
@@ -288,6 +323,28 @@
       case 'removeRequestHeader': {
         const index = rowIndex(draftHeaders, payload)
         if (index >= 0) removeRequestHeader(index)
+        break
+      }
+      case 'addRequestFormField':
+        addRequestFormField({
+          key: typeof payload?.key === 'string' ? payload.key : '',
+          value: typeof payload?.value === 'string' ? payload.value : '',
+          enabled: typeof payload?.enabled === 'boolean' ? payload.enabled : true,
+        })
+        break
+      case 'setRequestFormField': {
+        const index = Number(payload?.index)
+        if (Number.isNaN(index)) break
+        const fields: Partial<domain.FormField> = {}
+        if (typeof payload?.key === 'string') fields.key = payload.key
+        if (typeof payload?.value === 'string') fields.value = payload.value
+        if (typeof payload?.enabled === 'boolean') fields.enabled = payload.enabled
+        setRequestFormField(index, fields)
+        break
+      }
+      case 'removeRequestFormField': {
+        const index = rowIndex(draftFormFields, payload)
+        if (index >= 0) removeRequestFormField(index)
         break
       }
       case 'addEnvironmentVariable':
@@ -367,8 +424,10 @@
     draftMethod = item.method || 'GET'
     draftUrl = item.url || ''
     draftHeaders = item.headers ? item.headers.map((h) => ({ ...h })) : []
+    draftBodyMode = (item.body?.mode as BodyMode) || 'none'
     draftBodyRaw = item.body?.raw || ''
     draftBodyContentType = item.body?.rawContentType || 'application/json'
+    draftFormFields = item.body?.formFields ? item.body.formFields.map((f) => ({ ...f })) : []
     response = null
     sendError = ''
   }
@@ -379,8 +438,10 @@
     draftMethod = 'GET'
     draftUrl = ''
     draftHeaders = []
+    draftBodyMode = 'none'
     draftBodyRaw = ''
     draftBodyContentType = 'application/json'
+    draftFormFields = []
     response = null
     sendError = ''
   }
@@ -397,7 +458,20 @@
     draftHeaders = draftHeaders.filter((_, i) => i !== index)
   }
 
+  function addRequestFormField(initial?: Partial<domain.FormField>) {
+    draftFormFields = [...draftFormFields, { key: '', value: '', enabled: true, ...initial }]
+  }
+
+  function setRequestFormField(index: number, fields: Partial<domain.FormField>) {
+    draftFormFields = draftFormFields.map((f, i) => (i === index ? { ...f, ...fields } : f))
+  }
+
+  function removeRequestFormField(index: number) {
+    draftFormFields = draftFormFields.filter((_, i) => i !== index)
+  }
+
   async function saveRequest(): Promise<domain.Item> {
+    const isFormMode = draftBodyMode === 'form-data' || draftBodyMode === 'x-www-form-urlencoded'
     const item = {
       id: selectedItemId ?? '',
       type: 'request',
@@ -406,9 +480,10 @@
       url: draftUrl,
       headers: draftHeaders,
       body: {
-        mode: draftBodyRaw ? 'raw' : 'none',
-        raw: draftBodyRaw,
+        mode: draftBodyMode,
+        raw: draftBodyMode === 'raw' ? draftBodyRaw : '',
         rawContentType: draftBodyContentType,
+        formFields: isFormMode ? draftFormFields : [],
       },
     } as domain.Item
     const saved = await SaveRequest(collectionId, item)
@@ -602,7 +677,37 @@
         </table>
         <button on:click={() => addRequestHeader()}>Add header</button>
       {:else}
-        <textarea class="body-editor" bind:value={draftBodyRaw} placeholder="Raw request body"></textarea>
+        <div class="body-mode-picker">
+          {#each bodyModes as m}
+            <label class="body-mode-option">
+              <input type="radio" name="body-mode" value={m.value} bind:group={draftBodyMode} />
+              {m.label}
+            </label>
+          {/each}
+        </div>
+
+        {#if draftBodyMode === 'raw'}
+          <textarea class="body-editor" bind:value={draftBodyRaw} placeholder="Raw request body"></textarea>
+        {:else if draftBodyMode === 'form-data' || draftBodyMode === 'x-www-form-urlencoded'}
+          <table class="kv-table">
+            <thead>
+              <tr><th></th><th>Key</th><th>Value</th><th></th></tr>
+            </thead>
+            <tbody>
+              {#each draftFormFields as f, i}
+                <tr>
+                  <td><input type="checkbox" bind:checked={f.enabled} /></td>
+                  <td><input type="text" bind:value={f.key} placeholder="key" /></td>
+                  <td><input type="text" bind:value={f.value} placeholder="value" /></td>
+                  <td><button class="icon-btn" on:click={() => removeRequestFormField(i)}>×</button></td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+          <button on:click={() => addRequestFormField()}>Add field</button>
+        {:else}
+          <p class="muted">No body.</p>
+        {/if}
       {/if}
 
       <section class="response">
@@ -1075,6 +1180,31 @@
     min-height: 140px;
     font-family: 'Cascadia Code', Consolas, monospace;
     resize: vertical;
+  }
+
+  .body-mode-picker {
+    display: flex;
+    gap: 1rem;
+  }
+
+  .body-mode-option {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    font-family: 'Cascadia Code', Consolas, monospace;
+    color: var(--fm-text-muted);
+    cursor: pointer;
+  }
+
+  .body-mode-option:has(input:checked) {
+    color: var(--fm-text);
+  }
+
+  .body-mode-option input[type='radio'] {
+    width: auto;
+    padding: 0;
+    accent-color: var(--fm-accent);
   }
 
   .response {

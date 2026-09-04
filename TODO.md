@@ -80,7 +80,8 @@ names to spell out their target explicitly, per the naming rule now in
 - [x] Delete a saved request — sidebar × button + `deleteRequest` ui:action + `DELETE /api/collections/{id}/requests/{itemId}`. Shipped 2026-09-04.
 - [ ] Delete a saved collection/environment — same gap, not yet done for these two.
 - [ ] Params tab in the request editor (domain `Item.Params` + executor already support query params; UI doesn't expose them).
-- [ ] `form-data` and `x-www-form-urlencoded` body modes (`domain.BodyMode` constants reserved; `httpengine.Execute` only handles `raw`).
+- [x] `form-data` and `x-www-form-urlencoded` body modes — `domain.Body.FormFields`, `httpengine.Execute` (multipart via `mime/multipart`, urlencoded via `url.Values`), a body-mode picker (real radio buttons, lowercase kebab-case labels matching the mode values) + shared key/value table in the Headers/Body editor, `addRequestFormField`/`setRequestFormField`/`removeRequestFormField` ui:actions. Shipped 2026-09-04.
+- [x] Test coverage for all 7 HTTP methods × all 4 body modes — `internal/httpengine.TestExecuteAllMethodsAndBodyTypes` (table-driven, deterministic, no network: GET/HEAD/OPTIONS with no body, POST+raw, PUT+form-data, PATCH+urlencoded, DELETE with no body). `scripts/test_control_api.py`'s new "HTTP methods" section adds the thinner end-to-end slice — GET/PUT/PATCH/DELETE through the real UI + control API + real network (POST already covered by the execute section). Shipped 2026-09-04.
 - [ ] Auth tab: Bearer / Basic helpers that just write the `Authorization` header.
 - [ ] Response niceties: pretty-print/format JSON, show response headers, copy-as-curl.
 

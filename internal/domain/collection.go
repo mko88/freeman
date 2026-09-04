@@ -56,9 +56,18 @@ type Header struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// FormField is one row of a form-data or x-www-form-urlencoded body. Both
+// modes share this shape (and Body.FormFields) — they differ only in how
+// httpengine.Execute encodes the enabled rows onto the wire. Text values
+// only in v1; no file-upload field type yet.
+type FormField struct {
+	Key     string `json:"key"`
+	Value   string `json:"value"`
+	Enabled bool   `json:"enabled"`
+}
+
 // BodyMode selects how Body's fields should be interpreted when building
-// the outgoing request. Only "raw" is used by the request executor in v1;
-// the others are reserved so the schema doesn't need to change later.
+// the outgoing request.
 type BodyMode string
 
 const (
@@ -69,9 +78,10 @@ const (
 )
 
 type Body struct {
-	Mode           BodyMode `json:"mode"`
-	Raw            string   `json:"raw,omitempty"`
-	RawContentType string   `json:"rawContentType,omitempty"`
+	Mode           BodyMode    `json:"mode"`
+	Raw            string      `json:"raw,omitempty"`
+	RawContentType string      `json:"rawContentType,omitempty"`
+	FormFields     []FormField `json:"formFields,omitempty"`
 }
 
 // UpsertItem replaces the item with a matching ID anywhere in the tree, or

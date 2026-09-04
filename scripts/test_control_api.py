@@ -52,6 +52,8 @@ from typing import Any, Optional
 TEST_REQUEST_NAME = "Python Control API Test"
 TEST_HEADER_KEY = "X-Py-Test"
 SCRATCH_HEADER_KEY = "X-Py-Scratch"
+FORM_FIELD_KEY = "item"
+SCRATCH_FIELD_KEY = "scratchField"
 TEST_VAR_KEY = "pyTestBase"
 TEST_VAR_VALUE = "https://httpbin.org"
 SCRATCH_VAR_KEY = "pyScratchVar"
@@ -353,6 +355,45 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
 
     r.step("selectRequestTab 'body'")
     api.action("selectRequestTab", {"tab": "body"})
+
+    # Body mode is its own explicit field (not inferred from whether
+    # bodyRaw is non-empty) — exercise switching to form-data and
+    # x-www-form-urlencoded, with a full add/remove cycle on each,
+    # before settling back on 'raw' for the rest of this test (and
+    # test_execute, which expects a JSON POST body).
+    r.step("setRequestField bodyMode = 'form-data'")
+    api.action("setRequestField", {"field": "bodyMode", "value": "form-data"})
+    r.step(f"addRequestFormField {{key: {FORM_FIELD_KEY!r}, value: 'gizmo'}}")
+    api.action("addRequestFormField", {"key": FORM_FIELD_KEY, "value": "gizmo"})
+    r.step(f"addRequestFormField {{key: {SCRATCH_FIELD_KEY!r}}}  (scratch, removed below)")
+    api.action("addRequestFormField", {"key": SCRATCH_FIELD_KEY, "value": "temporary"})
+    r.step(f"removeRequestFormField {{key: {SCRATCH_FIELD_KEY!r}}}")
+    api.action("removeRequestFormField", {"key": SCRATCH_FIELD_KEY})
+    r.step("saveRequest  (checkpoint: verify the form-data body persists)")
+    api.action("saveRequest")
+
+    collection = poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: ((find_item(c, TEST_REQUEST_NAME) or {}).get("body") or {}).get("mode") == "form-data",
+    )
+    form_saved = find_item(collection, TEST_REQUEST_NAME) or {}
+    form_body = form_saved.get("body") or {}
+    r.check("body.mode round-tripped to 'form-data'", form_body.get("mode") == "form-data")
+    form_fields = form_body.get("formFields") or []
+    r.check(
+        f"{FORM_FIELD_KEY} form field present with value 'gizmo'",
+        any(f.get("key") == FORM_FIELD_KEY and f.get("value") == "gizmo" for f in form_fields),
+        str(form_fields),
+    )
+    r.check(
+        f"{SCRATCH_FIELD_KEY} form field was removed, not left behind",
+        find_header_index(form_fields, SCRATCH_FIELD_KEY) is None,
+        str(form_fields),
+    )
+    r.check("body.raw is empty while mode is 'form-data'", not form_body.get("raw"), str(form_body))
+
+    r.step("setRequestField bodyMode = 'raw'  (back to what the rest of this test expects)")
+    api.action("setRequestField", {"field": "bodyMode", "value": "raw"})
     body_raw = '{"widget":"gizmo","qty":3,"source":"python-test-script"}'
     r.step("setRequestField bodyRaw = <json>")
     api.action("setRequestField", {"field": "bodyRaw", "value": body_raw})
@@ -377,9 +418,12 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
     r.step("saveRequest")
     api.action("saveRequest")
 
+    # Predicate checks body.mode specifically, not just presence — the
+    # item already exists from the form-data checkpoint save above, so
+    # "the name exists" would be trivially true before this save lands.
     collection = poll(
         lambda: api.get(f"/api/collections/{collection_id}"),
-        lambda c: find_item(c, TEST_REQUEST_NAME) is not None,
+        lambda c: ((find_item(c, TEST_REQUEST_NAME) or {}).get("body") or {}).get("mode") == "raw",
     )
     saved = find_item(collection, TEST_REQUEST_NAME)
     r.check("saveRequest persisted the request", saved is not None)
@@ -389,10 +433,16 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
     r.check("name round-tripped", saved.get("name") == TEST_REQUEST_NAME)
     r.check("method round-tripped", saved.get("method") == "POST")
     r.check("url round-tripped", saved.get("url") == url)
+    r.check("body.mode round-tripped to 'raw'", (saved.get("body") or {}).get("mode") == "raw")
     r.check("body.raw round-tripped", (saved.get("body") or {}).get("raw") == body_raw)
     r.check(
         "body.rawContentType defaulted to 'application/json' (no longer separately settable)",
         (saved.get("body") or {}).get("rawContentType") == "application/json",
+    )
+    r.check(
+        "body.formFields cleared after switching back to 'raw'",
+        not (saved.get("body") or {}).get("formFields"),
+        str(saved.get("body")),
     )
     saved_headers = saved.get("headers") or []
     r.check(
@@ -437,6 +487,42 @@ def test_execute(api: ControlAPI, r: Report, collection_id: str, item_id: str, e
             body_text[:200],
         )
         r.check("posted body round-tripped through httpbin", "python-test-script" in body_text, body_text[:200])
+
+
+def test_http_methods(api: ControlAPI, r: Report, collection_id: str, item_id: str, environment_id: str) -> None:
+    """POST is already exercised by test_execute; this switches the same
+    saved request through the other common methods against httpbin's
+    method-specific endpoints (each one accepts only its own verb, so a
+    200 here is real evidence the right method was actually sent — not
+    just that some request happened to land). Exhaustive method x
+    body-mode coverage lives in Go (TestExecuteAllMethodsAndBodyTypes in
+    internal/httpengine/executor_test.go, deterministic, no network);
+    this is the thinner end-to-end slice proving method switching works
+    through the real UI + control API + a real network call."""
+    r.section("HTTP methods (GET / PUT / PATCH / DELETE via the real UI + network)")
+
+    if not item_id:
+        r.check("skipped — no saved request id from the previous section", False)
+        return
+
+    for method in ("GET", "PUT", "PATCH", "DELETE"):
+        endpoint = method.lower()
+        r.step(f"setRequestField method={method!r}, url='{{{{{TEST_VAR_KEY}}}}}/{endpoint}', saveRequest, sendRequest")
+        api.action("setRequestField", {"field": "method", "value": method})
+        api.action("setRequestField", {"field": "url", "value": f"{{{{{TEST_VAR_KEY}}}}}/{endpoint}"})
+        api.action("saveRequest")
+        api.action("sendRequest")
+
+        status, resp = api.post(
+            "/api/execute",
+            {"collectionId": collection_id, "itemId": item_id, "environmentId": environment_id},
+        )
+        ok = status == 200 and isinstance(resp, dict) and resp.get("statusCode") == 200
+        r.check(
+            f"{method} {{{{{TEST_VAR_KEY}}}}}/{endpoint} -> 200 (httpbin only accepts {method} on that path)",
+            ok,
+            f"status={status} body={resp}",
+        )
 
 
 def test_delete_request(api: ControlAPI, r: Report, collection_id: str) -> None:
@@ -602,6 +688,7 @@ def main() -> int:
         test_environment_editor(api, r, environment_id)
         item_id = test_request_editor(api, r, collection_id)
         test_execute(api, r, collection_id, item_id, environment_id)
+        test_http_methods(api, r, collection_id, item_id, environment_id)
         test_delete_request(api, r, collection_id)
         test_help_modal(api, r)
         if not args.skip_rapid_fire:

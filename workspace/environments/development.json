@@ -8,6 +8,12 @@
       "value": "https://httpbin.org",
       "enabled": true,
       "secret": false
+    },
+    {
+      "key": "pyTestBase",
+      "value": "https://httpbin.org",
+      "enabled": true,
+      "secret": false
     }
   ]
 }
