@@ -74,3 +74,16 @@ script's own comments for the fix in `App.svelte` and
 **Whenever a `ui:action` is added, removed, or its payload shape
 changes, update this script's matching section in the same change** —
 it's the regression suite for the rule above, not a one-off.
+
+## No changelog comments in code
+
+**Rule: don't leave comments that narrate a change's history** — "retired
+2026-09-04", "no longer X", "used to be Y", "removed in favor of Z", a
+dated note explaining why a field/case/branch was deleted. That belongs
+in the commit message and git history, not the source. A comment should
+describe the code as it is now; if something isn't there anymore, it
+needs no comment at all, not an epitaph. This doesn't apply to comments
+documenting a non-obvious *constraint* the current code exists to
+satisfy (e.g. why a reactive statement is written a particular way to
+avoid a real bug) — that's about the present code being correct, not
+about what used to be there.

@@ -204,13 +204,11 @@
   // of dispatchUIAction: the control API isn't the only way this state
   // changes — a human clicking the sidebar (selectRequest), a tab button,
   // or typing into a bound input needs to show up here too, and none of
-  // those go through dispatchUIAction. (An earlier attempt at exactly
-  // this reactive block never fired: it called a separate function —
-  // `$: reportUIState()` — and Svelte only reruns a `$:` statement when a
-  // variable *it directly references* changes; a variable only read
-  // inside the called function's own body doesn't count. Building the
-  // state object inline here, so every mirrored field is a literal
-  // reference in the statement itself, is what makes this one track.)
+  // those go through dispatchUIAction. Svelte only reruns a `$:`
+  // statement for a variable *it directly references*, not one only read
+  // inside a function it calls — so the state object has to be built
+  // inline right here, with every mirrored field a literal reference in
+  // the statement itself, rather than delegated to a helper function.
   $: if ('runtime' in window) {
     const state = {
       collectionId,
@@ -361,11 +359,6 @@
           case 'binaryFilePath':
             draftBinaryFilePath = value
             break
-          // No 'bodyContentType' field at all (retired 2026-09-04 along
-          // with the Headers tab's old Content-Type field, and its
-          // domain.Body.RawContentType counterpart shortly after) —
-          // Content-Type is a regular header now, set via
-          // addRequestHeader/setRequestHeader like any other.
         }
         break
       }

@@ -93,6 +93,11 @@ const (
 	BodyModeBinary     BodyMode = "binary"
 )
 
+// A raw body's Content-Type is a regular header (Item.Headers), like any
+// other — there's no dedicated field for it here. form-data/urlencoded/
+// binary each still imply their own Content-Type (multipart boundary,
+// the fixed urlencoded MIME type, sniffed from the file), since none of
+// those are something a header row could express instead.
 type Body struct {
 	Mode       BodyMode    `json:"mode"`
 	Raw        string      `json:"raw,omitempty"`
@@ -100,13 +105,6 @@ type Body struct {
 	// BinaryFilePath is a local path httpengine reads at execute time and
 	// sends as the entire request body, for BodyModeBinary.
 	BinaryFilePath string `json:"binaryFilePath,omitempty"`
-	// No RawContentType (retired 2026-09-04): a raw body's Content-Type is
-	// a regular header (Item.Headers) like any other, set via
-	// addRequestHeader/setRequestHeader — httpengine.buildBody no longer
-	// synthesizes one for BodyModeRaw. form-data/urlencoded/binary still
-	// each imply their own Content-Type (multipart boundary, the fixed
-	// urlencoded MIME type, sniffed from the file) since those aren't
-	// something a header row could express instead.
 }
 
 // UpsertItem replaces the item with a matching ID anywhere in the tree, or

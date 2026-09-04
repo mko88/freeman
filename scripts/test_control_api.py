@@ -431,10 +431,6 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
     body_raw = '{"widget":"gizmo","qty":3,"source":"python-test-script"}'
     r.step("setRequestField bodyRaw = <json>")
     api.action("setRequestField", {"field": "bodyRaw", "value": body_raw})
-    # No setRequestField bodyContentType, and no domain.Body.rawContentType
-    # either (both retired 2026-09-04) — a raw body's Content-Type is a
-    # regular header now, same as any other, set below via
-    # addRequestHeader like TEST_HEADER_KEY is.
 
     r.step("selectRequestTab 'headers'")
     api.action("selectRequestTab", {"tab": "headers"})
@@ -473,7 +469,7 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
     r.check("body.mode round-tripped to 'raw'", (saved.get("body") or {}).get("mode") == "raw")
     r.check("body.raw round-tripped", (saved.get("body") or {}).get("raw") == body_raw)
     r.check(
-        "body has no rawContentType key at all (retired 2026-09-04, not just emptied)",
+        "body has no rawContentType key",
         "rawContentType" not in (saved.get("body") or {}),
         str(saved.get("body")),
     )
@@ -484,7 +480,7 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
     )
     saved_headers = saved.get("headers") or []
     r.check(
-        "Content-Type header present with value 'application/json' (the replacement for rawContentType)",
+        "Content-Type header present with value 'application/json'",
         any(h.get("key") == "Content-Type" and h.get("value") == "application/json" for h in saved_headers),
         str(saved_headers),
     )
