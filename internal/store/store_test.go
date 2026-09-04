@@ -32,7 +32,7 @@ func TestCollectionRoundTrip(t *testing.T) {
 						Method:  "POST",
 						URL:     "{{baseUrl}}/auth/login",
 						Headers: []domain.Header{{Key: "Content-Type", Value: "application/json", Enabled: true}},
-						Body:    &domain.Body{Mode: domain.BodyModeRaw, Raw: `{"username":"{{username}}"}`, RawContentType: "application/json"},
+						Body:    &domain.Body{Mode: domain.BodyModeRaw, Raw: `{"username":"{{username}}"}`},
 					},
 				},
 			},

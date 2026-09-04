@@ -98,12 +98,12 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 
 // buildBody returns the request body for body's mode, plus the
 // Content-Type it implies ("" if the mode doesn't have one — e.g. no body
-// at all, or raw with no explicit RawContentType). Execute decides
-// whether that Content-Type actually gets applied (form-data always
-// wins; the others only fill in a header the request doesn't already
-// have — see Execute). A returned io.Reader may also be an io.Closer
-// (an open file, for a form-data file field or BodyModeBinary) — Execute
-// takes care of closing it.
+// at all, or raw, which has none: its Content-Type is just a regular
+// header, like any other — see Execute). Execute decides whether that
+// Content-Type actually gets applied (form-data always wins; the others
+// only fill in a header the request doesn't already have). A returned
+// io.Reader may also be an io.Closer (an open file, for a form-data file
+// field or BodyModeBinary) — Execute takes care of closing it.
 func buildBody(body *domain.Body, vars map[string]string) (io.Reader, string, error) {
 	if body == nil {
 		return nil, "", nil
@@ -113,7 +113,7 @@ func buildBody(body *domain.Body, vars map[string]string) (io.Reader, string, er
 		if body.Raw == "" {
 			return nil, "", nil
 		}
-		return bytes.NewBufferString(Substitute(body.Raw, vars)), body.RawContentType, nil
+		return bytes.NewBufferString(Substitute(body.Raw, vars)), "", nil
 
 	case domain.BodyModeForm:
 		var buf bytes.Buffer

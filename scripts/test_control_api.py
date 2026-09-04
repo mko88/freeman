@@ -431,13 +431,16 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
     body_raw = '{"widget":"gizmo","qty":3,"source":"python-test-script"}'
     r.step("setRequestField bodyRaw = <json>")
     api.action("setRequestField", {"field": "bodyRaw", "value": body_raw})
-    # No setRequestField bodyContentType: retired 2026-09-04 — Content-Type is a
-    # regular header now (see addRequestHeader below), not a separate field,
-    # and has no hardcoded default either (checked below) — a raw body with
-    # no Content-Type header just goes out without one.
+    # No setRequestField bodyContentType, and no domain.Body.rawContentType
+    # either (both retired 2026-09-04) — a raw body's Content-Type is a
+    # regular header now, same as any other, set below via
+    # addRequestHeader like TEST_HEADER_KEY is.
 
     r.step("selectRequestTab 'headers'")
     api.action("selectRequestTab", {"tab": "headers"})
+
+    r.step("addRequestHeader {key: 'Content-Type', value: 'application/json'}")
+    api.action("addRequestHeader", {"key": "Content-Type", "value": "application/json"})
 
     r.step(f"addRequestHeader {{key: {TEST_HEADER_KEY!r}, value: '1'}}")
     api.action("addRequestHeader", {"key": TEST_HEADER_KEY, "value": "1"})
@@ -470,8 +473,8 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
     r.check("body.mode round-tripped to 'raw'", (saved.get("body") or {}).get("mode") == "raw")
     r.check("body.raw round-tripped", (saved.get("body") or {}).get("raw") == body_raw)
     r.check(
-        "body.rawContentType is empty (no hardcoded default, no longer separately settable)",
-        not (saved.get("body") or {}).get("rawContentType"),
+        "body has no rawContentType key at all (retired 2026-09-04, not just emptied)",
+        "rawContentType" not in (saved.get("body") or {}),
         str(saved.get("body")),
     )
     r.check(
@@ -480,6 +483,11 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
         str(saved.get("body")),
     )
     saved_headers = saved.get("headers") or []
+    r.check(
+        "Content-Type header present with value 'application/json' (the replacement for rawContentType)",
+        any(h.get("key") == "Content-Type" and h.get("value") == "application/json" for h in saved_headers),
+        str(saved_headers),
+    )
     r.check(
         f"{TEST_HEADER_KEY} header present with value '1'",
         any(h.get("key") == TEST_HEADER_KEY and h.get("value") == "1" for h in saved_headers),

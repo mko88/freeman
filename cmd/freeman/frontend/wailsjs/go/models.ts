@@ -90,7 +90,6 @@ export namespace domain {
 	export class Body {
 	    mode: string;
 	    raw?: string;
-	    rawContentType?: string;
 	    formFields?: FormField[];
 	    binaryFilePath?: string;
 	
@@ -102,7 +101,6 @@ export namespace domain {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mode = source["mode"];
 	        this.raw = source["raw"];
-	        this.rawContentType = source["rawContentType"];
 	        this.formFields = this.convertValues(source["formFields"], FormField);
 	        this.binaryFilePath = source["binaryFilePath"];
 	    }

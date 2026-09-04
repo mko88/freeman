@@ -46,7 +46,11 @@ func TestExecuteRequestCommonMethods(t *testing.T) {
 				Headers: []domain.Header{{Key: "X-Test-Method", Value: tc.method, Enabled: true}},
 			}
 			if tc.body != "" {
-				item.Body = &domain.Body{Mode: domain.BodyModeRaw, Raw: tc.body, RawContentType: "application/json"}
+				// Content-Type is a regular header now, not a body-mode
+				// concern — httpbin only populates its "json" field
+				// (checked below) when it sees this explicitly.
+				item.Headers = append(item.Headers, domain.Header{Key: "Content-Type", Value: "application/json", Enabled: true})
+				item.Body = &domain.Body{Mode: domain.BodyModeRaw, Raw: tc.body}
 			}
 
 			saved, err := app.SaveRequest(collectionID, item)

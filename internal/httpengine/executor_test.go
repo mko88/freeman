@@ -27,6 +27,7 @@ func TestExecuteAllMethodsAndBodyTypes(t *testing.T) {
 	tests := []struct {
 		name            string
 		method          string
+		headers         []domain.Header
 		body            *domain.Body
 		wantEmpty       bool   // true: the server must see zero body bytes
 		wantBodyHas     string // substring the (substituted) body must contain
@@ -51,12 +52,15 @@ func TestExecuteAllMethodsAndBodyTypes(t *testing.T) {
 			wantEmpty: true,
 		},
 		{
-			name:   "POST with raw JSON body",
-			method: http.MethodPost,
+			// Content-Type is a regular header now, not a body-mode
+			// concern — raw's Content-Type is whatever the item's own
+			// Headers say, same as any other header.
+			name:    "POST with raw JSON body",
+			method:  http.MethodPost,
+			headers: []domain.Header{{Key: "Content-Type", Value: "application/json", Enabled: true}},
 			body: &domain.Body{
-				Mode:           domain.BodyModeRaw,
-				Raw:            `{"name":"{{name}}"}`,
-				RawContentType: "application/json",
+				Mode: domain.BodyModeRaw,
+				Raw:  `{"name":"{{name}}"}`,
 			},
 			wantBodyHas:     `"name":"Bob"`,
 			wantContentType: "application/json",
@@ -100,7 +104,7 @@ func TestExecuteAllMethodsAndBodyTypes(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			item := domain.Item{Method: tc.method, URL: srv.URL, Body: tc.body}
+			item := domain.Item{Method: tc.method, URL: srv.URL, Headers: tc.headers, Body: tc.body}
 			resp, err := Execute(context.Background(), item, map[string]string{"name": "Bob"})
 			if err != nil {
 				t.Fatalf("Execute: %v", err)

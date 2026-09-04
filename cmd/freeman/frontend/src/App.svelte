@@ -52,14 +52,6 @@
   let draftHeaders: domain.Header[] = []
   let draftBodyMode: BodyMode = 'none'
   let draftBodyRaw = ''
-  // No hardcoded default (e.g. 'application/json') — Content-Type is a
-  // regular header now (addRequestHeader/setRequestHeader), same as any
-  // other header; a raw body with no Content-Type header just goes out
-  // without one (see internal/httpengine.Execute). This only round-trips
-  // whatever rawContentType a *previously saved* item already carries
-  // (selectRequest below) — e.g. one hand-edited on disk or imported
-  // from elsewhere — rather than forcing every new request to one.
-  let draftBodyContentType = ''
   let draftFormFields: domain.FormField[] = []
   let draftBinaryFilePath = ''
 
@@ -230,7 +222,6 @@
       url: draftUrl,
       bodyMode: draftBodyMode,
       bodyRaw: draftBodyRaw,
-      bodyContentType: draftBodyContentType,
       binaryFilePath: draftBinaryFilePath,
       headers: draftHeaders,
       formFields: draftFormFields,
@@ -370,13 +361,11 @@
           case 'binaryFilePath':
             draftBinaryFilePath = value
             break
-          // No 'bodyContentType' case: retired 2026-09-04 along with the
-          // Headers tab's old Content-Type field — Content-Type is set
-          // via a regular header row now (addRequestHeader/setRequestHeader),
-          // same as any other header. draftBodyContentType itself still
-          // exists (see its declaration above) purely to round-trip
-          // whatever an already-saved item's rawContentType is; it's not
-          // independently settable, and has no hardcoded default to set.
+          // No 'bodyContentType' field at all (retired 2026-09-04 along
+          // with the Headers tab's old Content-Type field, and its
+          // domain.Body.RawContentType counterpart shortly after) —
+          // Content-Type is a regular header now, set via
+          // addRequestHeader/setRequestHeader like any other.
         }
         break
       }
@@ -507,7 +496,6 @@
     draftHeaders = item.headers ? item.headers.map((h) => ({ ...h })) : []
     draftBodyMode = (item.body?.mode as BodyMode) || 'none'
     draftBodyRaw = item.body?.raw || ''
-    draftBodyContentType = item.body?.rawContentType || ''
     // { type: 'text', filePath: '', ...f } normalizes rows saved before
     // file fields existed (omitempty means those keys are simply absent,
     // never present-but-undefined, so the defaults only apply then).
@@ -527,7 +515,6 @@
     draftHeaders = []
     draftBodyMode = 'none'
     draftBodyRaw = ''
-    draftBodyContentType = ''
     draftFormFields = []
     draftBinaryFilePath = ''
     response = null
@@ -585,7 +572,6 @@
       body: {
         mode: draftBodyMode,
         raw: draftBodyMode === 'raw' ? draftBodyRaw : '',
-        rawContentType: draftBodyContentType,
         formFields: isFormMode ? draftFormFields : [],
         binaryFilePath: draftBodyMode === 'binary' ? draftBinaryFilePath : '',
       },

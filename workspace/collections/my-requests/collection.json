@@ -12,7 +12,6 @@
       "url": "{{baseUrl}}/post",
       "body": {
         "mode": "form-data",
-        "rawContentType": "application/json",
         "formFields": [
           {
             "key": "x",
@@ -31,8 +30,7 @@
       "url": "http://127.0.0.1:8090/api/collections/c_G4k6Am",
       "body": {
         "mode": "raw",
-        "raw": "{ \"action\": \"toggleEnvironmentEditor\" }",
-        "rawContentType": "application/json"
+        "raw": "{ \"action\": \"toggleEnvironmentEditor\" }"
       }
     },
     {
@@ -43,8 +41,7 @@
       "url": "http://127.0.0.1:8090/api/ui/action",
       "body": {
         "mode": "raw",
-        "raw": "{ \"action\": \"toggleHelp\" }",
-        "rawContentType": "application/json"
+        "raw": "{ \"action\": \"toggleHelp\" }"
       }
     },
     {
@@ -55,7 +52,6 @@
       "url": "{{baseUrl}}/post",
       "body": {
         "mode": "form-data",
-        "rawContentType": "application/json",
         "formFields": [
           {
             "key": "blob",
@@ -71,11 +67,17 @@
       "type": "request",
       "id": "r_r1F3Iq",
       "name": "State Getter Test",
-      "method": "POST",
-      "url": "{{baseUrl}}/get",
+      "method": "GET",
+      "url": "http://127.0.0.1:8090/api/ui/state",
+      "headers": [
+        {
+          "key": "Accept",
+          "value": "application/json",
+          "enabled": true
+        }
+      ],
       "body": {
-        "mode": "none",
-        "rawContentType": "application/json"
+        "mode": "none"
       }
     }
   ]
