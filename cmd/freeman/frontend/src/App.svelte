@@ -199,15 +199,20 @@
   // tab, selectRequest/selectCollection/selectEnvironment's ids, the
   // header/form-field rows, the open environment, and — the main point —
   // the result of the last saveRequest/sendRequest, so a script can read
-  // the response instead of watching the window for it. Called
-  // explicitly at the end of dispatchUIAction (covering every
-  // control-API-driven change, including whatever the action awaited)
-  // rather than as a `$:` reactive block — that would also cover manual
-  // clicks/typing, but didn't fire reliably here, worth revisiting; this
-  // covers the case that actually matters (reading back what an action
-  // just did) unconditionally and predictably.
-  function reportUIState() {
-    if (!('runtime' in window)) return
+  // the response instead of watching the window for it.
+  //
+  // A `$:` reactive statement, not a function called only from the end
+  // of dispatchUIAction: the control API isn't the only way this state
+  // changes — a human clicking the sidebar (selectRequest), a tab button,
+  // or typing into a bound input needs to show up here too, and none of
+  // those go through dispatchUIAction. (An earlier attempt at exactly
+  // this reactive block never fired: it called a separate function —
+  // `$: reportUIState()` — and Svelte only reruns a `$:` statement when a
+  // variable *it directly references* changes; a variable only read
+  // inside the called function's own body doesn't count. Building the
+  // state object inline here, so every mirrored field is a literal
+  // reference in the statement itself, is what makes this one track.)
+  $: if ('runtime' in window) {
     const state = {
       collectionId,
       environmentId,
@@ -271,7 +276,6 @@
       } catch {
         headerCatalog = []
       }
-      reportUIState()
     }
   })
 
@@ -444,7 +448,6 @@
         await saveEnvironment()
         break
     }
-    reportUIState()
   }
 
   async function openWorkspace() {
