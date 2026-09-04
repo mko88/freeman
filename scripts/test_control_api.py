@@ -134,6 +134,15 @@ class ControlAPI:
         if wait and self.delay > 0:
             time.sleep(self.delay)
 
+    def state(self) -> dict:
+        """GET /api/ui/state — the getter side of the control API (see
+        CLAUDE.md's "every settable field needs a getter too" rule).
+        Callers should poll() this, same as any other route: it reflects
+        whatever App.svelte's reportUIState last pushed, which lands
+        after the action that changed it has fully applied, not before."""
+        body = self.get("/api/ui/state")
+        return body if isinstance(body, dict) else {}
+
 
 # ---------------------------------------------------------------------------
 # Pass/fail reporting
@@ -338,6 +347,9 @@ def test_read_only_routes(api: ControlAPI, r: Report) -> dict:
     names = {e.get("name") for e in headers_catalog} if isinstance(headers_catalog, list) else set()
     r.check("GET /api/headers includes Content-Type", "Content-Type" in names, str(names))
 
+    ui_state = api.state()
+    r.check("GET /api/ui/state returns an object", isinstance(ui_state, dict), str(ui_state))
+
     return workspace
 
 
@@ -511,6 +523,59 @@ def test_execute(api: ControlAPI, r: Report, collection_id: str, item_id: str, e
         r.check("posted body round-tripped through httpbin", "python-test-script" in body_text, body_text[:200])
 
 
+def test_ui_state_getter(api: ControlAPI, r: Report, item_id: str) -> None:
+    """GET /api/ui/state is the read-side counterpart to every ui:action
+    (see CLAUDE.md): App.svelte's reportUIState mirrors the whole editor
+    draft after each dispatched action, so a script can read back what
+    an action did instead of screenshotting the window. Exercises a
+    setter -> getter round trip for a few representative fields plus the
+    main point of the feature — the result of the last sendRequest
+    landing in state.response — rather than a screenshot."""
+    r.section("UI state getter (GET /api/ui/state)")
+
+    if not item_id:
+        r.check("skipped — no saved request id from the previous section", False)
+        return
+
+    r.step("setRequestField name = 'State Getter Check'")
+    api.action("setRequestField", {"field": "name", "value": "State Getter Check"})
+    state = poll(api.state, lambda s: s.get("name") == "State Getter Check")
+    r.check("state.name reflects the just-set field", state.get("name") == "State Getter Check", str(state.get("name")))
+    r.check("state.selectedItemId matches the request being edited", state.get("selectedItemId") == item_id, str(state.get("selectedItemId")))
+
+    r.step("selectRequestTab 'body'")
+    api.action("selectRequestTab", {"tab": "body"})
+    state = poll(api.state, lambda s: s.get("tab") == "body")
+    r.check("state.tab reflects selectRequestTab", state.get("tab") == "body", str(state.get("tab")))
+
+    r.step("toggleHelp  (watch: help panel opens)")
+    api.action("toggleHelp")
+    state = poll(api.state, lambda s: s.get("showHelp") is True)
+    r.check("state.showHelp reflects toggleHelp", state.get("showHelp") is True, str(state.get("showHelp")))
+    r.step("toggleHelp  (watch: closes again)")
+    api.action("toggleHelp")
+    state = poll(api.state, lambda s: s.get("showHelp") is False)
+    r.check("state.showHelp reflects the second toggleHelp", state.get("showHelp") is False, str(state.get("showHelp")))
+
+    r.step("sendRequest  (watch: response pane fills in)")
+    api.action("sendRequest")
+    state = poll(api.state, lambda s: s.get("response") is not None, timeout=10.0)
+    response = state.get("response") or {}
+    r.check(
+        "state.response is populated with the last sendRequest's result",
+        response.get("statusCode") == 200,
+        str(response)[:200],
+    )
+
+    # Restore the name test_delete_request/cleanup's setup wasn't expecting
+    # to have changed — the item still needs to read as TEST_REQUEST_NAME
+    # for the rest of the run (e.g. precleanup on a future run).
+    r.step(f"setRequestField name = {TEST_REQUEST_NAME!r}  (restore)")
+    api.action("setRequestField", {"field": "name", "value": TEST_REQUEST_NAME})
+    api.action("saveRequest")
+    poll(api.state, lambda s: s.get("name") == TEST_REQUEST_NAME)
+
+
 def test_http_methods(api: ControlAPI, r: Report, collection_id: str, item_id: str, environment_id: str) -> None:
     """POST is already exercised by test_execute; this switches the same
     saved request through the other common methods against httpbin's
@@ -628,10 +693,28 @@ def test_file_upload(api: ControlAPI, r: Report, collection_id: str, environment
             str(parsed.get("form")),
         )
 
-    r.step("setRequestField bodyMode = 'binary', binaryFilePath, sendRequest")
+    r.step("setRequestField bodyMode = 'binary', binaryFilePath, saveRequest")
     api.action("setRequestField", {"field": "bodyMode", "value": "binary"})
     api.action("setRequestField", {"field": "binaryFilePath", "value": path})
     api.action("saveRequest")
+    # saveRequest's own SaveRequest+GetCollection round trip can still be
+    # in flight when its 204 comes back (see poll()'s docstring) — without
+    # waiting for the switch to 'binary' to actually land on disk, the
+    # /api/execute check below can race it and still see the old
+    # 'form-data' body. The form-data checkpoint above doesn't need this
+    # explicitly: it's preceded by its own poll() at the scratch-request
+    # creation step, which already absorbs the same latency.
+    collection = poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: ((find_item_by_id(c, item_id) or {}).get("body") or {}).get("mode") == "binary",
+    )
+    r.check(
+        "body.mode round-tripped to 'binary' before sending",
+        ((find_item_by_id(collection, item_id) or {}).get("body") or {}).get("mode") == "binary",
+        str((find_item_by_id(collection, item_id) or {}).get("body")),
+    )
+
+    r.step("sendRequest")
     api.action("sendRequest")
     status, resp = api.post(
         "/api/execute",
@@ -828,6 +911,7 @@ def main() -> int:
         test_environment_editor(api, r, environment_id)
         item_id = test_request_editor(api, r, collection_id)
         test_execute(api, r, collection_id, item_id, environment_id)
+        test_ui_state_getter(api, r, item_id)
         test_http_methods(api, r, collection_id, item_id, environment_id)
         test_file_upload(api, r, collection_id, environment_id)
         test_delete_request(api, r, collection_id)

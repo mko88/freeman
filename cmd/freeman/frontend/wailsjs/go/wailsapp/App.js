@@ -50,6 +50,10 @@ export function OpenWorkspace(arg1) {
   return window['go']['wailsapp']['App']['OpenWorkspace'](arg1);
 }
 
+export function ReportUIState(arg1) {
+  return window['go']['wailsapp']['App']['ReportUIState'](arg1);
+}
+
 export function SaveEnvironment(arg1) {
   return window['go']['wailsapp']['App']['SaveEnvironment'](arg1);
 }
@@ -68,6 +72,10 @@ export function SelectWorkspaceFolder() {
 
 export function SetControlAPIAddr(arg1) {
   return window['go']['wailsapp']['App']['SetControlAPIAddr'](arg1);
+}
+
+export function UIState() {
+  return window['go']['wailsapp']['App']['UIState']();
 }
 
 export function WorkspaceRoot() {

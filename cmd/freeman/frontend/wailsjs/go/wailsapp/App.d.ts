@@ -29,6 +29,8 @@ export function ListEnvironments():Promise<Array<core.EnvironmentSummary>>;
 
 export function OpenWorkspace(arg1:string):Promise<core.WorkspaceInfo>;
 
+export function ReportUIState(arg1:string):Promise<void>;
+
 export function SaveEnvironment(arg1:domain.Environment):Promise<domain.Environment>;
 
 export function SaveRequest(arg1:string,arg2:domain.Item):Promise<domain.Item>;
@@ -38,5 +40,7 @@ export function SelectFile():Promise<string>;
 export function SelectWorkspaceFolder():Promise<string>;
 
 export function SetControlAPIAddr(arg1:string):Promise<void>;
+
+export function UIState():Promise<string>;
 
 export function WorkspaceRoot():Promise<string>;

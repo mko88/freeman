@@ -13,7 +13,7 @@
   } from '$backend'
   import type { domain, httpengine, core } from '../wailsjs/go/models'
   import { EventsOn } from '../wailsjs/runtime/runtime'
-  import { ControlAPIAddr, GetHeaderCatalog, SelectFile } from '../wailsjs/go/wailsapp/App.js'
+  import { ControlAPIAddr, GetHeaderCatalog, SelectFile, ReportUIState } from '../wailsjs/go/wailsapp/App.js'
 
   // Common request headers (and, per header, common values) offered as
   // autocomplete in the header editor. Loaded from the desktop backend on
@@ -93,6 +93,14 @@
     { method: 'GET', path: '/api/theme', desc: 'Resolved color palette.' },
     { method: 'GET', path: '/api/headers', desc: 'Common request-header names/values for editor autocomplete (from headers.yaml).' },
     { method: 'POST', path: '/api/ui/action', desc: 'Drive the GUI itself (desktop only, see below). Body: {action, payload}.' },
+    {
+      method: 'GET',
+      path: '/api/ui/state',
+      desc:
+        'Current editor state — name/method/url/bodyMode/bodyRaw/binaryFilePath/headers/formFields/tab/' +
+        'selected ids/the open environment/the last response — so a script can read what the UI shows ' +
+        'instead of screenshotting it (desktop only).',
+    },
   ]
 
   // Action names spell out their target explicitly — Request or
@@ -183,6 +191,52 @@
     })
   }
 
+  // DispatchUIAction's read-side counterpart: mirrors the editor's draft
+  // state to the Go side, so GET /api/ui/state (see cmd/freeman/main.go)
+  // can answer "what does the app currently show" without a screenshot —
+  // a getter for every setRequestField `field`
+  // (name/method/url/bodyRaw/bodyMode/binaryFilePath), selectRequestTab's
+  // tab, selectRequest/selectCollection/selectEnvironment's ids, the
+  // header/form-field rows, the open environment, and — the main point —
+  // the result of the last saveRequest/sendRequest, so a script can read
+  // the response instead of watching the window for it. Called
+  // explicitly at the end of dispatchUIAction (covering every
+  // control-API-driven change, including whatever the action awaited)
+  // rather than as a `$:` reactive block — that would also cover manual
+  // clicks/typing, but didn't fire reliably here, worth revisiting; this
+  // covers the case that actually matters (reading back what an action
+  // just did) unconditionally and predictably.
+  function reportUIState() {
+    if (!('runtime' in window)) return
+    const state = {
+      collectionId,
+      environmentId,
+      selectedItemId,
+      tab: activeTab,
+      name: draftName,
+      method: draftMethod,
+      url: draftUrl,
+      bodyMode: draftBodyMode,
+      bodyRaw: draftBodyRaw,
+      bodyContentType: draftBodyContentType,
+      binaryFilePath: draftBinaryFilePath,
+      headers: draftHeaders,
+      formFields: draftFormFields,
+      environment,
+      showEnvironmentEditor: showEnvEditor,
+      showHelp,
+      sending,
+      sendError,
+      response,
+    }
+    // Encoded here and passed as a string, not the plain object — a
+    // Wails-bound method taking an object argument from the frontend
+    // didn't reliably reach the Go side in testing (ReportUIState kept
+    // storing whatever was first reported, never a later update); Go
+    // just writes this string straight back out for GET /api/ui/state.
+    ReportUIState(JSON.stringify(state)).catch((e) => logEvent(`reportUIState failed: ${e}`))
+  }
+
   onMount(async () => {
     const ws = await CurrentWorkspace()
     if (ws) await initWorkspace(ws)
@@ -217,6 +271,7 @@
       } catch {
         headerCatalog = []
       }
+      reportUIState()
     }
   })
 
@@ -389,6 +444,7 @@
         await saveEnvironment()
         break
     }
+    reportUIState()
   }
 
   async function openWorkspace() {

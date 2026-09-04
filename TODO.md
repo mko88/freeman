@@ -62,6 +62,16 @@ names to spell out their target explicitly, per the naming rule now in
 `add`/`set`/`removeRequestHeader`, `addVariable`/`setVariable`/`removeVariable`→
 `add`/`set`/`removeEnvironmentVariable`.
 
+**Update 2026-09-04 (later still):** added the read-side counterpart to
+`POST /api/ui/action` — `GET /api/ui/state` (`internal/wailsapp.ReportUIState`/
+`UIState`, `App.svelte`'s `reportUIState`, called at the end of every
+`dispatchUIAction`). Returns the whole editor draft as JSON (every
+`setRequestField`/`setEnvironmentVariable`-style field, header/form-field
+rows, the open environment, and — the main point — the result of the
+last `saveRequest`/`sendRequest`), so a script can read back what an
+action did instead of screenshotting the window. `CLAUDE.md`'s standing
+rule now also requires a getter for every settable field.
+
 ---
 
 ## Also already built (not on the survey list)

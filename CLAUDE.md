@@ -31,6 +31,16 @@ inventing a new convention. The action list is curated by design — there's
 no generic "click this selector" escape hatch, so a genuinely new kind of
 interaction needs its own named action, not a workaround.
 
+**Every settable field needs a getter too.** `GET /api/ui/state` (see
+`internal/wailsapp.ReportUIState`/`UIState`, `App.svelte`'s
+`reportUIState`) mirrors the whole editor draft — every `setRequestField`/
+`setEnvironmentVariable`-style field, the header/form-field rows, the
+open environment, and the result of the last `saveRequest`/`sendRequest`
+— as one JSON object, so a script can read back what an action did
+instead of screenshotting the window. When a new settable field is added
+per the rule above, add it to `reportUIState`'s state object too so the
+getter stays complete.
+
 **Naming: spell out the target explicitly.** An action that operates on
 the request currently in the editor gets `Request` in its name
 (`saveRequest`, `addRequestHeader`, `setRequestField`); one that operates

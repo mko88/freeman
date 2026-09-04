@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -58,10 +59,10 @@ func main() {
 // already running) is logged and left there — it must not take the GUI
 // down with it.
 //
-// POST /api/ui/action is layered on top of internal/httpapi's handler
-// (which only knows about *core.App's data operations) since driving the
-// GUI itself needs the Wails-bound app.DispatchUIAction — see
-// internal/wailsapp/app.go.
+// POST /api/ui/action and GET /api/ui/state are layered on top of
+// internal/httpapi's handler (which only knows about *core.App's data
+// operations) since driving/reading the GUI itself needs the Wails-bound
+// app.DispatchUIAction/UIState — see internal/wailsapp/app.go.
 func startControlAPI(app *wailsapp.App, addr string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/ui/action", func(w http.ResponseWriter, r *http.Request) {
@@ -77,6 +78,17 @@ func startControlAPI(app *wailsapp.App, addr string) {
 		}
 		app.DispatchUIAction(body.Action, body.Payload)
 		w.WriteHeader(http.StatusNoContent)
+	})
+	// The read-side counterpart to POST /api/ui/action: what's currently
+	// on screen (the unsaved draft, the last response, ...) — see
+	// wailsapp.App.ReportUIState/UIState — instead of a screenshot.
+	mux.HandleFunc("GET /api/ui/state", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// UIState is already a JSON string (App.svelte encodes it before
+		// sending) — write it as-is rather than json.Encode'ing it again,
+		// which would wrap it as a quoted JSON string literal instead of
+		// serving the object itself.
+		io.WriteString(w, app.UIState())
 	})
 	mux.Handle("/", httpapi.NewHandler(app.App, nil))
 

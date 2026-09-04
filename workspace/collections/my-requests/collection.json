@@ -17,7 +17,8 @@
           {
             "key": "x",
             "value": "y",
-            "enabled": true
+            "enabled": true,
+            "type": "text"
           }
         ]
       }
@@ -64,6 +65,17 @@
             "filePath": "C:\\Git\\golang\\freeman\\scripts\\random-sample.bin"
           }
         ]
+      }
+    },
+    {
+      "type": "request",
+      "id": "r_r1F3Iq",
+      "name": "State Getter Test",
+      "method": "POST",
+      "url": "{{baseUrl}}/get",
+      "body": {
+        "mode": "none",
+        "rawContentType": "application/json"
       }
     }
   ]
