@@ -105,6 +105,10 @@
   // preference, not per-response state. See formattedResponse below for
   // the (lightweight) detection of whether pretty is even possible.
   let responseView: 'pretty' | 'raw' = 'pretty'
+  // Which of the response's two panels is showing — the body, or its
+  // headers (the response's meta info the meta stats don't cover).
+  // Sticky across requests, same as responseView.
+  let responseTab: 'body' | 'headers' = 'body'
   // Data URI for an image response, loaded on demand from the cache file
   // (see GetResponseCacheDataURI) — the raw bytes in response.body don't
   // survive the JSON bridge intact. null until loaded / not an image.
@@ -204,8 +208,8 @@
         'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/params/headers/' +
         'formFields/tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
         '(truncated/bodyFile in place of body when it was too large — see /api/execute/body — plus ' +
-        'responseBodyExpanded for whether showResponseBody has since loaded it; responseView (pretty/raw) ' +
-        'and responseKind (json/xml/html/image/text, lightly autodetected); every response is also ' +
+        'responseBodyExpanded for whether showResponseBody has since loaded it; responseTab (body/headers), ' +
+        'responseView (pretty/raw) and responseKind (json/xml/html/image/text, lightly autodetected); every response is also ' +
         'cached to disk per request and reloaded on reselect, see clearResponseCache)/' +
         'showResponseActionsMenu/showSettings/settingsTab/showHelp/sidebarWidth/statusBarHeight/showControlApiLog — so a script ' +
         "can read what the UI shows instead of screenshotting it (desktop only).",
@@ -258,6 +262,11 @@
       action: 'toggleResponseActionsMenu',
       payload: '—',
       desc: 'Open/close the response pane\'s "..." actions menu.',
+    },
+    {
+      action: 'setResponseTab',
+      payload: '{ tab }',
+      desc: "Switch the response panel. tab is 'body' or 'headers' (the response's headers).",
     },
     {
       action: 'setResponseView',
@@ -432,6 +441,7 @@
       sendError,
       response,
       responseBodyExpanded: expandedResponseBody !== null,
+      responseTab,
       responseView,
       responseKind: formattedResponse.kind,
       showResponseActionsMenu,
@@ -556,6 +566,11 @@
       case 'setResponseView': {
         const view = payload?.view
         if (view === 'pretty' || view === 'raw') setResponseView(view)
+        break
+      }
+      case 'setResponseTab': {
+        const tab = payload?.tab
+        if (tab === 'body' || tab === 'headers') setResponseTab(tab)
         break
       }
       case 'openResponseCacheExternally':
@@ -1256,6 +1271,16 @@
     responseView = view
   }
 
+  function setResponseTab(tab: 'body' | 'headers') {
+    responseTab = tab
+  }
+
+  // The response's headers, flattened (one row per value) and sorted, for
+  // the Headers panel.
+  $: responseHeaderRows = Object.entries(response?.headers ?? {})
+    .flatMap(([name, values]) => (values ?? []).map((value) => ({ name, value })))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.value.localeCompare(b.value))
+
   // Called after a send / on reselect: pulls the image bytes out of the
   // cache as a data URI when the current response is an image, clears it
   // otherwise.
@@ -1504,8 +1529,14 @@
               </div>
             </div>
             <div class="response-header-actions">
-              {#if formattedResponse.canPretty}
-                <div class="response-view-toggle">
+              <div class="response-segmented">
+                <button class:active={responseTab === 'body'} on:click={() => setResponseTab('body')}>Body</button>
+                <button class:active={responseTab === 'headers'} on:click={() => setResponseTab('headers')}>
+                  Headers{#if responseHeaderRows.length}<span class="tab-count">{responseHeaderRows.length}</span>{/if}
+                </button>
+              </div>
+              {#if responseTab === 'body' && formattedResponse.canPretty}
+                <div class="response-segmented">
                   <button class:active={responseView === 'pretty'} on:click={() => setResponseView('pretty')}>Pretty</button>
                   <button class:active={responseView === 'raw'} on:click={() => setResponseView('raw')}>Raw</button>
                 </div>
@@ -1529,7 +1560,21 @@
               </div>
             </div>
           </div>
-          {#if response.truncated && expandedResponseBody === null}
+          {#if responseTab === 'headers'}
+            <div class="response-headers">
+              {#if responseHeaderRows.length}
+                <table class="response-headers-table">
+                  <tbody>
+                    {#each responseHeaderRows as h}
+                      <tr><th>{h.name}</th><td>{h.value}</td></tr>
+                    {/each}
+                  </tbody>
+                </table>
+              {:else}
+                <p class="muted">No response headers.</p>
+              {/if}
+            </div>
+          {:else if response.truncated && expandedResponseBody === null}
             <div class="response-truncated">
               <p>
                 Response body is {formatBytes(response.sizeBytes)} — too large to show automatically.
@@ -2384,11 +2429,11 @@
     flex-shrink: 0;
   }
 
-  .response-view-toggle {
+  .response-segmented {
     display: flex;
   }
 
-  .response-view-toggle button {
+  .response-segmented button {
     padding: 0.15rem 0.5rem;
     font-size: 0.8rem;
     border-radius: 0;
@@ -2396,18 +2441,45 @@
     color: var(--fm-text-muted);
   }
 
-  .response-view-toggle button:first-child {
+  .response-segmented button:first-child {
     border-radius: var(--fm-radius) 0 0 var(--fm-radius);
   }
 
-  .response-view-toggle button:last-child {
+  .response-segmented button:last-child {
     border-radius: 0 var(--fm-radius) var(--fm-radius) 0;
     border-left: none;
   }
 
-  .response-view-toggle button.active {
+  .response-segmented button.active {
     color: var(--fm-text);
     background: var(--fm-bg-hover);
+  }
+
+  .response-headers {
+    flex: 1;
+    overflow: auto;
+    background: var(--fm-bg-response);
+    padding: 0.75rem;
+  }
+
+  .response-headers-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+
+  .response-headers-table th,
+  .response-headers-table td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.2rem 0.75rem 0.2rem 0;
+    font-weight: normal;
+    word-break: break-word;
+  }
+
+  .response-headers-table th {
+    white-space: nowrap;
+    color: var(--fm-text-muted);
   }
 
   .response-actions-menu {

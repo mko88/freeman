@@ -940,7 +940,8 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     that the body view autodetects as JSON and setResponseView flips
     pretty/raw, that an image/png response autodetects as image and its
     cache file gets a .png extension, that a brotli-encoded response is
-    decoded and an XML one autodetects + formats, that the response
+    decoded and an XML one autodetects + formats, that setResponseTab
+    flips between the body and the response headers, that the response
     pane's "..." menu toggles, and that both clearCachedResponse (per
     request) and clearResponseCache (whole workspace) really delete the
     entry, not just the in-memory copy.
@@ -1031,6 +1032,19 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     r.check("setResponseView 'raw' works for an XML response too", state.get("responseView") == "raw", str(state.get("responseView")))
     api.action("setResponseView", {"view": "pretty"})
     poll(api.state, lambda s: s.get("responseView") == "pretty")
+
+    r.step("setResponseTab {tab: 'headers'}  (watch: the pane should show the response headers, not the body)")
+    api.action("setResponseTab", {"tab": "headers"})
+    state = poll(api.state, lambda s: s.get("responseTab") == "headers")
+    r.check("state.responseTab reflects setResponseTab 'headers'", state.get("responseTab") == "headers", str(state.get("responseTab")))
+    r.check(
+        "the response's headers are in state for that panel to show",
+        bool((state.get("response") or {}).get("headers")),
+        str(list(((state.get("response") or {}).get("headers") or {}).keys())),
+    )
+    api.action("setResponseTab", {"tab": "body"})
+    state = poll(api.state, lambda s: s.get("responseTab") == "body")
+    r.check("state.responseTab reflects setResponseTab 'body'", state.get("responseTab") == "body", str(state.get("responseTab")))
 
     r.step('toggleResponseActionsMenu  (watch: the response pane\'s "..." menu should open)')
     api.action("toggleResponseActionsMenu")
