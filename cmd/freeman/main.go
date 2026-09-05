@@ -59,6 +59,12 @@ func main() {
 // already running) is logged and left there — it must not take the GUI
 // down with it.
 //
+// Loopback keeps other machines out but not the browser the user already
+// has open, so the whole mux goes through httpapi.GuardSameOrigin — see
+// internal/httpapi/guard.go for what that refuses and why. It's applied
+// here, at the outer mux, because the /api/ui/* routes below are
+// cmd/freeman's own; httpapi.NewHandler guards the routes it owns itself.
+//
 // POST /api/ui/action and GET /api/ui/state are layered on top of
 // internal/httpapi's handler (which only knows about *core.App's data
 // operations) since driving/reading the GUI itself needs the Wails-bound
@@ -93,7 +99,7 @@ func startControlAPI(app *wailsapp.App, addr string) {
 	mux.Handle("/", httpapi.NewHandler(app.App, nil))
 
 	log.Printf("freeman: control API on http://%s (set FREEMAN_CONTROL_LISTEN to change)", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, httpapi.GuardSameOrigin(mux)); err != nil {
 		log.Printf("freeman: control API not started: %v", err)
 	}
 }

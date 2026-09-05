@@ -2,7 +2,14 @@ services:
   freeman:
     build: .
     ports:
-      - "8080:8080"
+      # Published on the host's loopback only. freeman-server has no
+      # authentication: it serves the mounted workspace (secrets in
+      # *.local.json included) for reading and writing, and POST
+      # /api/execute makes it issue arbitrary outbound HTTP from inside
+      # whatever network it sits in. Widening this to "8080:8080" hands
+      # both of those to anything that can route to this host — only do
+      # it behind an authenticating reverse proxy.
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./workspace:/workspace
     environment:
