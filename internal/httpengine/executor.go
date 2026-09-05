@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -26,9 +27,10 @@ import (
 var client = &http.Client{Timeout: 30 * time.Second}
 
 // Execute builds an HTTP request from item — substituting {{var}} in the
-// URL, enabled query params, enabled headers, and the body (raw text,
-// form-data — text and/or file fields, x-www-form-urlencoded, or a whole
-// file as binary) against vars — and runs it, capturing the response.
+// URL, enabled query params, enabled headers, the Auth helper (bearer/
+// basic/api-key → a header), and the body (raw text, form-data — text
+// and/or file fields, x-www-form-urlencoded, or a whole file as binary)
+// against vars — and runs it, capturing the response.
 func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Response, error) {
 	reqURL, err := buildURL(item, vars)
 	if err != nil {
@@ -67,6 +69,8 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 		}
 	}
 
+	applyAuth(req, item.Auth, vars)
+
 	if bodyContentType != "" {
 		if item.Body != nil && item.Body.Mode == domain.BodyModeForm {
 			// multipart's Content-Type carries a boundary generated for
@@ -100,6 +104,31 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 		Duration:   duration,
 		SizeBytes:  len(bodyBytes),
 	}, nil
+}
+
+// applyAuth turns item.Auth into a request header, overriding any
+// Authorization row that came from item.Headers — the Auth tab is the
+// dedicated way to set it. Values go through Substitute so a token or
+// password can be an {{environment var}}. A nil Auth or AuthTypeNone is
+// a no-op, as is a bearer/apikey with its key field left blank.
+func applyAuth(req *http.Request, a *domain.Auth, vars map[string]string) {
+	if a == nil {
+		return
+	}
+	switch a.Type {
+	case domain.AuthTypeBearer:
+		if token := Substitute(a.Token, vars); token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+	case domain.AuthTypeBasic:
+		user := Substitute(a.Username, vars)
+		pass := Substitute(a.Password, vars)
+		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(user+":"+pass)))
+	case domain.AuthTypeAPIKey:
+		if name := Substitute(a.Key, vars); name != "" {
+			req.Header.Set(name, Substitute(a.Value, vars))
+		}
+	}
 }
 
 // decodeContentEncoding transparently decodes a still-compressed

@@ -67,6 +67,28 @@ export namespace core {
 
 export namespace domain {
 	
+	export class Auth {
+	    type: string;
+	    token?: string;
+	    username?: string;
+	    password?: string;
+	    key?: string;
+	    value?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Auth(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.token = source["token"];
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.key = source["key"];
+	        this.value = source["value"];
+	    }
+	}
 	export class FormField {
 	    key: string;
 	    value: string;
@@ -164,6 +186,7 @@ export namespace domain {
 	    url?: string;
 	    params?: QueryParam[];
 	    headers?: Header[];
+	    auth?: Auth;
 	    body?: Body;
 	    preRequestScript?: string;
 	    testScript?: string;
@@ -182,6 +205,7 @@ export namespace domain {
 	        this.url = source["url"];
 	        this.params = this.convertValues(source["params"], QueryParam);
 	        this.headers = this.convertValues(source["headers"], Header);
+	        this.auth = this.convertValues(source["auth"], Auth);
 	        this.body = this.convertValues(source["body"], Body);
 	        this.preRequestScript = source["preRequestScript"];
 	        this.testScript = source["testScript"];

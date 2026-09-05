@@ -447,3 +447,71 @@ func TestExecuteURLEncodedRespectsExplicitContentTypeHeader(t *testing.T) {
 		t.Fatalf("expected the explicit header to win, got %q", gotContentType)
 	}
 }
+
+// TestExecuteAppliesAuth covers each domain.AuthType: bearer and api-key
+// substitute {{var}} into the value, basic base64-encodes user:pass, and
+// a configured Auth overrides a hand-written Authorization header row.
+func TestExecuteAppliesAuth(t *testing.T) {
+	var gotAuth, gotAPIKey string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotAPIKey = r.Header.Get("X-API-Key")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cases := []struct {
+		name       string
+		auth       domain.Auth
+		headers    []domain.Header
+		vars       map[string]string
+		wantAuth   string
+		wantAPIKey string
+	}{
+		{
+			name:     "bearer with a variable token",
+			auth:     domain.Auth{Type: domain.AuthTypeBearer, Token: "{{tok}}"},
+			vars:     map[string]string{"tok": "s3cret"},
+			wantAuth: "Bearer s3cret",
+		},
+		{
+			name:     "basic base64-encodes user:pass",
+			auth:     domain.Auth{Type: domain.AuthTypeBasic, Username: "alice", Password: "hunter2"},
+			wantAuth: "Basic YWxpY2U6aHVudGVyMg==",
+		},
+		{
+			name:       "api key into a named header",
+			auth:       domain.Auth{Type: domain.AuthTypeAPIKey, Key: "X-API-Key", Value: "{{k}}"},
+			vars:       map[string]string{"k": "abc123"},
+			wantAPIKey: "abc123",
+		},
+		{
+			name:     "configured auth overrides a header row",
+			auth:     domain.Auth{Type: domain.AuthTypeBearer, Token: "real"},
+			headers:  []domain.Header{{Key: "Authorization", Value: "Bearer stale", Enabled: true}},
+			wantAuth: "Bearer real",
+		},
+		{
+			name:     "none leaves the header row untouched",
+			auth:     domain.Auth{Type: domain.AuthTypeNone},
+			headers:  []domain.Header{{Key: "Authorization", Value: "Bearer kept", Enabled: true}},
+			wantAuth: "Bearer kept",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotAuth, gotAPIKey = "", ""
+			item := domain.Item{Method: "GET", URL: srv.URL, Headers: tc.headers, Auth: &tc.auth}
+			if _, err := Execute(context.Background(), item, tc.vars); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if gotAuth != tc.wantAuth {
+				t.Fatalf("Authorization = %q, want %q", gotAuth, tc.wantAuth)
+			}
+			if gotAPIKey != tc.wantAPIKey {
+				t.Fatalf("X-API-Key = %q, want %q", gotAPIKey, tc.wantAPIKey)
+			}
+		})
+	}
+}

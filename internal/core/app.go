@@ -9,6 +9,7 @@ package core
 import (
 	"regexp"
 	"strings"
+	"sync"
 
 	"freeman/internal/store"
 )
@@ -17,7 +18,18 @@ import (
 // httpapi's handler) own how/when OpenWorkspace gets called — desktop
 // reopens the last-used one from appdata prefs, the server opens a fixed
 // path from an env var — App itself has no opinion on that.
+//
+// mu serializes every exported method: the desktop control API (see
+// internal/wailsapp) drives App from HTTP handler goroutines at the same
+// time the Wails frontend does, so a GET /api/environments ranging
+// ws.EnvironmentPaths could otherwise race a saveEnvironment mutating it
+// — a Go map read/write data race, and, once SaveEnvironment started
+// renaming files on a name change, a read of a path a concurrent rename
+// had just moved. Exported methods take mu; the unexported *Locked-style
+// helpers they share with each other (workspaceInfo calling the list
+// helpers, OpenWorkspace calling createEnvironment) assume it's held.
 type App struct {
+	mu sync.Mutex
 	ws *store.Workspace
 }
 
@@ -37,6 +49,9 @@ type WorkspaceInfo struct {
 // layout and a default collection/environment if it's empty so a brand
 // new workspace isn't a blank screen.
 func (a *App) OpenWorkspace(root string) (*WorkspaceInfo, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if err := store.EnsureLayout(root); err != nil {
 		return nil, err
 	}
@@ -63,6 +78,9 @@ func (a *App) OpenWorkspace(root string) (*WorkspaceInfo, error) {
 // CurrentWorkspace returns the already-open workspace, or nil if none is
 // open yet.
 func (a *App) CurrentWorkspace() (*WorkspaceInfo, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if a.ws == nil {
 		return nil, nil
 	}
@@ -75,18 +93,22 @@ func (a *App) CurrentWorkspace() (*WorkspaceInfo, error) {
 // restarts via a volume mount) rather than a per-user app-data directory,
 // which has no durable meaning in a container.
 func (a *App) WorkspaceRoot() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if a.ws == nil {
 		return ""
 	}
 	return a.ws.Root
 }
 
+// workspaceInfo assumes a.mu is held (see the *Locked-helper note on App).
 func (a *App) workspaceInfo() (*WorkspaceInfo, error) {
-	collections, err := a.ListCollections()
+	collections, err := a.listCollections()
 	if err != nil {
 		return nil, err
 	}
-	environments, err := a.ListEnvironments()
+	environments, err := a.listEnvironments()
 	if err != nil {
 		return nil, err
 	}

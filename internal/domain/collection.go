@@ -39,9 +39,37 @@ type Item struct {
 	URL              string       `json:"url,omitempty"`
 	Params           []QueryParam `json:"params,omitempty"`
 	Headers          []Header     `json:"headers,omitempty"`
+	Auth             *Auth        `json:"auth,omitempty"`
 	Body             *Body        `json:"body,omitempty"`
 	PreRequestScript string       `json:"preRequestScript,omitempty"`
 	TestScript       string       `json:"testScript,omitempty"`
+}
+
+// AuthType selects how an Auth's fields become a request header at
+// execute time. "" (AuthTypeNone) leaves whatever Authorization row is
+// in Headers untouched.
+type AuthType string
+
+const (
+	AuthTypeNone   AuthType = ""
+	AuthTypeBearer AuthType = "bearer"
+	AuthTypeBasic  AuthType = "basic"
+	AuthTypeAPIKey AuthType = "apikey"
+)
+
+// Auth is a request's authorization helper. httpengine.Execute turns it
+// into a header after {{var}} substitution — so a token or password can
+// be an environment variable — and a configured Auth wins over a
+// hand-written Authorization row in Headers. Only the fields the Type
+// uses carry meaning: Token for bearer, Username/Password for basic, and
+// Key/Value (a header name and its value) for apikey.
+type Auth struct {
+	Type     AuthType `json:"type"`
+	Token    string   `json:"token,omitempty"`
+	Username string   `json:"username,omitempty"`
+	Password string   `json:"password,omitempty"`
+	Key      string   `json:"key,omitempty"`
+	Value    string   `json:"value,omitempty"`
 }
 
 type QueryParam struct {
