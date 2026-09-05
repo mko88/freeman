@@ -1385,7 +1385,11 @@
         <select class="method-select" bind:value={draftMethod} style="--m: {methodColor(draftMethod)}">
           {#each methods as m}<option value={m}>{m}</option>{/each}
         </select>
-        <input type="text" bind:value={draftUrl} placeholder="https://api.example.com/{'{'}{'{'}baseUrl{'}'}{'}'}" />
+        <input
+          type="text"
+          bind:value={draftUrl}
+          placeholder="{'{'}{'{'}schema{'}'}{'}'}://{'{'}{'{'}base{'}'}{'}'}/api/{'{'}{'{'}version{'}'}{'}'}/health"
+        />
         <button on:click={saveRequest}>Save</button>
         <button class="primary" on:click={sendRequest} disabled={sending}>
           {sending ? 'Sending…' : 'Send'}
