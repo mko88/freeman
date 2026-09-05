@@ -1157,6 +1157,34 @@ def test_environment_editor(api: ControlAPI, r: Report, environment_id: str) -> 
         str(variables),
     )
 
+    # --- new / rename / delete a whole environment ---
+    scratch_env_name = "Python Scratch Environment"
+    r.step("newEnvironment  (watch: a 'New environment' is created and selected)")
+    api.action("newEnvironment")
+    state = poll(
+        api.state,
+        lambda s: (s.get("environment") or {}).get("id") not in (None, environment_id)
+        and (s.get("environment") or {}).get("name") == "New environment",
+    )
+    scratch_env_id = (state.get("environment") or {}).get("id")
+    r.check("newEnvironment created and switched to a fresh environment", bool(scratch_env_id) and scratch_env_id != environment_id, str(scratch_env_id))
+
+    r.step(f"setEnvironmentField {{field: 'name', value: {scratch_env_name!r}}}, saveEnvironment")
+    api.action("setEnvironmentField", {"field": "name", "value": scratch_env_name})
+    poll(api.state, lambda s: (s.get("environment") or {}).get("name") == scratch_env_name)
+    api.action("saveEnvironment")
+    envs = poll(lambda: api.get("/api/environments"), lambda es: any(e.get("name") == scratch_env_name for e in es))
+    r.check("the renamed environment shows up in GET /api/environments", any(e.get("name") == scratch_env_name for e in envs), str(envs))
+
+    r.step("deleteEnvironment  (no id — deletes the one in the editor)")
+    api.action("deleteEnvironment")
+    envs = poll(lambda: api.get("/api/environments"), lambda es: all(e.get("id") != scratch_env_id for e in es))
+    r.check("the scratch environment is gone after deleteEnvironment", all(e.get("id") != scratch_env_id for e in envs), str(envs))
+
+    r.step(f"selectEnvironment {{id: {environment_id}}}  (restore the one with {TEST_VAR_KEY} as active)")
+    api.action("selectEnvironment", {"id": environment_id})
+    poll(api.state, lambda s: (s.get("environment") or {}).get("id") == environment_id)
+
 
 def test_settings_window(api: ControlAPI, r: Report) -> None:
     """The settings window: a Workspace tab (current folder + Change…,

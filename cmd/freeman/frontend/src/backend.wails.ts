@@ -10,6 +10,7 @@ export {
   DeleteRequest,
   GetEnvironment,
   SaveEnvironment,
+  DeleteEnvironment,
   ExecuteRequest,
   GetTheme,
   GetCachedResponse,

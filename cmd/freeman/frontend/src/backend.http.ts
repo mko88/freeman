@@ -54,6 +54,10 @@ export function SaveEnvironment(env: domain.Environment): Promise<domain.Environ
   return request('POST', '/api/environments', env)
 }
 
+export function DeleteEnvironment(id: string): Promise<void> {
+  return request('DELETE', `/api/environments/${encodeURIComponent(id)}`)
+}
+
 export function ExecuteRequest(
   collectionId: string,
   itemId: string,

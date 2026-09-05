@@ -18,6 +18,10 @@ export function CurrentWorkspace() {
   return window['go']['wailsapp']['App']['CurrentWorkspace']();
 }
 
+export function DeleteEnvironment(arg1) {
+  return window['go']['wailsapp']['App']['DeleteEnvironment'](arg1);
+}
+
 export function DeleteRequest(arg1, arg2) {
   return window['go']['wailsapp']['App']['DeleteRequest'](arg1, arg2);
 }

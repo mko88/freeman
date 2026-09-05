@@ -118,6 +118,14 @@ func NewHandler(app *core.App, static fs.FS) http.Handler {
 		writeJSON(w, http.StatusOK, saved)
 	})
 
+	mux.HandleFunc("DELETE /api/environments/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if err := app.DeleteEnvironment(r.PathValue("id")); err != nil {
+			writeCoreError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	mux.HandleFunc("POST /api/execute", func(w http.ResponseWriter, r *http.Request) {
 		var req executeRequest
 		if err := decodeJSON(r, &req); err != nil {

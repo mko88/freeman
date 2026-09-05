@@ -13,6 +13,8 @@ export function ControlAPIAddr():Promise<string>;
 
 export function CurrentWorkspace():Promise<core.WorkspaceInfo>;
 
+export function DeleteEnvironment(arg1:string):Promise<void>;
+
 export function DeleteRequest(arg1:string,arg2:string):Promise<void>;
 
 export function DispatchUIAction(arg1:string,arg2:Record<string, any>):Promise<void>;
