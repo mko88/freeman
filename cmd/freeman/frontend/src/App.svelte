@@ -10,7 +10,6 @@
     GetEnvironment,
     SaveEnvironment,
     ExecuteRequest,
-    GetResponseBody,
     OpenResponseExternally,
     OpenResponseInFileExplorer,
     GetCachedResponse,
@@ -86,13 +85,6 @@
   let response: httpengine.Response | null = null
   let sending = false
   let sendError = ''
-  // Set by showResponseBodyAnyway when response.truncated — kept as its
-  // own variable rather than assigned into response.body so it's never
-  // picked up by the reportUIState mirror below (which reads `response`
-  // directly): re-mirroring a multi-megabyte body on every keystroke is
-  // exactly what response.truncated exists to avoid, whether or not the
-  // user has since chosen to view it.
-  let expandedResponseBody: string | null = null
   // The response pane's "..." menu (Open in external editor/Copy path/
   // Open in File Explorer, keyed by selectedItemId — see
   // OpenResponseCacheExternally et al.) — available for any response
@@ -207,9 +199,9 @@
       desc:
         'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/params/headers/' +
         'formFields/tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
-        '(truncated/bodyFile in place of body when it was too large — see /api/execute/body — plus ' +
-        'responseBodyExpanded for whether showResponseBody has since loaded it; responseTab (body/headers), ' +
-        'responseView (pretty/raw) and responseKind (json/xml/html/image/text, lightly autodetected); every response is also ' +
+        '(truncated/bodyFile in place of body when it was too large — see /api/execute/body); ' +
+        'responseTab (body/headers), responseView (pretty/raw) and responseKind (json/xml/html/image/text, ' +
+        'lightly autodetected); every response is also ' +
         'cached to disk per request and reloaded on reselect, see clearResponseCache)/' +
         'showResponseActionsMenu/showSettings/settingsTab/showHelp/sidebarWidth/statusBarHeight/showControlApiLog — so a script ' +
         "can read what the UI shows instead of screenshotting it (desktop only).",
@@ -238,11 +230,6 @@
     { action: 'newRequest', payload: '—', desc: 'Clear the editor for a new, unsaved request.' },
     { action: 'saveRequest', payload: '—', desc: 'Save the request currently in the editor.' },
     { action: 'sendRequest', payload: '—', desc: 'Save, then execute, the request currently in the editor.' },
-    {
-      action: 'showResponseBody',
-      payload: '—',
-      desc: 'Load and show a truncated response\'s full body (see GET /api/ui/state\'s response.truncated).',
-    },
     {
       action: 'openResponseExternally',
       payload: '—',
@@ -440,7 +427,6 @@
       sending,
       sendError,
       response,
-      responseBodyExpanded: expandedResponseBody !== null,
       responseTab,
       responseView,
       responseKind: formattedResponse.kind,
@@ -547,9 +533,6 @@
         break
       case 'sendRequest':
         await sendRequest()
-        break
-      case 'showResponseBody':
-        await showResponseBodyAnyway()
         break
       case 'openResponseExternally':
         await openResponseExternally()
@@ -806,7 +789,6 @@
       : []
     draftBinaryFilePath = item.body?.binaryFilePath || ''
     sendError = ''
-    expandedResponseBody = null
     responseImageUri = null
     // GetCachedResponse rejects with "nothing cached yet" for a request
     // that's never been sent (the common case) just as often as for a
@@ -833,7 +815,6 @@
     draftBinaryFilePath = ''
     response = null
     sendError = ''
-    expandedResponseBody = null
     responseImageUri = null
   }
 
@@ -936,7 +917,6 @@
   async function sendRequest() {
     sendError = ''
     sending = true
-    expandedResponseBody = null
     responseImageUri = null
     try {
       await saveRequest()
@@ -947,19 +927,6 @@
       response = null
     } finally {
       sending = false
-    }
-  }
-
-  // Loads a truncated response's full body on demand (see
-  // response.truncated's doc comment on httpengine.Response) — into
-  // expandedResponseBody, not response.body, so it still isn't picked up
-  // by the reportUIState mirror.
-  async function showResponseBodyAnyway() {
-    if (!response?.truncated) return
-    try {
-      expandedResponseBody = await GetResponseBody(response.bodyFile ?? '')
-    } catch (e) {
-      logEvent(`showResponseBody failed: ${e}`)
     }
   }
 
@@ -1040,7 +1007,6 @@
     try {
       await ClearCachedResponse(selectedItemId)
       response = null
-      expandedResponseBody = null
     } catch (e) {
       logEvent(`clearCachedResponse failed: ${e}`)
     }
@@ -1548,9 +1514,6 @@
                 <!-- svelte-ignore a11y-click-events-have-key-events -->
                 <div class="menu-backdrop" on:click={() => (showResponseActionsMenu = false)}></div>
                 <div class="dropdown-menu">
-                  {#if response.truncated}
-                    <button on:click={() => { showResponseBodyAnyway(); showResponseActionsMenu = false }}>Show anyway</button>
-                  {/if}
                   <button on:click={openResponseCacheExternally}>Open in external editor</button>
                   <button on:click={copyResponseCachePath}>Copy path</button>
                   <button on:click={openResponseCacheInFileExplorer}>Open in File Explorer</button>
@@ -1574,13 +1537,12 @@
                 <p class="muted">No response headers.</p>
               {/if}
             </div>
-          {:else if response.truncated && expandedResponseBody === null}
+          {:else if response.truncated}
             <div class="response-truncated">
               <p>
-                Response body is {formatBytes(response.sizeBytes)} — too large to show automatically.
+                Response body is {formatBytes(response.sizeBytes)} — too large to show here.
               </p>
               <div class="response-truncated-actions">
-                <button on:click={showResponseBodyAnyway}>Show anyway</button>
                 <button on:click={openResponseExternally}>Open in external editor</button>
                 <button on:click={copyResponsePath}>Copy path</button>
                 <button on:click={openResponseInFileExplorer}>Open in File Explorer</button>
@@ -1595,7 +1557,7 @@
           {:else if formattedResponse.canPretty && responseView === 'pretty'}
             <pre class="response-body">{@html formattedResponse.html}</pre>
           {:else}
-            <pre class="response-body">{response.truncated ? expandedResponseBody : response.body}</pre>
+            <pre class="response-body">{response.body}</pre>
           {/if}
         {:else}
           <p class="muted">Send a request to see the response here.</p>

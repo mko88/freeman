@@ -46,10 +46,6 @@ export function GetHeaderCatalog() {
   return window['go']['wailsapp']['App']['GetHeaderCatalog']();
 }
 
-export function GetResponseBody(arg1) {
-  return window['go']['wailsapp']['App']['GetResponseBody'](arg1);
-}
-
 export function GetResponseCacheDataURI(arg1) {
   return window['go']['wailsapp']['App']['GetResponseCacheDataURI'](arg1);
 }

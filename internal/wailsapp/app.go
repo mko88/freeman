@@ -90,11 +90,11 @@ func (a *App) OpenWorkspace(root string) (*core.WorkspaceInfo, error) {
 // core.App.ExecuteRequest now takes explicitly, keeping this method's own
 // signature (no ctx param) unchanged for the existing generated bindings.
 // It also deletes the previous call's response-body temp file (see
-// httpengine.Response.Truncated) once it's superseded — GetResponseBody/
-// OpenResponseExternally take the path explicitly rather than reading
-// this back, so this is cleanup bookkeeping only, not a lookup table —
-// and persists a durable copy of resp for GetCachedResponse (see
-// saveResponseCache), independent of that temp file's own cleanup.
+// httpengine.Response.Truncated) once it's superseded — OpenResponseExternally
+// takes the path explicitly rather than reading this back, so this is
+// cleanup bookkeeping only, not a lookup table — and persists a durable
+// copy of resp for GetCachedResponse (see saveResponseCache),
+// independent of that temp file's own cleanup.
 func (a *App) ExecuteRequest(collectionID, itemID, environmentID string) (*httpengine.Response, error) {
 	resp, err := a.App.ExecuteRequest(a.ctx, collectionID, itemID, environmentID)
 	if err != nil {
@@ -216,21 +216,6 @@ func (a *App) OpenResponseCacheInFileExplorer(itemID string) error {
 		return err
 	}
 	return openInFileExplorer(path)
-}
-
-// GetResponseBody returns the full body of a truncated response (see
-// httpengine.Response.Truncated) — the frontend's "show anyway" reads it
-// via this rather than having it mirrored automatically by
-// ReportUIState (see that field's doc comment for why). path must be one
-// ExecuteRequest actually produced — see httpengine.ReadResponseBodyFile,
-// which this is a thin wrapper over, matching the httpapi server's own
-// GET /api/execute/body so both $backend implementations share a shape.
-func (a *App) GetResponseBody(path string) (string, error) {
-	data, err := httpengine.ReadResponseBodyFile(path)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }
 
 // OpenResponseExternally opens a truncated response's full body (see

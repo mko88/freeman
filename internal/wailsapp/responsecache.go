@@ -145,10 +145,10 @@ func (a *App) responseCacheBodyPath(itemID string) (string, error) {
 // cleared) otherwise. A body over httpengine.LargeResponseThreshold
 // comes back Truncated exactly the way a live Execute response would,
 // with BodyFile pointing at a fresh temp file (see
-// httpengine.WriteResponseBodyFile) — so GetResponseBody/
-// OpenResponseExternally/OpenResponseInFileExplorer and the response
-// pane's own truncated-body callout work identically whether the
-// response just arrived or was reloaded from disk.
+// httpengine.WriteResponseBodyFile) — so OpenResponseExternally/
+// OpenResponseInFileExplorer and the response pane's own truncated-body
+// callout work identically whether the response just arrived or was
+// reloaded from disk.
 func (a *App) loadResponseCache(itemID string) (*httpengine.Response, error) {
 	dir := a.responsesDir()
 	if dir == "" {

@@ -27,8 +27,6 @@ export function GetEnvironment(arg1:string):Promise<domain.Environment>;
 
 export function GetHeaderCatalog():Promise<Array<headercatalog.Entry>>;
 
-export function GetResponseBody(arg1:string):Promise<string>;
-
 export function GetResponseCacheDataURI(arg1:string):Promise<string>;
 
 export function GetResponseCachePath(arg1:string):Promise<string>;

@@ -839,11 +839,12 @@ def test_large_response_truncation(
     """Points the empty scratch request main() made for this test at a
     local server (spun up just for this function — nothing public
     reliably returns a body over httpengine.LargeResponseThreshold on
-    demand) that returns a fixed 1.5 MB body, then drives showResponseBody
-    against the real truncated response. See the comment near the end of
+    demand) that returns a fixed 1.5 MB body, and checks the response
+    comes back truncated with the body kept off the state mirror and
+    readable via GET /api/execute/body. See the comment near the end of
     this function for why openResponseExternally/copyResponsePath/
     openResponseInFileExplorer aren't exercised here."""
-    r.section("Large response truncation (show anyway / open externally)")
+    r.section("Large response truncation")
 
     if not item_id:
         r.check("skipped — no empty scratch request for this test", False)
@@ -885,7 +886,6 @@ def test_large_response_truncation(
         r.check("response.sizeBytes reflects the real body size", resp.get("sizeBytes") == len(big_body), str(resp.get("sizeBytes")))
         body_file = resp.get("bodyFile") or ""
         r.check("response.bodyFile is set", bool(body_file), repr(body_file))
-        r.check("state.responseBodyExpanded starts false", state.get("responseBodyExpanded") is False, str(state.get("responseBodyExpanded")))
 
         state_json = json.dumps(state)
         r.check(
@@ -894,12 +894,7 @@ def test_large_response_truncation(
             f"{len(state_json)} bytes",
         )
 
-        r.step("showResponseBody  (watch the app: the full body should now render)")
-        api.action("showResponseBody")
-        state = poll(api.state, lambda s: s.get("responseBodyExpanded") is True)
-        r.check("state.responseBodyExpanded reflects showResponseBody", state.get("responseBodyExpanded") is True, str(state.get("responseBodyExpanded")))
-
-        r.step(f"GET /api/execute/body?path={body_file}  (the headless server's equivalent of showResponseBody)")
+        r.step(f"GET /api/execute/body?path={body_file}  (reads the full truncated body back)")
         status, body_text = api.raw_get(f"/api/execute/body?path={urllib.parse.quote(body_file)}")
         r.check("GET /api/execute/body -> 200 with the exact original body", status == 200 and body_text == big_body.decode("utf-8"), f"status={status} len={len(body_text) if isinstance(body_text, str) else 'n/a'}")
 
