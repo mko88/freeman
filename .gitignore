@@ -1,3 +1,11 @@
+# Local dev/demo workspace (collections, environments) — live data that
+# gets edited/exercised by hand and by scripts/test_control_api.py, not
+# project source. workspace/.gitignore's *.local.json rule is now
+# redundant (nothing under here is tracked at all) but left in place —
+# still-useful documentation of the secrets-overlay convention even
+# though git no longer looks at it.
+/workspace/
+
 # Binaries
 /bin/
 /cmd/freeman/build/bin/
