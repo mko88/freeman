@@ -310,9 +310,16 @@ func curlBodyArgs(b reqBody) [][]string {
 // so each is editable on its own instead of buried in one long command.
 //
 // A raw body goes in a quoted heredoc, which means it needs no escaping
-// at all. The one-liner has to turn every apostrophe into '\'' to
-// survive sh quoting, and a JSON document full of those is neither
+// at all. The one-liner has to turn every apostrophe into
+//
+//	'\''
+//
+// to survive sh quoting, and a JSON document full of those is neither
 // readable nor editable — which is most of the point of the script form.
+//
+// The example is indented so gofmt reads it as a code block and leaves
+// it alone: a bare pair of apostrophes in ordinary doc-comment prose
+// gets rewritten to a closing quotation mark.
 func renderShellScript(r request) string {
 	var b strings.Builder
 	b.WriteString("#!/usr/bin/env bash\n")
@@ -536,4 +543,3 @@ func psHashtable(pairs []kv, files []kv) string {
 func psQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
-

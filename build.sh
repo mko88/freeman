@@ -35,6 +35,18 @@ for arg in "$@"; do
 done
 
 if [ "$run_vet" = 1 ]; then
+	echo "Running gofmt..."
+	# Reports rather than rewrites: a build shouldn't edit your working
+	# tree behind your back. Worth checking because gofmt does more than
+	# indentation — it reformats doc comments, where a stray pair of
+	# apostrophes silently becomes a closing quotation mark.
+	unformatted=$(gofmt -l ./cmd ./internal)
+	if [ -n "$unformatted" ]; then
+		echo "not gofmt-clean (run: gofmt -w ./cmd ./internal):"
+		echo "$unformatted" | sed 's/^/  /'
+		exit 1
+	fi
+
 	echo "Running go vet..."
 	go vet ./...
 fi

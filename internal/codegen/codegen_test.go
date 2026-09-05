@@ -74,8 +74,11 @@ func TestGenerateGETWithParamsHeadersAndVars(t *testing.T) {
 // TestGenerateScriptsExtractBodyVerbatim is the point of the script
 // forms: a raw body becomes a heredoc (sh) or a here-string
 // (PowerShell), both of which are literal — so a document full of
-// apostrophes reads exactly as typed instead of being shredded into
-// '\'' or '' by the surrounding quoting the one-liners need.
+// apostrophes reads exactly as typed instead of being shredded by the
+// surrounding quoting the one-liners need, which renders each one as
+//
+//	'\''    (sh)
+//	''      (PowerShell)
 func TestGenerateScriptsExtractBodyVerbatim(t *testing.T) {
 	body := "{\n  \"note\": \"Ada's order\",\n  \"tag\": \"it's fine\"\n}"
 	item := domain.Item{
