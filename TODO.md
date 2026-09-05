@@ -95,10 +95,34 @@ pivot for anyone who could route to it. Now defaults to
 and `docker-compose.yml` publishes it as `127.0.0.1:8080:8080` so
 widening it is a deliberate act.
 
-Still open from that review: unbounded response reads/decompression in
-`httpengine.Execute`, unvalidated `itemID` in the response-cache paths,
-`internal/wailsapp` at 0% coverage, `App.svelte` at 3k lines, no CI, the
-unenforced `$backend` contract, and the unused `script`/`importer` stubs.
+**Update 2026-09-05 (robustness, same review):** `httpengine.Execute` read
+response bodies with an unbounded `io.ReadAll` and then decompressed them
+into a second unbounded buffer — `LargeResponseThreshold` only decided
+what to do once the whole thing was already resident, so a few hundred KB
+of gzip or brotli could inflate to gigabytes and kill the app. Both reads
+now go through `readCapped` against `httpengine.MaxResponseBytes` (64 MiB,
+a var so it can be tuned), and `Response.Capped` says the body holds only
+what was read — distinct from `Truncated`, where the whole body exists
+and merely lives in `BodyFile`. The response pane marks a capped body next
+to its size. The hardcoded 30s client timeout became
+`httpengine.RequestTimeout`, applied as a context deadline so it composes
+with the caller's context instead of shadowing it. Verified live: a 100 KB
+gzip response that decodes to 100 MiB now comes back capped at 64 MiB
+instead of taking the app down.
+
+Same review: `itemID` reached the filesystem unchecked in
+`internal/wailsapp/responsecache.go` — `filepath.Join` *cleans* a `../`
+rather than refusing it, so a crafted ID could read, open externally or
+delete files outside the cache, and glob metacharacters in an ID could
+match other items' files. All path building now goes through one
+`cachePath` helper behind an `^[A-Za-z0-9_-]+$` check. That package also
+got its first tests (0% → 46.8%), covering the cache round trip, the
+extension swap on a changed Content-Type, `trimLargeBody` either side of
+the threshold, and the traversal refusals.
+
+Still open from that review: `App.svelte` at 3k lines, no CI, the
+unenforced `$backend` contract, the four hand-synced action lists, the
+unused `script`/`importer` stubs, and no root README.
 
 ---
 

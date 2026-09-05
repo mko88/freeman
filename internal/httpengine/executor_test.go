@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andybalholm/brotli"
 
@@ -513,5 +514,112 @@ func TestExecuteAppliesAuth(t *testing.T) {
 				t.Fatalf("X-API-Key = %q, want %q", gotAPIKey, tc.wantAPIKey)
 			}
 		})
+	}
+}
+
+// TestExecuteCapsResponseBody covers the ceiling on how much of a
+// response Execute will hold: both the bytes off the wire and — the
+// case that actually matters — the decompressed result, so a small
+// gzip payload can't inflate past it. Over the cap, Execute keeps what
+// it has and sets Capped rather than failing.
+func TestExecuteCapsResponseBody(t *testing.T) {
+	original := MaxResponseBytes
+	MaxResponseBytes = 1024
+	defer func() { MaxResponseBytes = original }()
+
+	t.Run("plain body over the cap is clipped", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write(bytes.Repeat([]byte("x"), 5000))
+		}))
+		defer srv.Close()
+
+		resp, err := Execute(context.Background(), domain.Item{Method: "GET", URL: srv.URL}, nil)
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if !resp.Capped {
+			t.Fatal("expected Capped for a body over the ceiling")
+		}
+		if len(resp.Body) != 1024 || resp.SizeBytes != 1024 {
+			t.Fatalf("expected 1024 bytes kept, got len=%d SizeBytes=%d", len(resp.Body), resp.SizeBytes)
+		}
+	})
+
+	t.Run("a body exactly at the cap is not flagged", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write(bytes.Repeat([]byte("y"), 1024))
+		}))
+		defer srv.Close()
+
+		resp, err := Execute(context.Background(), domain.Item{Method: "GET", URL: srv.URL}, nil)
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if resp.Capped {
+			t.Fatal("a body exactly at the ceiling should not be Capped")
+		}
+		if len(resp.Body) != 1024 {
+			t.Fatalf("expected the full 1024 bytes, got %d", len(resp.Body))
+		}
+	})
+
+	t.Run("a compression bomb is capped after decoding", func(t *testing.T) {
+		// 256 KiB of zeros gzips to a few hundred bytes: comfortably
+		// under the ceiling on the wire, 256x over it once decoded. This
+		// is the case an unbounded io.ReadAll on the decompressor would
+		// have turned into an out-of-memory kill.
+		var gz bytes.Buffer
+		zw := gzip.NewWriter(&gz)
+		zw.Write(make([]byte, 1<<18))
+		zw.Close()
+		if int64(gz.Len()) > MaxResponseBytes {
+			t.Fatalf("test setup: compressed payload (%d B) should be under the cap", gz.Len())
+		}
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Encoding", "gzip")
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write(gz.Bytes())
+		}))
+		defer srv.Close()
+
+		resp, err := Execute(context.Background(), domain.Item{Method: "GET", URL: srv.URL}, nil)
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if !resp.Capped {
+			t.Fatal("expected Capped after decoding a payload that inflates past the ceiling")
+		}
+		if len(resp.Body) != 1024 {
+			t.Fatalf("expected the decoded body clipped to 1024 bytes, got %d", len(resp.Body))
+		}
+	})
+}
+
+// TestExecuteRespectsRequestTimeout confirms RequestTimeout is applied
+// as a context deadline (and so composes with the caller's context)
+// rather than being baked into the shared http.Client.
+func TestExecuteRespectsRequestTimeout(t *testing.T) {
+	original := RequestTimeout
+	RequestTimeout = 100 * time.Millisecond
+	defer func() { RequestTimeout = original }()
+
+	// The handler blocks until the test is done rather than sleeping a
+	// fixed span: httptest.Server.Close waits for outstanding handlers,
+	// so a sleep would make this test take as long as the sleep even
+	// though Execute itself gave up in 100ms.
+	done := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-done
+	}))
+	defer srv.Close()
+	defer close(done)
+
+	start := time.Now()
+	if _, err := Execute(context.Background(), domain.Item{Method: "GET", URL: srv.URL}, nil); err == nil {
+		t.Fatal("expected a timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("expected the request to give up quickly, took %s", elapsed)
 	}
 }

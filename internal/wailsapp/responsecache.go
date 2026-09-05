@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"freeman/internal/httpengine"
 )
@@ -47,6 +48,42 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
+// itemIDPattern matches what domain.NewID produces: a short prefix plus
+// alphanumerics. Every function below turns an itemID into a filesystem
+// path, and that ID arrives straight from the frontend or the control
+// API — filepath.Join *cleans* a "../" rather than refusing it, so an
+// unchecked ID could read, open in an external editor, or delete files
+// outside the cache directory. Constraining the charset also keeps glob
+// metacharacters (*, ?, [) out of the Glob patterns used below.
+var itemIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// cachePath returns <responsesDir>/<itemID><suffix>, or "" if no
+// workspace is open or itemID isn't a plain ID. Callers treat "" the
+// same way they already treat a missing workspace: nothing to do.
+func (a *App) cachePath(itemID, suffix string) string {
+	if !itemIDPattern.MatchString(itemID) {
+		return ""
+	}
+	dir := a.responsesDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, itemID+suffix)
+}
+
+// removeCachedBodies deletes itemID's body file whatever extension it
+// was last written with (see saveResponseCache).
+func (a *App) removeCachedBodies(itemID string) {
+	pattern := a.cachePath(itemID, ".body.*")
+	if pattern == "" {
+		return
+	}
+	matches, _ := filepath.Glob(pattern)
+	for _, f := range matches {
+		os.Remove(f)
+	}
+}
+
 // saveResponseCache persists resp for itemID as two files — <itemID>
 // .meta.json (status/headers/duration/size) and <itemID>.body<ext> (the
 // exact response body, ext guessed from its Content-Type via
@@ -55,8 +92,8 @@ func fileExists(path string) bool {
 // failure (no workspace open, a full disk) is silently ignored rather
 // than failing a request that already succeeded.
 func (a *App) saveResponseCache(itemID string, resp *httpengine.Response) {
-	dir := a.responsesDir()
-	if dir == "" {
+	metaPath := a.cachePath(itemID, ".meta.json")
+	if metaPath == "" {
 		return
 	}
 
@@ -65,17 +102,13 @@ func (a *App) saveResponseCache(itemID string, resp *httpengine.Response) {
 	// Remove any previous body file for this item first — its extension
 	// (and so its filename) may not match this response's, e.g. a
 	// request that returned JSON last time and plain text this time.
-	if old, _ := filepath.Glob(filepath.Join(dir, itemID+".body.*")); old != nil {
-		for _, f := range old {
-			os.Remove(f)
-		}
-	}
+	a.removeCachedBodies(itemID)
 
 	contentType := ""
 	if v := resp.Headers["Content-Type"]; len(v) > 0 {
 		contentType = v[0]
 	}
-	bodyPath := filepath.Join(dir, itemID+".body"+httpengine.ExtensionFor(contentType))
+	bodyPath := a.cachePath(itemID, ".body"+httpengine.ExtensionFor(contentType))
 	if err := os.WriteFile(bodyPath, body, 0o644); err != nil {
 		return
 	}
@@ -85,18 +118,18 @@ func (a *App) saveResponseCache(itemID string, resp *httpengine.Response) {
 	meta.Truncated = false
 	meta.BodyFile = ""
 	if data, err := json.Marshal(&meta); err == nil {
-		os.WriteFile(filepath.Join(dir, itemID+".meta.json"), data, 0o644)
+		os.WriteFile(metaPath, data, 0o644)
 	}
 }
 
 // responseCacheContentType returns the Content-Type recorded in itemID's
 // cached response meta (see saveResponseCache), "" if there's none.
 func (a *App) responseCacheContentType(itemID string) string {
-	dir := a.responsesDir()
-	if dir == "" {
+	metaPath := a.cachePath(itemID, ".meta.json")
+	if metaPath == "" {
 		return ""
 	}
-	data, err := os.ReadFile(filepath.Join(dir, itemID+".meta.json"))
+	data, err := os.ReadFile(metaPath)
 	if err != nil {
 		return ""
 	}
@@ -113,11 +146,11 @@ func (a *App) responseCacheContentType(itemID string) string {
 // responseCacheBodyPath returns itemID's cached body file's path (see
 // saveResponseCache) — an error if nothing is cached for it yet.
 func (a *App) responseCacheBodyPath(itemID string) (string, error) {
-	dir := a.responsesDir()
-	if dir == "" {
+	pattern := a.cachePath(itemID, ".body.*")
+	if pattern == "" {
 		return "", os.ErrNotExist
 	}
-	matches, err := filepath.Glob(filepath.Join(dir, itemID+".body.*"))
+	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return "", err
 	}
@@ -134,12 +167,12 @@ func (a *App) responseCacheBodyPath(itemID string) (string, error) {
 // applies the same large-body trimming ExecuteRequest does before
 // handing it to the frontend.
 func (a *App) loadResponseCache(itemID string) (*httpengine.Response, error) {
-	dir := a.responsesDir()
-	if dir == "" {
+	metaPath := a.cachePath(itemID, ".meta.json")
+	if metaPath == "" {
 		return nil, os.ErrNotExist
 	}
 
-	metaData, err := os.ReadFile(filepath.Join(dir, itemID+".meta.json"))
+	metaData, err := os.ReadFile(metaPath)
 	if err != nil {
 		return nil, err
 	}
@@ -186,14 +219,8 @@ func (a *App) clearResponseCache() error {
 // longer exists. Best-effort: nothing to delete is not an error worth
 // surfacing.
 func (a *App) deleteResponseCache(itemID string) {
-	dir := a.responsesDir()
-	if dir == "" {
-		return
+	if metaPath := a.cachePath(itemID, ".meta.json"); metaPath != "" {
+		os.Remove(metaPath)
 	}
-	os.Remove(filepath.Join(dir, itemID+".meta.json"))
-	if matches, _ := filepath.Glob(filepath.Join(dir, itemID+".body.*")); matches != nil {
-		for _, f := range matches {
-			os.Remove(f)
-		}
-	}
+	a.removeCachedBodies(itemID)
 }

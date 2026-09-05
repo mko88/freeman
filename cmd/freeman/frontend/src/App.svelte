@@ -233,7 +233,8 @@
         'formFields/codeFormat/code (the Code tab’s rendered command, when that tab is open)/' +
         'tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
         '(truncated/bodyFile in place of body when it was too large — bodyFile is its path in the ' +
-        'per-request on-disk cache, see clearResponseCache); responseTab (body/headers), ' +
+        'per-request on-disk cache, see clearResponseCache; capped when the response outgrew the ' +
+        'in-memory ceiling and body holds only what was read); responseTab (body/headers), ' +
         'responseView (pretty/raw) and responseKind (json/xml/html/image/text, lightly autodetected))/' +
         'showResponseActionsMenu/showSettings/settingsTab/showHelp/sidebarWidth/statusBarHeight/showControlApiLog — so a script ' +
         "can read what the UI shows instead of screenshotting it (desktop only).",
@@ -1707,7 +1708,13 @@
               </div>
               <div class="response-stat">
                 <span class="response-stat-label">Size</span>
-                <span>{response.sizeBytes} bytes</span>
+                <span
+                  title={response.capped
+                    ? 'The response exceeded the size Freeman will hold in memory, so it was cut off at this point.'
+                    : undefined}
+                >
+                  {response.sizeBytes} bytes{#if response.capped}<span class="size-capped">capped</span>{/if}
+                </span>
               </div>
               <div class="response-stat">
                 <span class="response-stat-label">Type</span>
@@ -1761,6 +1768,7 @@
             <div class="response-truncated">
               <p>
                 Response body is {formatBytes(response.sizeBytes)} — too large to show here.
+                {#if response.capped}The server sent more than that; this is where Freeman stopped reading.{/if}
               </p>
               <div class="response-truncated-actions">
                 <button on:click={openResponseCacheExternally}>Open in external editor</button>
@@ -2890,6 +2898,20 @@
     font-size: 0.7rem;
     font-weight: 600;
     color: var(--fm-text-muted);
+  }
+
+  /* Marks a body that hit httpengine.MaxResponseBytes — the number next
+     to it is what was kept, not what the server sent. */
+  .size-capped {
+    margin-left: 0.35rem;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--fm-warning);
+    background: color-mix(in srgb, var(--fm-warning) 16%, transparent);
   }
 
   .status {
