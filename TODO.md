@@ -140,9 +140,39 @@ never driven. All three are covered now; the only exemptions are the two
 actions that launch an external editor or file manager, listed with
 reasons in that module's `UNDRIVEABLE` map.
 
-Still open from that review: `App.svelte` at 3k lines, no CI, the
-unenforced `$backend` contract, the unused `script`/`importer` stubs, and
-no root README.
+**Update 2026-09-06 (frontend split):** `App.svelte` was 3,090 lines —
+one component holding the whole UI, with 1,095 lines of CSS in it. Split
+over five steps, each merged separately with the control-API suite run
+in between:
+
+1. Design-system primitives (modal shell, form controls, `.kv-table`,
+   tab strips, `.prose`) moved to `style.css`. Svelte scopes a
+   component's `<style>` to its own markup, so this had to happen before
+   any markup could move — a child component would otherwise render
+   unstyled. `HelpModal.svelte` followed, taking the `apiEndpoints`/
+   `uiActions` tables with it; `lib/format.ts` took `methodColor`.
+2. `lib/responseFormat.ts` (kind sniffing, pretty-printers,
+   highlighters) and `SettingsModal.svelte`.
+3. `ResponsePane.svelte`.
+4. The eleven `draft*` variables became one `draft` object in
+   `lib/requestDraft.ts`, whose keys are deliberately the names
+   `GET /api/ui/state` reports and `setRequestField` accepts — so
+   `reportUIState`'s ten hand-written lines are now `...draft` and the
+   mirror can't drift from what it mirrors. Then
+   `RequestEditor.svelte`.
+5. `RequestList.svelte` and `StatusBar.svelte`.
+
+App.svelte is now 1,257 lines (1,021 script, 111 markup, 124 style) and
+holds the coordination layer that has to be one thing: backend calls,
+the `ui:action` dispatcher, the state mirror, and the splitter drag
+maths. Mutating functions stayed with it throughout — the control API
+drives the same operations, so a scripted action and a clicked one take
+the same path; components get them as grouped callback props
+(`env`, `rows`, `cache`). Every step verified no CSS rule was dropped by
+diffing the parsed selector sets.
+
+Still open from that review: no CI, the unenforced `$backend` contract,
+the unused `script`/`importer` stubs, and no root README.
 
 ---
 
