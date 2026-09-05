@@ -117,6 +117,76 @@ func TestGenerateScriptsExtractBodyVerbatim(t *testing.T) {
 	}
 }
 
+// TestGenerateBinaryCarriesContentType covers a fidelity bug found by
+// running the generated script for real: `curl --data-binary` with no
+// Content-Type defaults to application/x-www-form-urlencoded, so
+// httpbin parsed the uploaded file as a *form field name* instead of a
+// body. The extension-derived type mirrors what httpengine sends.
+func TestGenerateBinaryCarriesContentType(t *testing.T) {
+	known := domain.Item{
+		Method: "PUT", URL: "https://api.example.com/blob",
+		Body: &domain.Body{Mode: domain.BodyModeBinary, BinaryFilePath: "/tmp/upload.txt"},
+	}
+	for _, format := range []Format{FormatCurl, FormatShell} {
+		if got := mustGen(t, known, nil, format); !strings.Contains(got, "-H 'Content-Type: text/plain") {
+			t.Fatalf("%s should send the extension's content type:\n%s", format, got)
+		}
+	}
+	if got := mustGen(t, known, nil, FormatPowerShellScript); !strings.Contains(got, "-ContentType 'text/plain") {
+		t.Fatalf("PS script should send the extension's content type:\n%s", got)
+	}
+
+	// Execute sniffs the file when the extension says nothing; this
+	// package never opens files, so it falls back to Execute's own last
+	// resort instead.
+	unknown := domain.Item{
+		Method: "PUT", URL: "https://api.example.com/blob",
+		Body: &domain.Body{Mode: domain.BodyModeBinary, BinaryFilePath: "/tmp/blob.weirdext"},
+	}
+	if got := mustGen(t, unknown, nil, FormatCurl); !strings.Contains(got, "-H 'Content-Type: application/octet-stream'") {
+		t.Fatalf("an unknown extension should fall back to octet-stream:\n%s", got)
+	}
+}
+
+// TestGenerateRawWithoutContentTypeSuppressesCurlDefault is the other
+// half of the same bug: Execute sends a raw body with no Content-Type
+// when no header row sets one, but curl invents
+// application/x-www-form-urlencoded for --data-raw. `-H 'Header:'` is
+// curl's way of dropping a header it would otherwise add.
+func TestGenerateRawWithoutContentTypeSuppressesCurlDefault(t *testing.T) {
+	bare := domain.Item{
+		Method: "POST", URL: "https://api.example.com/x",
+		Body: &domain.Body{Mode: domain.BodyModeRaw, Raw: "hello plain text"},
+	}
+	for _, format := range []Format{FormatCurl, FormatShell} {
+		got := mustGen(t, bare, nil, format)
+		if !strings.Contains(got, "-H 'Content-Type:'") {
+			t.Fatalf("%s should suppress curl's default content type:\n%s", format, got)
+		}
+	}
+
+	// With a real Content-Type row there is nothing to suppress.
+	typed := domain.Item{
+		Method: "POST", URL: "https://api.example.com/x",
+		Headers: []domain.Header{{Key: "Content-Type", Value: "text/plain", Enabled: true}},
+		Body:    &domain.Body{Mode: domain.BodyModeRaw, Raw: "hello"},
+	}
+	if got := mustGen(t, typed, nil, FormatCurl); strings.Contains(got, "-H 'Content-Type:'") {
+		t.Fatalf("nothing to suppress when a content type is set:\n%s", got)
+	}
+
+	// Nor is there for the modes that carry their own.
+	form := domain.Item{
+		Method: "POST", URL: "https://api.example.com/x",
+		Body: &domain.Body{Mode: domain.BodyModeForm, FormFields: []domain.FormField{
+			{Key: "a", Value: "1", Enabled: true},
+		}},
+	}
+	if got := mustGen(t, form, nil, FormatCurl); strings.Contains(got, "Content-Type") {
+		t.Fatalf("curl sets multipart's own content type; we must not touch it:\n%s", got)
+	}
+}
+
 // TestGenerateHeredocDelimiterAvoidsBody guards the one way a heredoc
 // can be terminated early: a body containing the delimiter on a line of
 // its own.

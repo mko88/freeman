@@ -9,7 +9,9 @@ package codegen
 import (
 	"encoding/base64"
 	"fmt"
+	"mime"
 	"net/url"
+	"path/filepath"
 	"strings"
 
 	"freeman/internal/domain"
@@ -142,6 +144,24 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 	return r, nil
 }
 
+// binaryContentType mirrors the first half of
+// httpengine.detectContentType: the file's extension. Execute sniffs the
+// first bytes when the extension says nothing; this package never opens
+// files, so an unknown extension falls back to what Execute's own last
+// resort is.
+//
+// Emitting *something* matters: `curl --data-binary` with no
+// Content-Type defaults to application/x-www-form-urlencoded, and a
+// server then parses the file as a form instead of a body — which is
+// what it did, until running the generated script against httpbin
+// showed the uploaded file arriving as a form field name.
+func binaryContentType(path string) string {
+	if ct := mime.TypeByExtension(filepath.Ext(path)); ct != "" {
+		return ct
+	}
+	return "application/octet-stream"
+}
+
 func authHeader(a *domain.Auth, vars map[string]string) (name, value string, ok bool) {
 	if a == nil {
 		return "", "", false
@@ -209,7 +229,7 @@ func buildBody(b *domain.Body, vars map[string]string) reqBody {
 		if path == "" {
 			return reqBody{kind: bodyNone}
 		}
-		return reqBody{kind: bodyBinary, filePath: path}
+		return reqBody{kind: bodyBinary, filePath: path, contentType: binaryContentType(path)}
 
 	default:
 		return reqBody{kind: bodyNone}
@@ -218,12 +238,38 @@ func buildBody(b *domain.Body, vars map[string]string) reqBody {
 
 // --- curl --------------------------------------------------------------------
 
-// renderCurl is the one-liner: everything inline, quoted for sh.
-func renderCurl(r request) string {
-	groups := [][]string{{"curl", "-X", r.method, shQuote(r.url)}}
+// curlHeaderArgs is every -H the command needs, including the one that
+// removes a header rather than adding one — see suppressContentType.
+func curlHeaderArgs(r request) [][]string {
+	groups := make([][]string, 0, len(r.headers)+1)
 	for _, h := range r.headers {
 		groups = append(groups, []string{"-H", shQuote(h.name + ": " + h.value)})
 	}
+	if suppressContentType(r) {
+		groups = append(groups, []string{"-H", shQuote("Content-Type:")})
+	}
+	return groups
+}
+
+// suppressContentType reports whether curl needs telling *not* to send
+// one. A raw body with no Content-Type row is sent by Execute with no
+// Content-Type at all, but curl fills in
+// application/x-www-form-urlencoded for --data-raw — so the server
+// parses the body as a form and the generated command stops matching
+// what Send does. `-H 'Header:'` with nothing after the colon is curl's
+// documented way to drop a header it would otherwise add.
+//
+// The other modes don't need this: form-data is curl's own multipart
+// header, and url-encoded and binary both carry a Content-Type of their
+// own by the time this runs.
+func suppressContentType(r request) bool {
+	return r.body.kind == bodyRaw && r.header("Content-Type") == ""
+}
+
+// renderCurl is the one-liner: everything inline, quoted for sh.
+func renderCurl(r request) string {
+	groups := [][]string{{"curl", "-X", r.method, shQuote(r.url)}}
+	groups = append(groups, curlHeaderArgs(r)...)
 	groups = append(groups, curlBodyArgs(r.body)...)
 
 	parts := make([]string, len(groups))
@@ -273,10 +319,11 @@ func renderShellScript(r request) string {
 	b.WriteString("set -euo pipefail\n\n")
 	b.WriteString("url=" + shQuote(r.url) + "\n")
 
-	if len(r.headers) > 0 {
+	headerArgs := curlHeaderArgs(r)
+	if len(headerArgs) > 0 {
 		b.WriteString("\nheaders=(\n")
-		for _, h := range r.headers {
-			b.WriteString("  -H " + shQuote(h.name+": "+h.value) + "\n")
+		for _, g := range headerArgs {
+			b.WriteString("  " + strings.Join(g, " ") + "\n")
 		}
 		b.WriteString(")\n")
 	}
@@ -312,7 +359,7 @@ func renderShellScript(r request) string {
 	}
 
 	lines := []string{"curl -X " + r.method + ` "$url"`}
-	if len(r.headers) > 0 {
+	if len(headerArgs) > 0 {
 		// The reference is omitted along with the array: expanding an
 		// empty one under `set -u` is an error on bash before 4.4.
 		lines = append(lines, `"${headers[@]}"`)
