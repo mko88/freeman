@@ -183,6 +183,39 @@ func TestExecuteReturnsLargeBodyInline(t *testing.T) {
 	}
 }
 
+// TestEnvironmentDeleteRoute covers POST (create) then DELETE /api/environments/{id},
+// and that deleting the last one is refused.
+func TestEnvironmentDeleteRoute(t *testing.T) {
+	root := t.TempDir()
+	app := core.NewApp()
+	ws, err := app.OpenWorkspace(root)
+	if err != nil {
+		t.Fatalf("OpenWorkspace: %v", err)
+	}
+	defaultID := ws.Environments[0].ID
+
+	srv := httptest.NewServer(NewHandler(app, nil))
+	defer srv.Close()
+
+	var created domain.Environment
+	mustPost(t, srv.URL+"/api/environments", domain.Environment{Name: "Scratch"}, &created)
+	if created.ID == "" {
+		t.Fatal("expected a created environment with an ID")
+	}
+
+	mustDelete(t, srv.URL+"/api/environments/"+created.ID, http.StatusNoContent)
+
+	var list []map[string]any
+	mustGet(t, srv.URL+"/api/environments", &list)
+	for _, e := range list {
+		if e["id"] == created.ID {
+			t.Fatalf("environment %q still listed after DELETE", created.ID)
+		}
+	}
+
+	mustDelete(t, srv.URL+"/api/environments/"+defaultID, http.StatusInternalServerError)
+}
+
 // TestHeaderCatalogRoute checks GET /api/headers serves the built-in
 // catalog when the workspace has no headers.yaml, and merges one when it
 // does.

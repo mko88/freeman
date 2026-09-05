@@ -23,7 +23,7 @@ func LoadEnvironment(path string) (*domain.Environment, error) {
 		return nil, err
 	}
 
-	localData, err := readFile(localPathFor(path))
+	localData, err := readFile(LocalPathFor(path))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &e, nil
@@ -77,7 +77,7 @@ func SaveEnvironment(path string, e *domain.Environment) error {
 
 	if len(localVars) > 0 {
 		local := domain.Environment{FormatVersion: e.FormatVersion, ID: e.ID, Name: e.Name, Variables: localVars}
-		if err := writeJSON(localPathFor(path), &local); err != nil {
+		if err := writeJSON(LocalPathFor(path), &local); err != nil {
 			return err
 		}
 	}
@@ -85,7 +85,9 @@ func SaveEnvironment(path string, e *domain.Environment) error {
 	return nil
 }
 
-func localPathFor(path string) string {
+// LocalPathFor returns the sibling <name>.local.<ext> path an
+// environment's secret values are kept in (see LoadEnvironment).
+func LocalPathFor(path string) string {
 	ext := filepath.Ext(path)
 	return strings.TrimSuffix(path, ext) + ".local" + ext
 }

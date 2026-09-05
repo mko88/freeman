@@ -9,6 +9,7 @@
     DeleteRequest,
     GetEnvironment,
     SaveEnvironment,
+    DeleteEnvironment,
     ExecuteRequest,
     GetCachedResponse,
     ClearResponseCache,
@@ -179,7 +180,8 @@
     { method: 'DELETE', path: '/api/collections/{id}/requests/{itemId}', desc: 'Delete a saved request.' },
     { method: 'GET', path: '/api/environments', desc: 'List environments.' },
     { method: 'GET', path: '/api/environments/{id}', desc: 'Get an environment and its variables.' },
-    { method: 'POST', path: '/api/environments', desc: 'Save an environment. Body: a domain.Environment.' },
+    { method: 'POST', path: '/api/environments', desc: 'Save an environment (creates if id is empty). Body: a domain.Environment.' },
+    { method: 'DELETE', path: '/api/environments/{id}', desc: 'Delete an environment (refused for the last one).' },
     { method: 'POST', path: '/api/execute', desc: 'Execute a saved request. Body: {collectionId, itemId, environmentId}.' },
     { method: 'GET', path: '/api/theme', desc: 'Resolved color palette.' },
     { method: 'GET', path: '/api/headers', desc: 'Common request-header names/values for editor autocomplete (from headers.yaml).' },
@@ -210,6 +212,17 @@
       desc: "Switch the settings window tab. tab is 'workspace' or 'environments'.",
     },
     { action: 'selectEnvironment', payload: '{ id }', desc: 'Switch the active environment.' },
+    { action: 'newEnvironment', payload: '—', desc: 'Create a new environment and switch to it.' },
+    {
+      action: 'setEnvironmentField',
+      payload: "{ field: 'name', value }",
+      desc: 'Rename the environment currently in the editor (persisted by saveEnvironment).',
+    },
+    {
+      action: 'deleteEnvironment',
+      payload: '{ id? }',
+      desc: 'Delete an environment by id (default: the one in the editor). Refused for the last one; no confirmation.',
+    },
     { action: 'selectCollection', payload: '{ id }', desc: 'Switch the active collection.' },
     { action: 'selectRequest', payload: '{ id }', desc: 'Select a request in the sidebar.' },
     {
@@ -487,6 +500,19 @@
       case 'selectEnvironment':
         if (payload?.id) await selectEnvironment(String(payload.id))
         break
+      case 'newEnvironment':
+        await newEnvironment()
+        break
+      case 'setEnvironmentField':
+        if (payload?.field === 'name' && typeof payload?.value === 'string') {
+          setEnvironmentField('name', payload.value)
+        }
+        break
+      case 'deleteEnvironment': {
+        const id = payload?.id ? String(payload.id) : environmentId
+        if (id) await deleteEnvironment(id)
+        break
+      }
       case 'selectCollection':
         if (payload?.id) await selectCollection(String(payload.id))
         break
@@ -964,6 +990,41 @@
     environment = await GetEnvironment(id)
   }
 
+  async function newEnvironment() {
+    const draft = { formatVersion: '1', id: '', name: 'New environment', variables: [] }
+    const saved = await SaveEnvironment(draft as unknown as domain.Environment)
+    if (workspace) workspace.environments = [...workspace.environments, { id: saved.id, name: saved.name }]
+    await selectEnvironment(saved.id)
+  }
+
+  function setEnvironmentField(field: 'name', value: string) {
+    if (!environment) return
+    if (field === 'name') {
+      environment.name = value
+      environment = environment
+    }
+  }
+
+  async function deleteEnvironment(id: string) {
+    try {
+      await DeleteEnvironment(id)
+    } catch (e) {
+      logEvent(`deleteEnvironment failed: ${e}`)
+      return
+    }
+    if (workspace) workspace.environments = workspace.environments.filter((e) => e.id !== id)
+    if (environmentId === id && workspace?.environments.length) {
+      await selectEnvironment(workspace.environments[0].id)
+    }
+  }
+
+  function confirmDeleteEnvironment() {
+    if (!environment) return
+    if (confirm(`Delete environment "${environment.name}"? This can't be undone from the app.`)) {
+      deleteEnvironment(environmentId)
+    }
+  }
+
   function addEnvironmentVariable(initial?: Partial<domain.Variable>) {
     if (!environment) return
     environment.variables = [...environment.variables, { key: '', value: '', enabled: true, secret: false, ...initial }]
@@ -1220,6 +1281,15 @@
 <svelte:window on:pointermove={onWindowPointerMove} on:pointerup={onWindowPointerUp} />
 
 <div class="app-shell" class:is-resizing={draggingSplitter !== null}>
+  <header class="top-bar">
+    <span class="top-bar-title">Freeman</span>
+    <span class="top-bar-actions">
+      {#if workspace}
+        <button class="icon-btn top-bar-btn" title="Settings" on:click={() => (showSettings = true)}>⚙</button>
+      {/if}
+      <button class="icon-btn top-bar-btn" title="Control API help" on:click={() => (showHelp = true)}>?</button>
+    </span>
+  </header>
 {#if !workspace}
   <main class="welcome">
     <h1>Freeman</h1>
@@ -1528,10 +1598,6 @@
           Control API: desktop build only
         {/if}
       </span>
-      <span class="status-bar-actions">
-        <button class="icon-btn" title="Settings" on:click={() => (showSettings = true)}>⚙</button>
-        <button class="icon-btn" title="API help" on:click={() => (showHelp = true)}>?</button>
-      </span>
     </div>
     {#if showControlApiLog}
     <div class="status-log" bind:this={statusLogEl}>
@@ -1574,54 +1640,68 @@
           >
         </div>
 
-        {#if settingsTab === 'workspace'}
-          <p class="prose">Collections and environments are read from this folder.</p>
-          <div class="row">
-            <code class="workspace-path">{workspace.root}</code>
-            <button on:click={openWorkspace}>Change…</button>
-          </div>
-          {#if openError}<p class="error">{openError}</p>{/if}
-
-          <p class="prose">
-            Every request's last response is cached under this workspace (<code>.cache/responses</code>), so reopening it
-            later shows what it last returned.
-          </p>
-          <div class="row">
-            <button on:click={clearResponseCache}>Clear response cache</button>
-            {#if responseCacheCleared}<span class="muted">Cleared.</span>{/if}
-          </div>
-        {:else}
-          <div class="row">
-            <select bind:value={environmentId} on:change={() => selectEnvironment(environmentId)}>
-              {#each workspace.environments as env (env.id)}
-                <option value={env.id}>{env.name}</option>
-              {/each}
-            </select>
-          </div>
-
-          {#if environment}
-            <table class="kv-table">
-              <thead>
-                <tr><th></th><th>Key</th><th>Value</th><th>Secret</th><th></th></tr>
-              </thead>
-              <tbody>
-                {#each environment.variables as v, i}
-                  <tr>
-                    <td><input type="checkbox" bind:checked={v.enabled} /></td>
-                    <td><input type="text" bind:value={v.key} placeholder="key" /></td>
-                    <td><input type="text" bind:value={v.value} placeholder="value" /></td>
-                    <td><input type="checkbox" bind:checked={v.secret} /></td>
-                    <td><button class="icon-btn kv-remove-btn" on:click={() => removeEnvironmentVariable(i)}>×</button></td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
+        <div class="settings-body">
+          {#if settingsTab === 'workspace'}
+            <p class="prose">Collections and environments are read from this folder.</p>
             <div class="row">
-              <button on:click={() => addEnvironmentVariable()}>Add variable</button>
-              <button class="primary" on:click={saveEnvironment}>Save environment</button>
+              <code class="workspace-path">{workspace.root}</code>
+              <button on:click={openWorkspace}>Change…</button>
             </div>
+            {#if openError}<p class="error">{openError}</p>{/if}
+
+            <p class="prose">
+              Every request's last response is cached under this workspace (<code>.cache/responses</code>), so reopening
+              it later shows what it last returned.
+            </p>
+            <div class="row">
+              <button on:click={clearResponseCache}>Clear response cache</button>
+              {#if responseCacheCleared}<span class="muted">Cleared.</span>{/if}
+            </div>
+          {:else}
+            <div class="row">
+              <select bind:value={environmentId} on:change={() => selectEnvironment(environmentId)}>
+                {#each workspace.environments as env (env.id)}
+                  <option value={env.id}>{env.name}</option>
+                {/each}
+              </select>
+              <button on:click={newEnvironment}>New</button>
+            </div>
+
+            {#if environment}
+              <div class="row">
+                <input
+                  class="env-name"
+                  type="text"
+                  value={environment.name}
+                  on:input={(e) => setEnvironmentField('name', e.currentTarget.value)}
+                  placeholder="Environment name"
+                />
+                <button on:click={confirmDeleteEnvironment} disabled={workspace.environments.length <= 1}>Delete</button>
+              </div>
+
+              <table class="kv-table">
+                <thead>
+                  <tr><th></th><th>Key</th><th>Value</th><th>Secret</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {#each environment.variables as v, i}
+                    <tr>
+                      <td><input type="checkbox" bind:checked={v.enabled} /></td>
+                      <td><input type="text" bind:value={v.key} placeholder="key" /></td>
+                      <td><input type="text" bind:value={v.value} placeholder="value" /></td>
+                      <td><input type="checkbox" bind:checked={v.secret} /></td>
+                      <td><button class="icon-btn kv-remove-btn" on:click={() => removeEnvironmentVariable(i)}>×</button></td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+              <div class="row">
+                <button on:click={() => addEnvironmentVariable()}>Add variable</button>
+                <button class="primary" on:click={saveEnvironment}>Save environment</button>
+              </div>
+            {/if}
           {/if}
-        {/if}
+        </div>
       </div>
     </div>
   {/if}
@@ -1713,6 +1793,37 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
+  }
+
+  .top-bar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.3rem 0.9rem;
+    background: var(--fm-bg-panel);
+    border-bottom: 1px solid var(--fm-border);
+  }
+
+  .top-bar-title {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .top-bar-actions {
+    display: flex;
+    gap: 0.35rem;
+  }
+
+  .top-bar-btn {
+    font-size: 1.2rem;
+    line-height: 1;
+    padding: 0.25rem 0.55rem;
+    color: var(--fm-text-muted);
+  }
+
+  .top-bar-btn:hover {
+    color: var(--fm-text);
   }
 
   /* While a splitter is being dragged: lock the cursor and stop text
@@ -1809,16 +1920,11 @@
     flex: none;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 0.4rem;
     padding: 4px 10px;
     font-size: 0.75rem;
     color: var(--fm-text-muted);
     border-bottom: 1px solid var(--fm-border-subtle);
-  }
-
-  .status-bar-actions {
-    display: flex;
-    gap: 0.25rem;
   }
 
   .status-bar-header code {
@@ -1879,6 +1985,33 @@
   .help-modal {
     width: min(960px, 94vw);
     max-height: 94vh;
+  }
+
+  /* Same footprint as the help modal, but a fixed height so it doesn't
+     jump around between tabs, and a flex column so the header and tab
+     bar stay put while only .settings-body scrolls. */
+  .settings-modal {
+    width: min(960px, 94vw);
+    height: min(680px, 90vh);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .settings-modal > .modal-header,
+  .settings-modal > .tabs {
+    flex: none;
+  }
+
+  .settings-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .env-name {
+    flex: 1;
+    min-width: 0;
   }
 
   .modal-header {
