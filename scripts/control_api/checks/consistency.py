@@ -1,8 +1,9 @@
 """Makes CLAUDE.md's standing rule executable instead of remembered.
 
 A new interactive element is supposed to land in four places at once: a
-`case` in App.svelte's `dispatchUIAction`, a row in its `uiActions` help
-table, a mirrored field in `reportUIState`, and coverage in this suite.
+`case` in App.svelte's `dispatchUIAction`, a row in HelpModal.svelte's
+`uiActions` table, a mirrored field in `reportUIState`, and coverage in
+this suite.
 That held by hand for a long time, but "held by hand" is exactly the kind
 of thing that quietly stops holding — a code review found two documented
 actions the suite had never driven.
@@ -36,7 +37,7 @@ def _read(root: Path, rel: str) -> str:
 
 
 def _documented_actions(app_svelte: str) -> set[str]:
-    """Action names from the `uiActions` help table."""
+    """Action names from the `uiActions` help table (in components/HelpModal.svelte)."""
     table = _slice(app_svelte, "const uiActions = [", "\n  ]")
     return set(re.findall(r"action:\s*'([A-Za-z]+)'", table))
 
@@ -96,20 +97,23 @@ def test_consistency(r: Report, repo_root: Path) -> None:
     # spectacularly silly way for a consistency check to fail.
     r.section("Control-API consistency (help table vs dispatcher vs this suite vs Go routes)")
 
+    # The two tables live in the help modal that renders them; the
+    # dispatcher stays in App.svelte with the state it mutates.
+    help_modal = _read(repo_root, "cmd/freeman/frontend/src/components/HelpModal.svelte")
     app_svelte = _read(repo_root, "cmd/freeman/frontend/src/App.svelte")
-    documented = _documented_actions(app_svelte)
+    documented = _documented_actions(help_modal)
     dispatched = _dispatched_actions(app_svelte)
     driven = _driven_actions(Path(__file__).parent)
 
-    r.step("parsing App.svelte's uiActions / dispatchUIAction and this package's checks")
+    r.step("parsing HelpModal.svelte's tables, App.svelte's dispatcher, and this package's checks")
 
     # A parse that quietly returns nothing would make every diff below
     # look clean, so prove the parser still found the tables first.
     if len(documented) < 20 or len(dispatched) < 20:
         r.check(
-            "the parsers in consistency.py still find the uiActions/dispatchUIAction tables",
+            "the parsers in consistency.py still find the uiActions table and the dispatcher",
             False,
-            f"documented={len(documented)} dispatched={len(dispatched)} — App.svelte's shape changed, update consistency.py",
+            f"documented={len(documented)} dispatched={len(dispatched)} — the source moved or changed shape, update consistency.py",
         )
         return
     r.check(
@@ -149,7 +153,7 @@ def test_consistency(r: Report, repo_root: Path) -> None:
     )
 
     # --- apiEndpoints vs the routes Go actually registers ---
-    documented_routes = _documented_routes(app_svelte)
+    documented_routes = _documented_routes(help_modal)
     registered = _registered_routes(
         _read(repo_root, "internal/httpapi/handler.go"),
         _read(repo_root, "cmd/freeman/main.go"),

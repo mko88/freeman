@@ -22,6 +22,8 @@
   } from '$backend'
   import type { domain, httpengine, core } from '../wailsjs/go/models'
   import { EventsOn } from '../wailsjs/runtime/runtime'
+  import HelpModal from './components/HelpModal.svelte'
+  import { methodColor } from './lib/format'
   import { ControlAPIAddr, GetHeaderCatalog, SelectFile, ReportUIState } from '../wailsjs/go/wailsapp/App.js'
 
   // Common request headers (and, per header, common values) offered as
@@ -203,217 +205,11 @@
   // registered routes (handler.go) and main.go's POST /api/ui/action, and
   // the action names handled in dispatchUIAction below. Kept as plain
   // data here rather than generated, so keep both sides in sync by hand.
-  const apiEndpoints = [
-    { method: 'GET', path: '/api/health', desc: 'Health check.' },
-    { method: 'GET', path: '/api/workspace', desc: 'Current workspace (collection/environment summaries).' },
-    { method: 'GET', path: '/api/collections', desc: 'List collections.' },
-    { method: 'GET', path: '/api/collections/{id}', desc: 'Get a collection, including its requests.' },
-    { method: 'POST', path: '/api/collections/{id}/requests', desc: 'Save a request. Body: a domain.Item.' },
-    { method: 'DELETE', path: '/api/collections/{id}/requests/{itemId}', desc: 'Delete a saved request.' },
-    { method: 'GET', path: '/api/environments', desc: 'List environments.' },
-    { method: 'GET', path: '/api/environments/{id}', desc: 'Get an environment and its variables.' },
-    { method: 'POST', path: '/api/environments', desc: 'Save an environment (creates if id is empty). Body: a domain.Environment.' },
-    { method: 'DELETE', path: '/api/environments/{id}', desc: 'Delete an environment (refused for the last one).' },
-    { method: 'POST', path: '/api/execute', desc: 'Execute a saved request. Body: {collectionId, itemId, environmentId}.' },
-    {
-      method: 'POST',
-      path: '/api/codegen',
-      desc:
-        'Render a request as a runnable command. Body: {item: domain.Item, environmentId, format}. ' +
-        "format is 'curl', 'shell', 'powershell', or 'powershell-script'. Returns {code}.",
-    },
-    { method: 'GET', path: '/api/theme', desc: 'Resolved color palette.' },
-    { method: 'GET', path: '/api/headers', desc: 'Common request-header names/values for editor autocomplete (from headers.yaml).' },
-    { method: 'POST', path: '/api/ui/action', desc: 'Drive the GUI itself (desktop only, see below). Body: {action, payload}.' },
-    {
-      method: 'GET',
-      path: '/api/ui/state',
-      desc:
-        'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/params/headers/auth/' +
-        'formFields/codeFormat/code (the Code tab’s rendered command, when that tab is open)/' +
-        'tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
-        '(truncated/bodyFile in place of body when it was too large — bodyFile is its path in the ' +
-        'per-request on-disk cache, see clearResponseCache; capped when the response outgrew the ' +
-        'in-memory ceiling and body holds only what was read); responseTab (body/headers), ' +
-        'responseView (pretty/raw) and responseKind (json/xml/html/image/text, lightly autodetected))/' +
-        'showResponseActionsMenu/showSettings/settingsTab/showHelp/sidebarWidth/statusBarHeight/showControlApiLog — so a script ' +
-        "can read what the UI shows instead of screenshotting it (desktop only).",
-    },
-  ]
 
   // Action names spell out their target explicitly — Request or
   // Environment — wherever one applies, rather than a bare verb (e.g.
   // addRequestHeader/addEnvironmentVariable, not addHeader/addVariable),
   // so the list reads unambiguously on its own.
-  const uiActions = [
-    { action: 'toggleSettings', payload: '—', desc: 'Open/close the settings window (workspace folder, environments).' },
-    {
-      action: 'selectSettingsTab',
-      payload: '{ tab }',
-      desc: "Switch the settings window tab. tab is 'workspace' or 'environments'.",
-    },
-    { action: 'selectEnvironment', payload: '{ id }', desc: 'Switch the active environment.' },
-    { action: 'newEnvironment', payload: '—', desc: 'Create a new environment and switch to it.' },
-    {
-      action: 'setEnvironmentField',
-      payload: "{ field: 'name', value }",
-      desc: 'Rename the environment currently in the editor (persisted by saveEnvironment).',
-    },
-    {
-      action: 'deleteEnvironment',
-      payload: '{ id? }',
-      desc: 'Delete an environment by id (default: the one in the editor). Refused for the last one; no confirmation.',
-    },
-    { action: 'selectCollection', payload: '{ id }', desc: 'Switch the active collection.' },
-    { action: 'selectRequest', payload: '{ id }', desc: 'Select a request in the sidebar.' },
-    {
-      action: 'deleteRequest',
-      payload: '{ id }',
-      desc: 'Delete a saved request. Unlike the sidebar’s delete button, this does not ask for confirmation.',
-    },
-    { action: 'newRequest', payload: '—', desc: 'Clear the editor for a new, unsaved request.' },
-    { action: 'saveRequest', payload: '—', desc: 'Save the request currently in the editor.' },
-    { action: 'sendRequest', payload: '—', desc: 'Save, then execute, the request currently in the editor.' },
-    {
-      action: 'toggleResponseActionsMenu',
-      payload: '—',
-      desc: 'Open/close the response pane\'s "..." actions menu.',
-    },
-    {
-      action: 'setResponseTab',
-      payload: '{ tab }',
-      desc: "Switch the response panel. tab is 'body' or 'headers' (the response's headers).",
-    },
-    {
-      action: 'setResponseView',
-      payload: '{ view }',
-      desc: "Switch the response body view. view is 'pretty' (JSON/XML pretty-printed + highlighted) or 'raw'.",
-    },
-    {
-      action: 'openResponseCacheExternally',
-      payload: '—',
-      desc: 'Open the selected request\'s cached response body in its default external application (any response, not just a truncated one; desktop only).',
-    },
-    {
-      action: 'copyResponseCachePath',
-      payload: '—',
-      desc: "Copy the selected request's cached response body file path to the clipboard.",
-    },
-    {
-      action: 'openResponseCacheInFileExplorer',
-      payload: '—',
-      desc: "Reveal the selected request's cached response body file in the OS file manager (desktop only).",
-    },
-    {
-      action: 'clearCachedResponse',
-      payload: '—',
-      desc: "Delete just the selected request's cached response and clear the pane.",
-    },
-    {
-      action: 'clearResponseCache',
-      payload: '—',
-      desc: "Delete every cached response in the open workspace (see GET /api/ui/state's response field).",
-    },
-    { action: 'openWorkspace', payload: '{ path }', desc: 'Open a workspace by path (no folder dialog).' },
-    { action: 'toggleHelp', payload: '—', desc: 'Open/close this help panel.' },
-    {
-      action: 'selectRequestTab',
-      payload: '{ tab }',
-      desc: "Switch the request editor tab. tab is 'params', 'headers', 'auth', 'body' or 'code'.",
-    },
-    {
-      action: 'selectCodeFormat',
-      payload: '{ format }',
-      desc:
-        "Switch the Code tab's output. format is 'curl', 'shell' (curl as a bash script), 'powershell', " +
-        "or 'powershell-script'. Read the rendered command from GET /api/ui/state's code field.",
-    },
-    {
-      action: 'copyRequestCode',
-      payload: '—',
-      desc: "Copy the Code tab's rendered command to the clipboard.",
-    },
-    {
-      action: 'toggleRequestPane',
-      payload: '—',
-      desc: 'Collapse/expand the request editor’s Headers/Body content (same as clicking the active tab).',
-    },
-    { action: 'toggleControlApiLog', payload: '—', desc: 'Collapse/expand the control API log at the bottom.' },
-    { action: 'setSidebarWidth', payload: '{ px }', desc: 'Resize the request list (clamped to a sane range).' },
-    {
-      action: 'setStatusBarHeight',
-      payload: '{ px }',
-      desc: 'Resize the control API log panel (clamped to a sane range).',
-    },
-    {
-      action: 'setRequestField',
-      payload: '{ field, value }',
-      desc:
-        "Set a field in the request currently in the editor (before saving). field is 'name', 'method', " +
-        "'url', 'bodyRaw', 'bodyMode', or 'binaryFilePath'. bodyMode's value is 'none', 'raw', 'form-data', " +
-        "'x-www-form-urlencoded', or 'binary'. binaryFilePath is the local path sent as the whole body when " +
-        "bodyMode is 'binary'.",
-    },
-    {
-      action: 'setRequestAuth',
-      payload: "{ field, value }",
-      desc:
-        "Set an Auth-tab field on the request in the editor (before saving). field is 'type', 'token', " +
-        "'username', 'password', 'key', or 'value'. type is 'none', 'bearer', 'basic', or 'apikey'; the " +
-        "engine turns a non-none auth into a header (Bearer/Basic Authorization, or key: value) at send time.",
-    },
-    {
-      action: 'addRequestHeader',
-      payload: '{ key?, value?, enabled? }',
-      desc: 'Add a header row, optionally pre-filled (all fields optional; blank if omitted).',
-    },
-    {
-      action: 'setRequestHeader',
-      payload: '{ index, key?, value?, enabled? }',
-      desc: 'Populate an existing header row by its position.',
-    },
-    { action: 'removeRequestHeader', payload: '{ index } | { key }', desc: 'Remove a header row by its position or by key.' },
-    {
-      action: 'addRequestParam',
-      payload: '{ key?, value?, enabled? }',
-      desc: 'Add a query-param row, optionally pre-filled (all fields optional; blank if omitted).',
-    },
-    {
-      action: 'setRequestParam',
-      payload: '{ index, key?, value?, enabled? }',
-      desc: 'Populate an existing query-param row by its position.',
-    },
-    { action: 'removeRequestParam', payload: '{ index } | { key }', desc: 'Remove a query-param row by its position or by key.' },
-    {
-      action: 'addRequestFormField',
-      payload: '{ key?, value?, enabled?, type?, filePath? }',
-      desc:
-        "Add a form-data / URL-encoded body field row, optionally pre-filled. type is 'text' or 'file'; " +
-        "type 'file' + filePath uploads a local file (form-data only — urlencoded can't carry one).",
-    },
-    {
-      action: 'setRequestFormField',
-      payload: '{ index, key?, value?, enabled?, type?, filePath? }',
-      desc: "Populate an existing form field row by its position. type is 'text' or 'file'.",
-    },
-    {
-      action: 'removeRequestFormField',
-      payload: '{ index } | { key }',
-      desc: 'Remove a form field row by its position or by key.',
-    },
-    {
-      action: 'addEnvironmentVariable',
-      payload: '{ key?, value?, enabled?, secret? }',
-      desc: 'Add a variable row to the open environment, optionally pre-filled.',
-    },
-    {
-      action: 'setEnvironmentVariable',
-      payload: '{ index, key?, value?, enabled?, secret? }',
-      desc: 'Populate an existing variable row by its position.',
-    },
-    { action: 'removeEnvironmentVariable', payload: '{ index } | { key }', desc: 'Remove a variable row by its position or by key.' },
-    { action: 'saveEnvironment', payload: '—', desc: 'Save the environment currently in the editor.' },
-  ]
 
   // Log of ui:action events received from the control API (see
   // internal/wailsapp.DispatchUIAction) — rendered in the status bar so
@@ -1412,24 +1208,6 @@
       responseImageUri = null
     }
   }
-
-  // Each HTTP method gets one consistent color everywhere it appears
-  // (sidebar row accent, method tag, the method select) — a real
-  // structural device: the method is the single most important fact
-  // about a saved request, so it's the one thing this UI color-codes.
-  // POST/PATCH/DELETE deliberately reuse the accent/success/error tokens
-  // rather than getting their own hues, so the method system and the
-  // status/action system read as one palette, not two.
-  const methodColorVar: Record<string, string> = {
-    GET: 'var(--fm-method-get)',
-    POST: 'var(--fm-accent)',
-    PUT: 'var(--fm-method-put)',
-    PATCH: 'var(--fm-success)',
-    DELETE: 'var(--fm-error)',
-  }
-  function methodColor(method: string): string {
-    return methodColorVar[method] ?? 'var(--fm-method-neutral)'
-  }
 </script>
 
 <svelte:window on:pointermove={onWindowPointerMove} on:pointerup={onWindowPointerUp} />
@@ -1930,90 +1708,11 @@
   {/if}
 
   {#if showHelp}
-    <div
-      class="modal-backdrop"
-      role="presentation"
-      on:click={() => (showHelp = false)}
-      on:keydown={(e) => e.key === 'Escape' && (showHelp = false)}
-    >
-      <div
-        class="modal help-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="help-title"
-        tabindex="-1"
-        on:click|stopPropagation
-        on:keydown={(e) => e.key === 'Escape' && (showHelp = false)}
-      >
-        <div class="modal-header">
-          <h2 id="help-title">Control API</h2>
-          <button class="icon-btn" title="Close" on:click={() => (showHelp = false)}>×</button>
-        </div>
-        <p class="hint prose">
-          {#if controlApiAddr}
-            Base URL: <code>http://{controlApiAddr}</code> — no auth, loopback-only. Requests with a body must
-            send <code>Content-Type: application/json</code>, and anything a browser marks as coming from
-            another site is refused — that's what stops a web page you have open from driving this.
-          {:else}
-            Only available in the desktop build.
-          {/if}
-        </p>
-
-        <h3>Endpoints</h3>
-        <div class="help-list">
-          {#each apiEndpoints as e}
-            <details class="help-entry">
-              <summary>
-                <span class="help-method" style="color: {methodColor(e.method)}">{e.method}</span>
-                <code>{e.path}</code>
-              </summary>
-              <p class="prose help-desc">{e.desc}</p>
-            </details>
-          {/each}
-        </div>
-
-        <h3>UI actions (via POST /api/ui/action)</h3>
-        <div class="help-list">
-          {#each uiActions as a}
-            <details class="help-entry">
-              <summary>
-                <code>{a.action}</code>
-                <span class="help-payload">{a.payload}</span>
-              </summary>
-              <p class="prose help-desc">{a.desc}</p>
-            </details>
-          {/each}
-        </div>
-      </div>
-    </div>
+    <HelpModal {controlApiAddr} onClose={() => (showHelp = false)} />
   {/if}
 </div>
 
 <style>
-  :global(body) {
-    overflow: hidden;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  /* The one place this monospace-forward interface switches to a
-     proportional face — actual sentences, not labels/data. See
-     style.css's font-face rules. */
-  .prose {
-    font-family: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
-    line-height: 1.55;
-  }
-
-  :focus-visible {
-    outline: 2px solid var(--fm-accent);
-    outline-offset: 1px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    * {
-      transition: none !important;
-    }
-  }
-
   .app-shell {
     display: flex;
     flex-direction: column;
@@ -2181,37 +1880,6 @@
     margin-right: 8px;
   }
 
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10;
-  }
-
-  .modal {
-    width: min(720px, 90vw);
-    max-height: 80vh;
-    overflow-y: auto;
-    background: var(--fm-bg);
-    border: 1px solid var(--fm-border);
-    border-radius: var(--fm-radius-lg);
-    padding: 1rem 1.25rem;
-    text-align: left;
-  }
-
-  /* Wider (more room for Path/Description before either wraps) and a
-     taller cap — with the two reference tables below sized to their own
-     content instead of fighting the layout, this fits without scrolling
-     at any normal window size; overflow-y stays as a safety net only,
-     not the expected outcome. */
-  .help-modal {
-    width: min(960px, 94vw);
-    max-height: 94vh;
-  }
-
   /* Same footprint as the help modal, but a fixed height so it doesn't
      jump around between tabs, and a flex column so the header and tab
      bar stay put while only .settings-body scrolls. */
@@ -2253,127 +1921,12 @@
     margin-left: auto;
   }
 
-  .modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 0.5rem;
-  }
-
-  .modal-header h2 {
-    margin: 0;
-    font-size: 1.05rem;
-    font-weight: 600;
-  }
-
-  /* A modal's action/control row (the settings window's workspace-path +
-     Change…, and the Environments tab's field and action rows). */
-  .modal .row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-  }
-
   .workspace-path {
     flex: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .modal .row select {
-    flex: 1;
-  }
-
-  /* Sentence case, not tracked-out caps — weight and color carry the
-     hierarchy instead. */
-  .modal h3 {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--fm-text-muted);
-    margin: 1rem 0 0.5rem;
-  }
-
-  .modal table {
-    font-size: 0.8rem;
-  }
-
-  .modal td,
-  .modal th {
-    padding: 4px 8px 4px 0;
-    text-align: left;
-    vertical-align: top;
-    border-bottom: 1px solid var(--fm-border-subtle);
-  }
-
-  /* The help modal's endpoint / ui:action reference: each row is a
-     collapsed <details> showing just the method+path (or action+payload)
-     — the prose description is revealed on click, so the whole list
-     scans at a glance first. */
-  .help-list {
-    border: 1px solid var(--fm-border-subtle);
-    border-radius: var(--fm-radius);
-    overflow: hidden;
-  }
-
-  .help-entry + .help-entry {
-    border-top: 1px solid var(--fm-border-subtle);
-  }
-
-  .help-entry > summary {
-    display: flex;
-    align-items: baseline;
-    gap: 0.6rem;
-    padding: 0.4rem 0.6rem;
-    font-size: 0.8rem;
-    cursor: pointer;
-    user-select: none;
-    list-style: none;
-  }
-
-  .help-entry > summary::-webkit-details-marker {
-    display: none;
-  }
-
-  /* Same ▸/▾ collapse glyph the tabs and the log panel use. */
-  .help-entry > summary::before {
-    content: '▸';
-    color: var(--fm-text-muted);
-    font-size: 0.7em;
-  }
-
-  .help-entry[open] > summary::before {
-    content: '▾';
-  }
-
-  .help-entry > summary:hover {
-    background: var(--fm-bg-hover);
-  }
-
-  .help-method {
-    font-weight: 600;
-    min-width: 3.25rem;
-  }
-
-  .help-payload {
-    color: var(--fm-text-muted);
-    overflow-wrap: anywhere;
-  }
-
-  .help-desc {
-    margin: 0;
-    padding: 0.1rem 0.6rem 0.55rem 1.85rem;
-    font-size: 0.8rem;
-    color: var(--fm-text-muted);
-  }
-
-  code {
-    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
-    background: var(--fm-bg-elevated);
-    padding: 1px 5px;
-    border-radius: var(--fm-radius);
   }
 
   /* No width here — set inline from sidebarWidth (see the splitter next
@@ -2499,154 +2052,12 @@
     margin-bottom: 0.75rem;
   }
 
-  .tabs {
-    display: flex;
-    gap: 0.25rem;
-    border-bottom: 1px solid var(--fm-border-subtle);
-  }
-
-  .tabs button {
-    background: none;
-    border: none;
-    border-radius: 0;
-    color: var(--fm-text-muted);
-    padding: 0.5rem 0.75rem;
-    cursor: pointer;
-    transition: color 0.12s ease;
-  }
-
-  .tabs button:hover {
-    color: var(--fm-text);
-  }
-
-  .tabs button.active {
-    color: var(--fm-text);
-    border-bottom: 2px solid var(--fm-accent);
-  }
-
-  /* Same glyph, same meaning, as the control-API log's own collapse
-     toggle — one collapse language reused rather than two. Shown only
-     on the active tab: it's what clicking that tab again will do. */
-  .tab-chevron {
-    margin-left: 0.3em;
-    color: var(--fm-text-muted);
-  }
-
-  /* How many rows a tab holds, so the ones you're not looking at still
-     say whether there's anything in them. */
-  .tab-count {
-    margin-left: 0.4em;
-    padding: 0.05em 0.4em;
-    font-size: 0.75em;
-    border-radius: 999px;
-    background: var(--fm-bg-hover);
-    color: var(--fm-text-muted);
-  }
-
-  .tabs button.active .tab-count {
-    color: var(--fm-text);
-  }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-
-  /* .kv-table: the editable key/value grids (env variables, request
-     headers) — fixed layout with narrow checkbox/remove-button columns,
-     so wide text inputs can't force the layout and overlap each other.
-     Scoped to this class rather than a bare `table` selector so it
-     doesn't also squash the help modal's plain reference tables, which
-     want auto layout with a wide Description column. */
-  .kv-table {
-    table-layout: fixed;
-  }
-
-  .kv-table td,
-  .kv-table th {
-    padding: 4px 6px;
-  }
-
-  .kv-table td:first-child,
-  .kv-table th:first-child {
-    width: 2.25rem;
-    padding-left: 0;
-  }
-
-  .kv-table td:last-child,
-  .kv-table th:last-child {
-    width: 2.25rem;
-    padding-right: 0;
-  }
-
   /* The Environments tab's table has a second narrow (checkbox) column —
      Secret — that isn't first or last, so it needs its own rule or it'd
      claim an even share of the remaining width like Key/Value do. */
   .settings-modal .kv-table th:nth-child(4),
   .settings-modal .kv-table td:nth-child(4) {
     width: 4.5rem;
-  }
-
-  .kv-table input[type='text'] {
-    width: 100%;
-  }
-
-  /* Every "enabled"-style checkbox (header/param/form-field/variable rows)
-     replaces the OS default with a box built from the same tokens as the
-     text input next to it — border, background, radius — sized close to
-     that input's own rendered height (see .kv-table's first/last column
-     widths, bumped to fit) rather than the native checkbox's small fixed
-     size floating in the middle of a much taller row. */
-  input[type='checkbox'] {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 1.75rem;
-    height: 1.75rem;
-    padding: 0;
-    margin: 0;
-    display: inline-grid;
-    place-content: center;
-    cursor: pointer;
-  }
-
-  input[type='checkbox']:checked {
-    background: var(--fm-accent);
-    border-color: var(--fm-accent);
-  }
-
-  input[type='checkbox']:checked:hover {
-    background: color-mix(in srgb, var(--fm-accent) 85%, white);
-    border-color: color-mix(in srgb, var(--fm-accent) 85%, white);
-  }
-
-  input[type='checkbox']:checked::after {
-    content: '';
-    width: 0.4rem;
-    height: 0.75rem;
-    border: solid var(--fm-bg);
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg) translate(-1px, -2px);
-  }
-
-  /* The X that removes one row from a .kv-table (a header/param/
-     form-field/variable) — sized to match the checkbox in the same row
-     rather than .icon-btn's smaller default, and tinted toward
-     --fm-error on hover so the row it's about to remove is unambiguous.
-     A different class from the sidebar's delete/dialog-close ×s, which
-     stay at .icon-btn's own size — those close/delete a whole
-     request/dialog, not one row in a table. */
-  .kv-remove-btn {
-    width: 1.75rem;
-    height: 1.75rem;
-    padding: 0;
-    font-size: 1rem;
-    line-height: 1;
-    color: var(--fm-text-muted);
-  }
-
-  .kv-remove-btn:hover {
-    color: var(--fm-error);
-    background: color-mix(in srgb, var(--fm-error) 14%, transparent);
   }
 
   .body-editor {
@@ -3006,85 +2417,5 @@
   .response-truncated-actions {
     display: flex;
     gap: 0.5rem;
-  }
-
-  .muted {
-    opacity: 0.6;
-  }
-
-  .error {
-    color: var(--fm-error);
-  }
-
-  input,
-  select,
-  textarea,
-  button {
-    box-sizing: border-box;
-    font-family: inherit;
-    font-size: 0.9rem;
-    color: inherit;
-    background: var(--fm-bg-elevated);
-    border: 1px solid var(--fm-border);
-    border-radius: var(--fm-radius);
-    padding: 0.4rem 0.5rem;
-    transition: background-color 0.12s ease, border-color 0.12s ease;
-  }
-
-  input:hover,
-  select:hover,
-  textarea:hover,
-  button:hover {
-    border-color: var(--fm-text-muted);
-  }
-
-  button {
-    cursor: pointer;
-  }
-
-  button:hover {
-    background: var(--fm-bg-hover);
-  }
-
-  button:active {
-    background: var(--fm-bg-hover);
-    transform: translateY(1px);
-  }
-
-  button.primary {
-    background: var(--fm-accent);
-    border-color: var(--fm-accent);
-    color: var(--fm-bg);
-    font-weight: 600;
-  }
-
-  button.primary:hover {
-    background: color-mix(in srgb, var(--fm-accent) 85%, white);
-    border-color: color-mix(in srgb, var(--fm-accent) 85%, white);
-  }
-
-  button:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-  }
-
-  button:disabled:hover {
-    background: var(--fm-bg-elevated);
-  }
-
-  button.primary:disabled:hover {
-    background: var(--fm-accent);
-  }
-
-  .icon-btn {
-    background: none;
-    border: none;
-    border-radius: var(--fm-radius);
-    padding: 0.1rem 0.4rem;
-  }
-
-  .icon-btn:hover {
-    background: var(--fm-bg-hover);
-    border-color: transparent;
   }
 </style>
