@@ -120,9 +120,29 @@ got its first tests (0% → 46.8%), covering the cache round trip, the
 extension swap on a changed Content-Type, `trimLargeBody` either side of
 the threshold, and the traversal refusals.
 
+**Update 2026-09-05 (test suite):** `scripts/test_control_api.py` had
+grown to ~1,700 lines in one file, so it's a package now — that file is
+just the entry point (argument parsing, the three-phase run order) and
+`scripts/control_api/` holds `client.py`, `report.py`, `fixtures.py`, and
+one module per group of checks under `checks/`. Still stdlib-only, still
+`py scripts/test_control_api.py`.
+
+The four-places-at-once rule (dispatcher, help table, state mirror,
+suite) is now enforced by `checks/consistency.py` instead of being
+remembered: it diffs `uiActions` against `dispatchUIAction`'s cases, both
+against the actions the checks actually fire, and `apiEndpoints` against
+the routes registered in Go. It reads source only, so
+`--consistency-only` runs it with no app open — which also makes it the
+one part of this suite CI can run. It immediately found the drift the
+code review had spotted by hand: `setRequestHeader`,
+`setRequestFormField` and `copyResponseCachePath` were documented but
+never driven. All three are covered now; the only exemptions are the two
+actions that launch an external editor or file manager, listed with
+reasons in that module's `UNDRIVEABLE` map.
+
 Still open from that review: `App.svelte` at 3k lines, no CI, the
-unenforced `$backend` contract, the four hand-synced action lists, the
-unused `script`/`importer` stubs, and no root README.
+unenforced `$backend` contract, the unused `script`/`importer` stubs, and
+no root README.
 
 ---
 
