@@ -1016,7 +1016,7 @@
                     </datalist>
                   {/if}
                 </td>
-                <td><button class="icon-btn" on:click={() => removeRequestHeader(i)}>×</button></td>
+                <td><button class="icon-btn kv-remove-btn" on:click={() => removeRequestHeader(i)}>×</button></td>
               </tr>
             {/each}
           </tbody>
@@ -1068,7 +1068,7 @@
                       <input type="text" bind:value={f.value} placeholder="value" />
                     {/if}
                   </td>
-                  <td><button class="icon-btn" on:click={() => removeRequestFormField(i)}>×</button></td>
+                  <td><button class="icon-btn kv-remove-btn" on:click={() => removeRequestFormField(i)}>×</button></td>
                 </tr>
               {/each}
             </tbody>
@@ -1227,7 +1227,7 @@
                     <td><input type="text" bind:value={v.key} placeholder="key" /></td>
                     <td><input type="text" bind:value={v.value} placeholder="value" /></td>
                     <td><input type="checkbox" bind:checked={v.secret} /></td>
-                    <td><button class="icon-btn" on:click={() => removeEnvironmentVariable(i)}>×</button></td>
+                    <td><button class="icon-btn kv-remove-btn" on:click={() => removeEnvironmentVariable(i)}>×</button></td>
                   </tr>
                 {/each}
               </tbody>
@@ -1764,13 +1764,13 @@
 
   .kv-table td:first-child,
   .kv-table th:first-child {
-    width: 1.75rem;
+    width: 2.25rem;
     padding-left: 0;
   }
 
   .kv-table td:last-child,
   .kv-table th:last-child {
-    width: 1.75rem;
+    width: 2.25rem;
     padding-right: 0;
   }
 
@@ -1784,6 +1784,64 @@
 
   .kv-table input[type='text'] {
     width: 100%;
+  }
+
+  /* Every "enabled"-style checkbox (header/param/form-field/variable rows)
+     replaces the OS default with a box built from the same tokens as the
+     text input next to it — border, background, radius — sized close to
+     that input's own rendered height (see .kv-table's first/last column
+     widths, bumped to fit) rather than the native checkbox's small fixed
+     size floating in the middle of a much taller row. */
+  input[type='checkbox'] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    margin: 0;
+    display: inline-grid;
+    place-content: center;
+    cursor: pointer;
+  }
+
+  input[type='checkbox']:checked {
+    background: var(--fm-accent);
+    border-color: var(--fm-accent);
+  }
+
+  input[type='checkbox']:checked:hover {
+    background: color-mix(in srgb, var(--fm-accent) 85%, white);
+    border-color: color-mix(in srgb, var(--fm-accent) 85%, white);
+  }
+
+  input[type='checkbox']:checked::after {
+    content: '';
+    width: 0.4rem;
+    height: 0.75rem;
+    border: solid var(--fm-bg);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg) translate(-1px, -2px);
+  }
+
+  /* The X that removes one row from a .kv-table (a header/param/
+     form-field/variable) — sized to match the checkbox in the same row
+     rather than .icon-btn's smaller default, and tinted toward
+     --fm-error on hover so the row it's about to remove is unambiguous.
+     A different class from the sidebar's delete/dialog-close ×s, which
+     stay at .icon-btn's own size — those close/delete a whole
+     request/dialog, not one row in a table. */
+  .kv-remove-btn {
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    font-size: 1rem;
+    line-height: 1;
+    color: var(--fm-text-muted);
+  }
+
+  .kv-remove-btn:hover {
+    color: var(--fm-error);
+    background: color-mix(in srgb, var(--fm-error) 14%, transparent);
   }
 
   .body-editor {
