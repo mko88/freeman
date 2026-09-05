@@ -76,9 +76,24 @@ carries a standing regression check for a real concurrency bug found
 script's own comments for the fix in `App.svelte` and
 `internal/store/format.go`).
 
+The suite is a package, not one file: `scripts/test_control_api.py` is
+the entry point (argument parsing and the three-phase run order) and
+`scripts/control_api/` holds the rest — `client.py`, `report.py`,
+`fixtures.py`, and one module per group of checks under `checks/`.
+
 **Whenever a `ui:action` is added, removed, or its payload shape
-changes, update this script's matching section in the same change** —
-it's the regression suite for the rule above, not a one-off.
+changes, update the matching module under `scripts/control_api/checks/`
+in the same change** — it's the regression suite for the rule above, not
+a one-off.
+
+`checks/consistency.py` enforces that mechanically rather than trusting
+anyone to remember it: it diffs the `uiActions` help table against
+`dispatchUIAction`'s cases, both against the actions these checks
+actually fire, and `apiEndpoints` against the routes registered in Go.
+It reads source only, so `py scripts/test_control_api.py
+--consistency-only` runs it with no app open. An action that genuinely
+can't be driven headlessly goes in that module's `UNDRIVEABLE` map with
+a reason — don't widen it to silence a check you simply haven't written.
 
 ## No changelog comments in code
 
