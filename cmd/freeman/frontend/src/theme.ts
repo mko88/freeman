@@ -16,6 +16,9 @@ const TOKEN_NAMES = [
   'error',
   'success',
   'warning',
+  'methodGet',
+  'methodPut',
+  'methodNeutral',
 ]
 
 // Applies any tokens the Go backend resolved (see internal/theme —
@@ -34,6 +37,10 @@ export async function applyTheme(): Promise<void> {
   const root = document.documentElement
   for (const name of TOKEN_NAMES) {
     const value = palette[name]
-    if (value) root.style.setProperty(`--fm-${name}`, value)
+    // theme.css's custom properties are kebab-case (--fm-bg-panel); Go's
+    // Colors map and this file's TOKEN_NAMES are camelCase (bgPanel) to
+    // match Go/JS naming conventions — convert here rather than making
+    // either side use the other's case convention.
+    if (value) root.style.setProperty(`--fm-${name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`, value)
   }
 }

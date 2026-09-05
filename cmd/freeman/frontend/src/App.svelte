@@ -121,14 +121,19 @@
     { action: 'sendRequest', payload: '—', desc: 'Save, then execute, the request currently in the editor.' },
     { action: 'openWorkspace', payload: '{ path }', desc: 'Open a workspace by path (no folder dialog).' },
     { action: 'toggleHelp', payload: '—', desc: 'Open/close this help panel.' },
-    { action: 'selectRequestTab', payload: "{ tab }  // 'headers' | 'body'", desc: 'Switch the request editor tab.' },
+    {
+      action: 'selectRequestTab',
+      payload: '{ tab }',
+      desc: "Switch the request editor tab. tab is 'headers' or 'body'.",
+    },
     {
       action: 'setRequestField',
-      payload:
-        "{ field, value }  // field: 'name'|'method'|'url'|'bodyRaw'|'bodyMode'|'binaryFilePath'\n" +
-        "  // bodyMode value: 'none'|'raw'|'form-data'|'x-www-form-urlencoded'|'binary'\n" +
-        "  // binaryFilePath: local path to send as the whole body (mode 'binary')",
-      desc: "Set a field in the request currently in the editor (before saving).",
+      payload: '{ field, value }',
+      desc:
+        "Set a field in the request currently in the editor (before saving). field is 'name', 'method', " +
+        "'url', 'bodyRaw', 'bodyMode', or 'binaryFilePath'. bodyMode's value is 'none', 'raw', 'form-data', " +
+        "'x-www-form-urlencoded', or 'binary'. binaryFilePath is the local path sent as the whole body when " +
+        "bodyMode is 'binary'.",
     },
     {
       action: 'addRequestHeader',
@@ -143,15 +148,15 @@
     { action: 'removeRequestHeader', payload: '{ index } | { key }', desc: 'Remove a header row by its position or by key.' },
     {
       action: 'addRequestFormField',
-      payload: "{ key?, value?, enabled?, type?, filePath? }  // type: 'text'|'file'",
+      payload: '{ key?, value?, enabled?, type?, filePath? }',
       desc:
-        'Add a form-data / URL-encoded body field row, optionally pre-filled. ' +
+        "Add a form-data / URL-encoded body field row, optionally pre-filled. type is 'text' or 'file'; " +
         "type 'file' + filePath uploads a local file (form-data only — urlencoded can't carry one).",
     },
     {
       action: 'setRequestFormField',
-      payload: "{ index, key?, value?, enabled?, type?, filePath? }  // type: 'text'|'file'",
-      desc: 'Populate an existing form field row by its position.',
+      payload: '{ index, key?, value?, enabled?, type?, filePath? }',
+      desc: "Populate an existing form field row by its position. type is 'text' or 'file'.",
     },
     {
       action: 'removeRequestFormField',
@@ -661,13 +666,31 @@
     if (code >= 400 && code < 500) return 'warning'
     return 'error'
   }
+
+  // Each HTTP method gets one consistent color everywhere it appears
+  // (sidebar row accent, method tag, the method select) — a real
+  // structural device: the method is the single most important fact
+  // about a saved request, so it's the one thing this UI color-codes.
+  // POST/PATCH/DELETE deliberately reuse the accent/success/error tokens
+  // rather than getting their own hues, so the method system and the
+  // status/action system read as one palette, not two.
+  const methodColorVar: Record<string, string> = {
+    GET: 'var(--fm-method-get)',
+    POST: 'var(--fm-accent)',
+    PUT: 'var(--fm-method-put)',
+    PATCH: 'var(--fm-success)',
+    DELETE: 'var(--fm-error)',
+  }
+  function methodColor(method: string): string {
+    return methodColorVar[method] ?? 'var(--fm-method-neutral)'
+  }
 </script>
 
 <div class="app-shell">
 {#if !workspace}
   <main class="welcome">
     <h1>Freeman</h1>
-    <p>Pick a folder to use as a workspace for your collections and environments.</p>
+    <p class="prose">Pick a folder to use as a workspace for your collections and environments.</p>
     <button class="primary" on:click={openWorkspace}>Choose workspace folder</button>
     {#if openError}<p class="error">{openError}</p>{/if}
   </main>
@@ -680,7 +703,7 @@
       </div>
       <ul class="request-list">
         {#each collection?.items ?? [] as item (item.id)}
-          <li class:active={item.id === selectedItemId}>
+          <li class:active={item.id === selectedItemId} style="--m: {methodColor(item.method || 'GET')}">
             <button class="request-select" on:click={() => selectRequest(item)}>
               <span class="method-tag">{item.method || 'GET'}</span>
               <span class="request-select-name">{item.name}</span>
@@ -708,7 +731,7 @@
       </div>
 
       <div class="url-bar">
-        <select bind:value={draftMethod}>
+        <select class="method-select" bind:value={draftMethod} style="--m: {methodColor(draftMethod)}">
           {#each methods as m}<option value={m}>{m}</option>{/each}
         </select>
         <input type="text" bind:value={draftUrl} placeholder="https://api.example.com/{'{'}{'{'}baseUrl{'}'}{'}'}" />
@@ -924,7 +947,7 @@
       on:keydown={(e) => e.key === 'Escape' && (showHelp = false)}
     >
       <div
-        class="modal"
+        class="modal help-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="help-title"
@@ -936,7 +959,7 @@
           <h2 id="help-title">Control API</h2>
           <button class="icon-btn" title="Close" on:click={() => (showHelp = false)}>×</button>
         </div>
-        <p class="hint">
+        <p class="hint prose">
           {#if controlApiAddr}
             Base URL: <code>http://{controlApiAddr}</code> — no auth, loopback-only.
           {:else}
@@ -945,7 +968,7 @@
         </p>
 
         <h3>Endpoints</h3>
-        <table>
+        <table class="ref-table endpoints-table">
           <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
           <tbody>
             {#each apiEndpoints as e}
@@ -955,7 +978,7 @@
         </table>
 
         <h3>UI actions (via POST /api/ui/action)</h3>
-        <table>
+        <table class="ref-table">
           <thead><tr><th>action</th><th>payload</th><th>Description</th></tr></thead>
           <tbody>
             {#each uiActions as a}
@@ -971,6 +994,26 @@
 <style>
   :global(body) {
     overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* The one place this monospace-forward interface switches to a
+     proportional face — actual sentences, not labels/data. See
+     style.css's font-face rules. */
+  .prose {
+    font-family: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+    line-height: 1.55;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--fm-accent);
+    outline-offset: 1px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+    }
   }
 
   .app-shell {
@@ -987,6 +1030,20 @@
     align-items: center;
     justify-content: center;
     gap: 1rem;
+  }
+
+  .welcome h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+
+  .welcome .prose {
+    max-width: 42ch;
+    text-align: center;
+    color: var(--fm-text-muted);
+    margin: 0;
   }
 
   .layout {
@@ -1025,7 +1082,7 @@
     min-height: 0;
     overflow-y: auto;
     padding: 4px 10px;
-    font-family: 'Cascadia Code', Consolas, monospace;
+    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
     font-size: 0.72rem;
   }
 
@@ -1061,9 +1118,19 @@
     overflow-y: auto;
     background: var(--fm-bg);
     border: 1px solid var(--fm-border);
-    border-radius: 8px;
+    border-radius: var(--fm-radius-lg);
     padding: 1rem 1.25rem;
     text-align: left;
+  }
+
+  /* Wider (more room for Path/Description before either wraps) and a
+     taller cap — with the two reference tables below sized to their own
+     content instead of fighting the layout, this fits without scrolling
+     at any normal window size; overflow-y stays as a safety net only,
+     not the expected outcome. */
+  .help-modal {
+    width: min(960px, 94vw);
+    max-height: 94vh;
   }
 
   .modal-header {
@@ -1075,7 +1142,8 @@
 
   .modal-header h2 {
     margin: 0;
-    font-size: 1.1rem;
+    font-size: 1.05rem;
+    font-weight: 600;
   }
 
   /* Action row at the bottom of the env-editor modal. */
@@ -1085,10 +1153,11 @@
     margin-top: 0.75rem;
   }
 
+  /* Sentence case, not tracked-out caps — weight and color carry the
+     hierarchy instead. */
   .modal h3 {
     font-size: 0.85rem;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
+    font-weight: 600;
     color: var(--fm-text-muted);
     margin: 1rem 0 0.5rem;
   }
@@ -1105,11 +1174,43 @@
     border-bottom: 1px solid var(--fm-border-subtle);
   }
 
+  /* The help modal's two reference tables: Description is prose (real
+     sentences), Method/Path/action/payload are data — so only that
+     column switches face. overflow-wrap so a long unbroken path or
+     payload shape wraps inside its own column instead of forcing the
+     table wider than the modal. */
+  .ref-table td {
+    overflow-wrap: break-word;
+  }
+
+  .ref-table td:last-child {
+    font-family: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+    color: var(--fm-text-muted);
+  }
+
+  /* Endpoints table: Method never wraps and is only as wide as its
+     longest word (the classic auto-layout shrink-to-fit — width: 1% is
+     "as small as possible" once nowrap rules out wrapping to get
+     smaller); Path and Description then split the rest of the row
+     evenly. */
+  .endpoints-table th:first-child,
+  .endpoints-table td:first-child {
+    width: 1%;
+    white-space: nowrap;
+  }
+
+  .endpoints-table th:nth-child(2),
+  .endpoints-table td:nth-child(2),
+  .endpoints-table th:nth-child(3),
+  .endpoints-table td:nth-child(3) {
+    width: 50%;
+  }
+
   code {
-    font-family: 'Cascadia Code', Consolas, monospace;
+    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
     background: var(--fm-bg-elevated);
     padding: 1px 5px;
-    border-radius: 3px;
+    border-radius: var(--fm-radius);
   }
 
   .sidebar {
@@ -1138,9 +1239,17 @@
     overflow-y: auto;
   }
 
+  /* --m (set inline per-row from methodColor()) reads the same hue in
+     both the left accent bar and the method tag text — one method, one
+     color, everywhere it's shown. */
   .request-list li {
     display: flex;
     align-items: center;
+    border-left: 2px solid var(--m, transparent);
+  }
+
+  .request-list li:hover {
+    background: var(--fm-bg-hover);
   }
 
   /* .request-select: the row's main click target (selects the request).
@@ -1178,7 +1287,8 @@
 
   .method-tag {
     font-size: 0.7rem;
-    opacity: 0.7;
+    font-weight: 600;
+    color: var(--m, var(--fm-text-muted));
     width: 3.5rem;
     flex-shrink: 0;
   }
@@ -1205,8 +1315,9 @@
   }
 
   .request-name input {
-    font-size: 1.1rem;
+    font-size: 1.15rem;
     font-weight: 600;
+    letter-spacing: -0.01em;
     background: none;
     border: none;
     color: inherit;
@@ -1222,6 +1333,15 @@
     flex: 1;
   }
 
+  /* --m (set inline from methodColor()) makes the currently selected
+     method legible before you've even read the letters — the same
+     device as the sidebar's left accent bar. */
+  .method-select {
+    font-weight: 600;
+    color: var(--m);
+    border-left: 2px solid var(--m);
+  }
+
   .tabs {
     display: flex;
     gap: 0.25rem;
@@ -1231,14 +1351,19 @@
   .tabs button {
     background: none;
     border: none;
-    color: inherit;
-    opacity: 0.6;
+    border-radius: 0;
+    color: var(--fm-text-muted);
     padding: 0.5rem 0.75rem;
     cursor: pointer;
+    transition: color 0.12s ease;
+  }
+
+  .tabs button:hover {
+    color: var(--fm-text);
   }
 
   .tabs button.active {
-    opacity: 1;
+    color: var(--fm-text);
     border-bottom: 2px solid var(--fm-accent);
   }
 
@@ -1289,7 +1414,7 @@
   .body-editor {
     width: 100%;
     min-height: 140px;
-    font-family: 'Cascadia Code', Consolas, monospace;
+    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
     resize: vertical;
   }
 
@@ -1303,7 +1428,7 @@
     align-items: center;
     gap: 0.35rem;
     font-size: 0.8rem;
-    font-family: 'Cascadia Code', Consolas, monospace;
+    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
     color: var(--fm-text-muted);
     cursor: pointer;
   }
@@ -1364,14 +1489,15 @@
   }
 
   .response-stat-label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    font-size: 0.7rem;
+    font-weight: 600;
     color: var(--fm-text-muted);
   }
 
   .status {
-    font-weight: 700;
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
   }
 
   /* Standard HTTP status-class coloring — see statusTone() in the
@@ -1400,7 +1526,6 @@
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
-    font-family: 'Cascadia Code', Consolas, monospace;
   }
 
   .muted {
@@ -1421,22 +1546,65 @@
     color: inherit;
     background: var(--fm-bg-elevated);
     border: 1px solid var(--fm-border);
-    border-radius: 4px;
+    border-radius: var(--fm-radius);
     padding: 0.4rem 0.5rem;
+    transition: background-color 0.12s ease, border-color 0.12s ease;
+  }
+
+  input:hover,
+  select:hover,
+  textarea:hover,
+  button:hover {
+    border-color: var(--fm-text-muted);
   }
 
   button {
     cursor: pointer;
   }
 
+  button:hover {
+    background: var(--fm-bg-hover);
+  }
+
+  button:active {
+    background: var(--fm-bg-hover);
+    transform: translateY(1px);
+  }
+
   button.primary {
     background: var(--fm-accent);
     border-color: var(--fm-accent);
+    color: var(--fm-bg);
+    font-weight: 600;
+  }
+
+  button.primary:hover {
+    background: color-mix(in srgb, var(--fm-accent) 85%, white);
+    border-color: color-mix(in srgb, var(--fm-accent) 85%, white);
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  button:disabled:hover {
+    background: var(--fm-bg-elevated);
+  }
+
+  button.primary:disabled:hover {
+    background: var(--fm-accent);
   }
 
   .icon-btn {
     background: none;
     border: none;
+    border-radius: var(--fm-radius);
     padding: 0.1rem 0.4rem;
+  }
+
+  .icon-btn:hover {
+    background: var(--fm-bg-hover);
+    border-color: transparent;
   }
 </style>

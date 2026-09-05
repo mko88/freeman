@@ -5,17 +5,27 @@
    correct, with no flash while the Go round trip completes; theme.ts only
    needs to apply inline overrides when a custom theme.yaml is active. */
 :root {
-  --fm-bg: #1b2636;
-  --fm-bg-panel: #141c28;
-  --fm-bg-elevated: rgba(255, 255, 255, 0.06);
-  --fm-bg-hover: rgba(255, 255, 255, 0.08);
-  --fm-bg-response: rgba(0, 0, 0, 0.25);
-  --fm-border: rgba(255, 255, 255, 0.15);
-  --fm-border-subtle: rgba(255, 255, 255, 0.1);
-  --fm-text: #ffffff;
-  --fm-text-muted: rgba(255, 255, 255, 0.6);
-  --fm-accent: #2f6fed;
-  --fm-error: #ff6b6b;
-  --fm-success: #51cf66;
-  --fm-warning: #ffa94d;
+  --fm-bg: #14181a;
+  --fm-bg-panel: #0f1214;
+  --fm-bg-elevated: rgba(255, 255, 255, 0.05);
+  --fm-bg-hover: rgba(255, 255, 255, 0.075);
+  --fm-bg-response: rgba(0, 0, 0, 0.35);
+  --fm-border: rgba(255, 255, 255, 0.14);
+  --fm-border-subtle: rgba(255, 255, 255, 0.08);
+  --fm-text: #edebe4;
+  --fm-text-muted: rgba(237, 235, 228, 0.58);
+  --fm-accent: #e3a23c;
+  --fm-error: #e2604f;
+  --fm-success: #4fae8a;
+  --fm-warning: #d9863a;
+  /* Per-HTTP-method colors — see internal/theme.Dark's comment on the
+     same keys for why POST/PATCH/DELETE reuse accent/success/error
+     rather than getting their own hues. */
+  --fm-method-get: #5ca8e0;
+  --fm-method-put: #b98ce0;
+  --fm-method-neutral: rgba(237, 235, 228, 0.58);
+  /* Not part of the Go-resolved color palette (theme.yaml only overrides
+     colors) — a fixed layout constant, not a themeable one. */
+  --fm-radius: 3px;
+  --fm-radius-lg: 6px;
 }

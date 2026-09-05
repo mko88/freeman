@@ -22,19 +22,28 @@ type Colors map[string]string
 // correct with no round trip to Go — theme.ts only needs to apply
 // overrides when Resolve returns something different from Dark.
 var Dark = Colors{
-	"bg":           "#1b2636",
-	"bgPanel":      "#141c28",
-	"bgElevated":   "rgba(255, 255, 255, 0.06)",
-	"bgHover":      "rgba(255, 255, 255, 0.08)",
-	"bgResponse":   "rgba(0, 0, 0, 0.25)",
-	"border":       "rgba(255, 255, 255, 0.15)",
-	"borderSubtle": "rgba(255, 255, 255, 0.1)",
-	"text":         "#ffffff",
-	"textMuted":    "rgba(255, 255, 255, 0.6)",
-	"accent":       "#2f6fed",
-	"error":        "#ff6b6b",
-	"success":      "#51cf66",
-	"warning":      "#ffa94d",
+	"bg":           "#14181a",
+	"bgPanel":      "#0f1214",
+	"bgElevated":   "rgba(255, 255, 255, 0.05)",
+	"bgHover":      "rgba(255, 255, 255, 0.075)",
+	"bgResponse":   "rgba(0, 0, 0, 0.35)",
+	"border":       "rgba(255, 255, 255, 0.14)",
+	"borderSubtle": "rgba(255, 255, 255, 0.08)",
+	"text":         "#edebe4",
+	"textMuted":    "rgba(237, 235, 228, 0.58)",
+	"accent":       "#e3a23c",
+	"error":        "#e2604f",
+	"success":      "#4fae8a",
+	"warning":      "#d9863a",
+	// Per-HTTP-method colors: a real structural device, not decoration —
+	// the same method reads the same color everywhere it appears (sidebar
+	// row accent, method select, method tag). GET/PUT/HEAD/OPTIONS get
+	// their own hues; POST/PATCH/DELETE intentionally reuse accent/
+	// success/error so the method system and the status/action system
+	// share one palette instead of two unrelated ones.
+	"methodGet":     "#5ca8e0",
+	"methodPut":     "#b98ce0",
+	"methodNeutral": "rgba(237, 235, 228, 0.58)",
 }
 
 const filename = "theme.yaml"
