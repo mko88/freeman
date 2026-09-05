@@ -2077,8 +2077,12 @@
     display: flex;
     flex-direction: column;
     min-width: 12rem;
-    padding: 0.25rem;
-    background: var(--fm-bg-elevated);
+    overflow: hidden;
+    /* Opaque fill so the menu doesn't read as part of the response body
+       it floats over: the base colour with the elevated overlay painted
+       on top of it, a touch lighter than the page. */
+    background-color: var(--fm-bg);
+    background-image: linear-gradient(var(--fm-bg-elevated), var(--fm-bg-elevated));
     border: 1px solid var(--fm-border);
     border-radius: var(--fm-radius);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
@@ -2088,8 +2092,13 @@
     justify-content: flex-start;
     background: none;
     border: none;
-    padding: 0.4rem 0.6rem;
+    border-radius: 0;
+    padding: 0.5rem 0.75rem;
     text-align: left;
+  }
+
+  .dropdown-menu button + button {
+    border-top: 1px solid var(--fm-border-subtle);
   }
 
   .dropdown-menu button:hover {
