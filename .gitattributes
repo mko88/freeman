@@ -1,0 +1,21 @@
+# Store text as LF regardless of what the working tree holds.
+#
+# Development happens on Windows against a Linux dev container, and
+# editors on this side keep writing CRLF back into files. Without this,
+# a one-line change lands as a whole-file rewrite in the diff, and
+# `gofmt -l` flags files nobody meaningfully touched. Normalizing on
+# commit fixes both without anyone having to remember: the checkout can
+# be whatever the editor wants, the repository stays LF.
+#
+# Run `git add --renormalize .` after changing this file.
+* text=auto eol=lf
+
+# Fixtures and assets that must survive byte-for-byte. text=auto detects
+# most of these on its own; naming them is cheaper than finding out it
+# guessed wrong about scripts/random-sample.bin, which is literally
+# random bytes and exists to be compared exactly.
+*.bin binary
+*.woff2 binary
+*.png binary
+*.ico binary
+*.exe binary
