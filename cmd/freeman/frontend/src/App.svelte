@@ -1143,26 +1143,6 @@
   $: headersTabBadge = filledCount(draftHeaders)
   // The Auth badge is the type name (never a count) — or blank for 'none'.
   $: authTabBadge = draftAuth.type === 'none' ? '' : draftAuth.type === 'apikey' ? 'API key' : draftAuth.type
-
-  // A literal preview of the header applyAuth will add — shown as-is,
-  // before {{var}} substitution. Blank until the type's fields are
-  // filled, so it doubles as the "is this configured" check.
-  function base64Utf8(s: string): string {
-    try {
-      return btoa(unescape(encodeURIComponent(s)))
-    } catch {
-      return '…'
-    }
-  }
-  $: authHeaderPreview = (() => {
-    if (draftAuth.type === 'bearer') return draftAuth.token ? `Authorization: Bearer ${draftAuth.token}` : ''
-    if (draftAuth.type === 'basic')
-      return draftAuth.username || draftAuth.password
-        ? `Authorization: Basic ${base64Utf8(`${draftAuth.username}:${draftAuth.password}`)}`
-        : ''
-    if (draftAuth.type === 'apikey') return draftAuth.key ? `${draftAuth.key}: ${draftAuth.value}` : ''
-    return ''
-  })()
   // A body isn't a list, so its badge shows the field count for the form
   // modes and the mode name for raw/binary — again only once there's
   // actually something there.
@@ -1521,17 +1501,6 @@
               <input type="text" bind:value={draftAuth.value} placeholder="key or {'{'}{'{'}var{'}'}{'}'}" />
             </label>
           {/if}
-
-          {#if authHeaderPreview}
-            <p class="auth-preview">
-              Sends <code>{authHeaderPreview}</code>
-              {#if draftAuth.type !== 'none'} — overrides any Authorization row on the Headers tab.{/if}
-            </p>
-          {:else if draftAuth.type === 'none'}
-            <p class="muted">No Authorization header is added — the Headers tab is left untouched.</p>
-          {:else}
-            <p class="muted">Fill in the {draftAuth.type === 'apikey' ? 'header name' : 'fields'} above.</p>
-          {/if}
         </div>
       {:else}
         <div class="body-mode-picker">
@@ -1590,8 +1559,6 @@
             <input type="text" bind:value={draftBinaryFilePath} placeholder="Path to file — sent as the entire body" />
             <button on:click={pickBinaryFile}>Browse…</button>
           </div>
-        {:else}
-          <p class="muted">No body.</p>
         {/if}
       {/if}
       {/if}
@@ -2627,17 +2594,6 @@
   .auth-field > input {
     flex: 1;
     min-width: 0;
-  }
-
-  .auth-preview {
-    font-size: 0.78rem;
-    color: var(--fm-text-muted);
-    margin: 0.15rem 0 0;
-  }
-
-  .auth-preview code {
-    color: var(--fm-text);
-    word-break: break-all;
   }
 
   .response {
