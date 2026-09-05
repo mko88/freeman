@@ -1,8 +1,10 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"freeman/internal/domain"
@@ -60,5 +62,54 @@ func TestEnvironmentCRUD(t *testing.T) {
 	// The last one can't be deleted.
 	if err := app.DeleteEnvironment(defaultID); err == nil {
 		t.Fatal("expected DeleteEnvironment to refuse the last environment")
+	}
+}
+
+// TestEnvironmentConcurrentListAndRename hammers ListEnvironments while a
+// second goroutine renames an environment (a rename moves the file to a
+// new path). Before App.mu serialized these, the list would either race
+// the EnvironmentPaths map or read a path a concurrent rename had just
+// moved away — a 500 in the desktop control API, hit intermittently by
+// scripts/test_control_api.py at --delay 0. Run with -race.
+func TestEnvironmentConcurrentListAndRename(t *testing.T) {
+	root := t.TempDir()
+	app := NewApp()
+	if _, err := app.OpenWorkspace(root); err != nil {
+		t.Fatalf("OpenWorkspace: %v", err)
+	}
+	created, err := app.SaveEnvironment(domain.Environment{FormatVersion: "1", Name: "Name 0"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	errs := make(chan error, 64)
+
+	go func() {
+		defer wg.Done()
+		for i := 1; i <= 40; i++ {
+			if _, err := app.SaveEnvironment(domain.Environment{
+				FormatVersion: "1", ID: created.ID, Name: fmt.Sprintf("Name %d", i),
+			}); err != nil {
+				errs <- fmt.Errorf("rename %d: %w", i, err)
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			if _, err := app.ListEnvironments(); err != nil {
+				errs <- fmt.Errorf("list %d: %w", i, err)
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
 	}
 }

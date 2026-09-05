@@ -16,6 +16,13 @@ type EnvironmentSummary struct {
 }
 
 func (a *App) ListEnvironments() ([]EnvironmentSummary, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.listEnvironments()
+}
+
+// listEnvironments assumes a.mu is held (see the *Locked-helper note on App).
+func (a *App) listEnvironments() ([]EnvironmentSummary, error) {
 	if err := a.requireWorkspace(); err != nil {
 		return nil, err
 	}
@@ -31,6 +38,9 @@ func (a *App) ListEnvironments() ([]EnvironmentSummary, error) {
 }
 
 func (a *App) GetEnvironment(id string) (*domain.Environment, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if err := a.requireWorkspace(); err != nil {
 		return nil, err
 	}
@@ -42,6 +52,13 @@ func (a *App) GetEnvironment(id string) (*domain.Environment, error) {
 // makes the name-derived filename stale, the tracked file (and its
 // .local.json secrets sidecar, if any) is renamed to match.
 func (a *App) SaveEnvironment(env domain.Environment) (*domain.Environment, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.saveEnvironment(env)
+}
+
+// saveEnvironment assumes a.mu is held (see the *Locked-helper note on App).
+func (a *App) saveEnvironment(env domain.Environment) (*domain.Environment, error) {
 	if err := a.requireWorkspace(); err != nil {
 		return nil, err
 	}
@@ -68,6 +85,9 @@ func (a *App) SaveEnvironment(env domain.Environment) (*domain.Environment, erro
 // one — the app assumes at least one environment always exists (see
 // OpenWorkspace, which creates a default).
 func (a *App) DeleteEnvironment(id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if err := a.requireWorkspace(); err != nil {
 		return err
 	}
@@ -86,6 +106,7 @@ func (a *App) DeleteEnvironment(id string) error {
 	return nil
 }
 
+// createEnvironment is only called from OpenWorkspace, which holds a.mu.
 func (a *App) createEnvironment(name string) (*domain.Environment, error) {
-	return a.SaveEnvironment(domain.Environment{FormatVersion: "1", Name: name})
+	return a.saveEnvironment(domain.Environment{FormatVersion: "1", Name: name})
 }

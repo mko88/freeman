@@ -489,6 +489,48 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str, item_id:
         str(saved_params),
     )
 
+    # --- Auth tab: set bearer auth, verify it round-trips, then clear it
+    # again so test_execute's request goes out without an Authorization
+    # header. ---
+    r.step("selectRequestTab 'auth'")
+    api.action("selectRequestTab", {"tab": "auth"})
+    state = poll(api.state, lambda s: s.get("tab") == "auth")
+    r.check("state.tab reflects selectRequestTab 'auth'", state.get("tab") == "auth", str(state.get("tab")))
+
+    r.step("setRequestAuth {field: 'type', value: 'bearer'}, {field: 'token', value: '{{" + TEST_VAR_KEY + "}}'}")
+    api.action("setRequestAuth", {"field": "type", "value": "bearer"})
+    token_ref = f"{{{{{TEST_VAR_KEY}}}}}"
+    api.action("setRequestAuth", {"field": "token", "value": token_ref})
+    state = poll(api.state, lambda s: (s.get("auth") or {}).get("token") == token_ref)
+    r.check(
+        "state.auth mirrors type='bearer' and the token",
+        (state.get("auth") or {}).get("type") == "bearer" and (state.get("auth") or {}).get("token") == token_ref,
+        str(state.get("auth")),
+    )
+
+    r.step("saveRequest  (checkpoint: auth persists)")
+    api.action("saveRequest")
+    collection = poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: ((find_item(c, TEST_REQUEST_NAME) or {}).get("auth") or {}).get("type") == "bearer",
+    )
+    saved_auth = (find_item(collection, TEST_REQUEST_NAME) or {}).get("auth") or {}
+    r.check("auth.type round-tripped to 'bearer'", saved_auth.get("type") == "bearer", str(saved_auth))
+    r.check("auth.token round-tripped unsubstituted", saved_auth.get("token") == token_ref, str(saved_auth))
+
+    r.step("setRequestAuth {field: 'type', value: 'none'}, saveRequest  (clear it)")
+    api.action("setRequestAuth", {"field": "type", "value": "none"})
+    api.action("saveRequest")
+    collection = poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: "auth" not in (find_item(c, TEST_REQUEST_NAME) or {"auth": 1}),
+    )
+    r.check(
+        "auth key is omitted entirely when type is 'none'",
+        "auth" not in (find_item(collection, TEST_REQUEST_NAME) or {}),
+        str(find_item(collection, TEST_REQUEST_NAME)),
+    )
+
 
 def test_execute(api: ControlAPI, r: Report, collection_id: str, environment_id: str, item_id: str) -> None:
     """Populates the empty scratch request main() already created and

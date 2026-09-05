@@ -14,6 +14,13 @@ type CollectionSummary struct {
 }
 
 func (a *App) ListCollections() ([]CollectionSummary, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.listCollections()
+}
+
+// listCollections assumes a.mu is held (see the *Locked-helper note on App).
+func (a *App) listCollections() ([]CollectionSummary, error) {
 	if err := a.requireWorkspace(); err != nil {
 		return nil, err
 	}
@@ -29,6 +36,9 @@ func (a *App) ListCollections() ([]CollectionSummary, error) {
 }
 
 func (a *App) GetCollection(id string) (*domain.Collection, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if err := a.requireWorkspace(); err != nil {
 		return nil, err
 	}
@@ -39,6 +49,9 @@ func (a *App) GetCollection(id string) (*domain.Collection, error) {
 // collectionID's tree and persists the file. Folder nesting isn't
 // exposed by the frontend yet, so new items land at the collection root.
 func (a *App) SaveRequest(collectionID string, item domain.Item) (*domain.Item, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if err := a.requireWorkspace(); err != nil {
 		return nil, err
 	}
@@ -65,6 +78,9 @@ func (a *App) SaveRequest(collectionID string, item domain.Item) (*domain.Item, 
 // rather than a silent no-op, so a caller (UI or script) gets clear
 // feedback instead of assuming it worked.
 func (a *App) DeleteRequest(collectionID, itemID string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if err := a.requireWorkspace(); err != nil {
 		return err
 	}

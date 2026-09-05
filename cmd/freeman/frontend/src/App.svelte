@@ -53,7 +53,8 @@
   // models.ts).
   type BodyMode = 'none' | 'raw' | 'form-data' | 'x-www-form-urlencoded' | 'binary'
   type FormFieldType = 'text' | 'file'
-  type RequestTab = 'params' | 'headers' | 'body'
+  type RequestTab = 'params' | 'headers' | 'auth' | 'body'
+  type AuthType = 'none' | 'bearer' | 'basic' | 'apikey'
 
   let draftName = 'New Request'
   let draftMethod = 'GET'
@@ -63,6 +64,21 @@
   // rather than syncing them into the URL string field.
   let draftParams: domain.QueryParam[] = []
   let draftHeaders: domain.Header[] = []
+  // The Auth tab. type 'none' means "leave the Authorization header
+  // alone"; the other types are turned into a header at execute time by
+  // internal/httpengine.applyAuth (with {{var}} substitution), and a
+  // configured auth overrides a hand-written Authorization row. Only the
+  // fields the current type uses are read — the rest are kept so
+  // switching type and back doesn't lose what was typed.
+  const emptyAuth = (): {
+    type: AuthType
+    token: string
+    username: string
+    password: string
+    key: string
+    value: string
+  } => ({ type: 'none', token: '', username: '', password: '', key: '', value: '' })
+  let draftAuth = emptyAuth()
   let draftBodyMode: BodyMode = 'none'
   let draftBodyRaw = ''
   let draftFormFields: domain.FormField[] = []
@@ -278,7 +294,7 @@
     {
       action: 'selectRequestTab',
       payload: '{ tab }',
-      desc: "Switch the request editor tab. tab is 'params', 'headers' or 'body'.",
+      desc: "Switch the request editor tab. tab is 'params', 'headers', 'auth' or 'body'.",
     },
     {
       action: 'toggleRequestPane',
@@ -300,6 +316,14 @@
         "'url', 'bodyRaw', 'bodyMode', or 'binaryFilePath'. bodyMode's value is 'none', 'raw', 'form-data', " +
         "'x-www-form-urlencoded', or 'binary'. binaryFilePath is the local path sent as the whole body when " +
         "bodyMode is 'binary'.",
+    },
+    {
+      action: 'setRequestAuth',
+      payload: "{ field, value }",
+      desc:
+        "Set an Auth-tab field on the request in the editor (before saving). field is 'type', 'token', " +
+        "'username', 'password', 'key', or 'value'. type is 'none', 'bearer', 'basic', or 'apikey'; the " +
+        "engine turns a non-none auth into a header (Bearer/Basic Authorization, or key: value) at send time.",
     },
     {
       action: 'addRequestHeader',
@@ -407,6 +431,7 @@
       binaryFilePath: draftBinaryFilePath,
       params: draftParams,
       headers: draftHeaders,
+      auth: draftAuth,
       formFields: draftFormFields,
       environment,
       showSettings,
@@ -573,7 +598,7 @@
         break
       case 'selectRequestTab': {
         const tab = payload?.tab
-        if (tab === 'params' || tab === 'headers' || tab === 'body') selectRequestEditorTab(tab)
+        if (tab === 'params' || tab === 'headers' || tab === 'auth' || tab === 'body') selectRequestEditorTab(tab)
         break
       }
       case 'toggleRequestPane':
@@ -620,6 +645,25 @@
           case 'binaryFilePath':
             draftBinaryFilePath = value
             break
+        }
+        break
+      }
+      case 'setRequestAuth': {
+        const field = payload?.field
+        const value = payload?.value
+        if (field === 'type') {
+          if (value === 'none' || value === 'bearer' || value === 'basic' || value === 'apikey') {
+            draftAuth = { ...draftAuth, type: value }
+          }
+        } else if (
+          (field === 'token' ||
+            field === 'username' ||
+            field === 'password' ||
+            field === 'key' ||
+            field === 'value') &&
+          typeof value === 'string'
+        ) {
+          draftAuth = { ...draftAuth, [field]: value }
         }
         break
       }
@@ -771,6 +815,7 @@
     draftUrl = item.url || ''
     draftParams = item.params ? item.params.map((p) => ({ ...p })) : []
     draftHeaders = item.headers ? item.headers.map((h) => ({ ...h })) : []
+    draftAuth = item.auth ? { ...emptyAuth(), ...item.auth, type: (item.auth.type as AuthType) || 'none' } : emptyAuth()
     draftBodyMode = (item.body?.mode as BodyMode) || 'none'
     draftBodyRaw = item.body?.raw || ''
     // { type: 'text', filePath: '', ...f } normalizes rows saved before
@@ -801,6 +846,7 @@
     draftUrl = ''
     draftParams = []
     draftHeaders = []
+    draftAuth = emptyAuth()
     draftBodyMode = 'none'
     draftBodyRaw = ''
     draftFormFields = []
@@ -871,13 +917,14 @@
       url: draftUrl,
       params: draftParams,
       headers: draftHeaders,
+      auth: draftAuth.type === 'none' ? undefined : { ...draftAuth },
       body: {
         mode: draftBodyMode,
         raw: draftBodyMode === 'raw' ? draftBodyRaw : '',
         formFields: isFormMode ? draftFormFields : [],
         binaryFilePath: draftBodyMode === 'binary' ? draftBinaryFilePath : '',
       },
-    } as domain.Item
+    } as unknown as domain.Item
     const saved = await SaveRequest(collectionId, item)
     selectedItemId = saved.id
     collection = await GetCollection(collectionId)
@@ -1094,6 +1141,28 @@
   const filledCount = (rows: { key: string }[]) => rows.filter((row) => row.key.trim()).length
   $: paramsTabBadge = filledCount(draftParams)
   $: headersTabBadge = filledCount(draftHeaders)
+  // The Auth badge is the type name (never a count) — or blank for 'none'.
+  $: authTabBadge = draftAuth.type === 'none' ? '' : draftAuth.type === 'apikey' ? 'API key' : draftAuth.type
+
+  // A literal preview of the header applyAuth will add — shown as-is,
+  // before {{var}} substitution. Blank until the type's fields are
+  // filled, so it doubles as the "is this configured" check.
+  function base64Utf8(s: string): string {
+    try {
+      return btoa(unescape(encodeURIComponent(s)))
+    } catch {
+      return '…'
+    }
+  }
+  $: authHeaderPreview = (() => {
+    if (draftAuth.type === 'bearer') return draftAuth.token ? `Authorization: Bearer ${draftAuth.token}` : ''
+    if (draftAuth.type === 'basic')
+      return draftAuth.username || draftAuth.password
+        ? `Authorization: Basic ${base64Utf8(`${draftAuth.username}:${draftAuth.password}`)}`
+        : ''
+    if (draftAuth.type === 'apikey') return draftAuth.key ? `${draftAuth.key}: ${draftAuth.value}` : ''
+    return ''
+  })()
   // A body isn't a list, so its badge shows the field count for the form
   // modes and the mode name for raw/binary — again only once there's
   // actually something there.
@@ -1352,6 +1421,10 @@
           Headers{#if headersTabBadge}<span class="tab-count">{headersTabBadge}</span>{/if}
           {#if activeTab === 'headers'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
         </button>
+        <button class:active={activeTab === 'auth'} on:click={() => onRequestTabClick('auth')}>
+          Auth{#if authTabBadge}<span class="tab-count">{authTabBadge}</span>{/if}
+          {#if activeTab === 'auth'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
+        </button>
         <button class:active={activeTab === 'body'} on:click={() => onRequestTabClick('body')}>
           Body{#if bodyTabBadge}<span class="tab-count">{bodyTabBadge}</span>{/if}
           {#if activeTab === 'body'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
@@ -1412,6 +1485,54 @@
           </tbody>
         </table>
         <button on:click={() => addRequestHeader()}>Add header</button>
+      {:else if activeTab === 'auth'}
+        <div class="auth-editor">
+          <label class="auth-field">
+            <span>Type</span>
+            <select bind:value={draftAuth.type}>
+              <option value="none">No auth</option>
+              <option value="bearer">Bearer token</option>
+              <option value="basic">Basic</option>
+              <option value="apikey">API key (header)</option>
+            </select>
+          </label>
+
+          {#if draftAuth.type === 'bearer'}
+            <label class="auth-field">
+              <span>Token</span>
+              <input type="text" bind:value={draftAuth.token} placeholder="token or {'{'}{'{'}var{'}'}{'}'}" />
+            </label>
+          {:else if draftAuth.type === 'basic'}
+            <label class="auth-field">
+              <span>Username</span>
+              <input type="text" bind:value={draftAuth.username} placeholder="username or {'{'}{'{'}var{'}'}{'}'}" />
+            </label>
+            <label class="auth-field">
+              <span>Password</span>
+              <input type="text" bind:value={draftAuth.password} placeholder="password or {'{'}{'{'}var{'}'}{'}'}" />
+            </label>
+          {:else if draftAuth.type === 'apikey'}
+            <label class="auth-field">
+              <span>Header</span>
+              <input type="text" list="fm-header-names" bind:value={draftAuth.key} placeholder="X-API-Key" />
+            </label>
+            <label class="auth-field">
+              <span>Value</span>
+              <input type="text" bind:value={draftAuth.value} placeholder="key or {'{'}{'{'}var{'}'}{'}'}" />
+            </label>
+          {/if}
+
+          {#if authHeaderPreview}
+            <p class="auth-preview">
+              Sends <code>{authHeaderPreview}</code>
+              {#if draftAuth.type !== 'none'} — overrides any Authorization row on the Headers tab.{/if}
+            </p>
+          {:else if draftAuth.type === 'none'}
+            <p class="muted">No Authorization header is added — the Headers tab is left untouched.</p>
+          {:else}
+            <p class="muted">Fill in the {draftAuth.type === 'apikey' ? 'header name' : 'fields'} above.</p>
+          {/if}
+        </div>
       {:else}
         <div class="body-mode-picker">
           {#each bodyModes as m}
@@ -2478,6 +2599,45 @@
 
   .file-field button {
     flex-shrink: 0;
+  }
+
+  /* The Auth tab: a short stack of labelled fields, each label a fixed
+     column so the inputs line up regardless of label length. */
+  .auth-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: 42rem;
+  }
+
+  .auth-field {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .auth-field > span {
+    flex-shrink: 0;
+    width: 5.5rem;
+    font-size: 0.8rem;
+    color: var(--fm-text-muted);
+  }
+
+  .auth-field > select,
+  .auth-field > input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .auth-preview {
+    font-size: 0.78rem;
+    color: var(--fm-text-muted);
+    margin: 0.15rem 0 0;
+  }
+
+  .auth-preview code {
+    color: var(--fm-text);
+    word-break: break-all;
   }
 
   .response {
