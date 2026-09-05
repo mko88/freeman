@@ -1757,24 +1757,30 @@
         </p>
 
         <h3>Endpoints</h3>
-        <table class="ref-table endpoints-table">
-          <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
-          <tbody>
-            {#each apiEndpoints as e}
-              <tr><td>{e.method}</td><td><code>{e.path}</code></td><td>{e.desc}</td></tr>
-            {/each}
-          </tbody>
-        </table>
+        <div class="help-list">
+          {#each apiEndpoints as e}
+            <details class="help-entry">
+              <summary>
+                <span class="help-method" style="color: {methodColor(e.method)}">{e.method}</span>
+                <code>{e.path}</code>
+              </summary>
+              <p class="prose help-desc">{e.desc}</p>
+            </details>
+          {/each}
+        </div>
 
         <h3>UI actions (via POST /api/ui/action)</h3>
-        <table class="ref-table">
-          <thead><tr><th>action</th><th>payload</th><th>Description</th></tr></thead>
-          <tbody>
-            {#each uiActions as a}
-              <tr><td><code>{a.action}</code></td><td>{a.payload}</td><td>{a.desc}</td></tr>
-            {/each}
-          </tbody>
-        </table>
+        <div class="help-list">
+          {#each uiActions as a}
+            <details class="help-entry">
+              <summary>
+                <code>{a.action}</code>
+                <span class="help-payload">{a.payload}</span>
+              </summary>
+              <p class="prose help-desc">{a.desc}</p>
+            </details>
+          {/each}
+        </div>
       </div>
     </div>
   {/if}
@@ -2033,36 +2039,65 @@
     border-bottom: 1px solid var(--fm-border-subtle);
   }
 
-  /* The help modal's two reference tables: Description is prose (real
-     sentences), Method/Path/action/payload are data — so only that
-     column switches face. overflow-wrap so a long unbroken path or
-     payload shape wraps inside its own column instead of forcing the
-     table wider than the modal. */
-  .ref-table td {
-    overflow-wrap: break-word;
+  /* The help modal's endpoint / ui:action reference: each row is a
+     collapsed <details> showing just the method+path (or action+payload)
+     — the prose description is revealed on click, so the whole list
+     scans at a glance first. */
+  .help-list {
+    border: 1px solid var(--fm-border-subtle);
+    border-radius: var(--fm-radius);
+    overflow: hidden;
   }
 
-  .ref-table td:last-child {
-    font-family: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+  .help-entry + .help-entry {
+    border-top: 1px solid var(--fm-border-subtle);
+  }
+
+  .help-entry > summary {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+  }
+
+  .help-entry > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  /* Same ▸/▾ collapse glyph the tabs and the log panel use. */
+  .help-entry > summary::before {
+    content: '▸';
     color: var(--fm-text-muted);
+    font-size: 0.7em;
   }
 
-  /* Endpoints table: Method never wraps and is only as wide as its
-     longest word (the classic auto-layout shrink-to-fit — width: 1% is
-     "as small as possible" once nowrap rules out wrapping to get
-     smaller); Path and Description then split the rest of the row
-     evenly. */
-  .endpoints-table th:first-child,
-  .endpoints-table td:first-child {
-    width: 1%;
-    white-space: nowrap;
+  .help-entry[open] > summary::before {
+    content: '▾';
   }
 
-  .endpoints-table th:nth-child(2),
-  .endpoints-table td:nth-child(2),
-  .endpoints-table th:nth-child(3),
-  .endpoints-table td:nth-child(3) {
-    width: 50%;
+  .help-entry > summary:hover {
+    background: var(--fm-bg-hover);
+  }
+
+  .help-method {
+    font-weight: 600;
+    min-width: 3.25rem;
+  }
+
+  .help-payload {
+    color: var(--fm-text-muted);
+    overflow-wrap: anywhere;
+  }
+
+  .help-desc {
+    margin: 0;
+    padding: 0.1rem 0.6rem 0.55rem 1.85rem;
+    font-size: 0.8rem;
+    color: var(--fm-text-muted);
   }
 
   code {
