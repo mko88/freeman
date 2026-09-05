@@ -12,6 +12,7 @@ export {
   SaveEnvironment,
   DeleteEnvironment,
   ExecuteRequest,
+  GenerateRequestCode,
   GetTheme,
   GetCachedResponse,
   ClearResponseCache,

@@ -26,6 +26,16 @@ type executeRequest struct {
 	EnvironmentID string `json:"environmentId"`
 }
 
+// codegenRequest is POST /api/codegen's body shape: the request to render
+// (passed inline so unsaved editor edits can be previewed), the
+// environment to resolve {{var}} against, and the output format (see
+// internal/codegen: curl, shell, powershell, powershell-script).
+type codegenRequest struct {
+	Item          domain.Item `json:"item"`
+	EnvironmentID string      `json:"environmentId"`
+	Format        string      `json:"format"`
+}
+
 // NewHandler builds the HTTP API, plus a static frontend handler mounted
 // at "/" if static is non-nil (cmd/freeman-server passes the built web
 // frontend; cmd/freeman's control API passes nil since the GUI itself is
@@ -138,6 +148,20 @@ func NewHandler(app *core.App, static fs.FS) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, resp)
+	})
+
+	mux.HandleFunc("POST /api/codegen", func(w http.ResponseWriter, r *http.Request) {
+		var req codegenRequest
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		code, err := app.GenerateRequestCode(req.Item, req.EnvironmentID, req.Format)
+		if err != nil {
+			writeCoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"code": code})
 	})
 
 	// Resolved from theme.yaml inside the workspace directory (the one
