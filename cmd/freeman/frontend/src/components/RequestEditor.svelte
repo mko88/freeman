@@ -9,6 +9,7 @@
   // as a callback, so a click and a control-API action take the same
   // path.
   import { methodColor } from '../lib/format'
+  import { highlightGeneratedCode } from '../lib/highlightScript'
   import { bodyModes, codeFormats, methods } from '../lib/requestDraft'
   import type { CodeFormat, RequestDraft, RequestTab } from '../lib/requestDraft'
 
@@ -239,7 +240,7 @@
     {#if codeError}
       <p class="error">{codeError}</p>
     {:else}
-      <pre class="code-output">{generatedCode}</pre>
+      <pre class="code-output">{@html highlightGeneratedCode(generatedCode, codeFormat)}</pre>
     {/if}
   </div>
 {:else}
@@ -426,6 +427,23 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.35rem;
+  }
+
+  /* Which format is being shown. An accent tint and border rather than
+     .primary's filled accent — that's the weight Send carries, and a
+     view selector shouldn't shout as loudly as the button that puts a
+     request on the wire. */
+  .code-formats button.active {
+    color: var(--fm-text);
+    border-color: var(--fm-accent);
+    background: color-mix(in srgb, var(--fm-accent) 14%, transparent);
+  }
+
+  /* Without this the base button:hover rule loses on specificity and
+     the active button is the one thing in the row that doesn't respond
+     to the pointer. */
+  .code-formats button.active:hover {
+    background: color-mix(in srgb, var(--fm-accent) 22%, transparent);
   }
 
   .code-formats .code-copy {
