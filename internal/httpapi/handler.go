@@ -39,7 +39,10 @@ type codegenRequest struct {
 // NewHandler builds the HTTP API, plus a static frontend handler mounted
 // at "/" if static is non-nil (cmd/freeman-server passes the built web
 // frontend; cmd/freeman's control API passes nil since the GUI itself is
-// the frontend — "/" then just 404s, only /api/* is served).
+// the frontend — "/" then just 404s, only /api/* is served). The result
+// is wrapped in GuardSameOrigin so this is safe by construction for any
+// caller — cmd/freeman wraps its own outer mux too, for the /api/ui/*
+// routes it mounts above this one.
 func NewHandler(app *core.App, static fs.FS) http.Handler {
 	mux := http.NewServeMux()
 
@@ -188,7 +191,7 @@ func NewHandler(app *core.App, static fs.FS) http.Handler {
 		mux.Handle("/", spaHandler(static))
 	}
 
-	return mux
+	return GuardSameOrigin(mux)
 }
 
 // writeCoreError maps a core.App error to a status code: 409 for "no

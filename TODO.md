@@ -72,6 +72,34 @@ last `saveRequest`/`sendRequest`), so a script can read back what an
 action did instead of screenshotting the window. `CLAUDE.md`'s standing
 rule now also requires a getter for every settable field.
 
+**Update 2026-09-05 (security):** a code review found the control API was
+reachable from any web page the user had open. Loopback keeps other
+machines out, but not a browser: a cross-origin "simple request" needs no
+CORS preflight, and while the reply is unreadable the write still lands —
+enough to point a saved request at an attacker's server, put
+`{{apiToken}}` in its body and send it, since Freeman substitutes secret
+values itself. Closed by `internal/httpapi.GuardSameOrigin` (refuses a
+foreign `Origin`/`Sec-Fetch-Site`, and requires
+`Content-Type: application/json` on any request with a body, which forces
+a preflight that then fails). Applied inside `httpapi.NewHandler` *and*
+around `cmd/freeman`'s outer control mux, since that one owns the
+`/api/ui/*` routes. Covered by `internal/httpapi/guard_test.go` and
+`test_api_guard` in `scripts/test_control_api.py`.
+
+Same review: `cmd/freeman-server` defaulted to `:8080` — all interfaces,
+no auth, full workspace read/write (secrets included) plus arbitrary
+outbound HTTP via `POST /api/execute`, i.e. a disclosure and an SSRF
+pivot for anyone who could route to it. Now defaults to
+`127.0.0.1:8080`; the container image still sets `FREEMAN_LISTEN=:8080`
+(a published Docker port can't reach a loopback-bound process inside),
+and `docker-compose.yml` publishes it as `127.0.0.1:8080:8080` so
+widening it is a deliberate act.
+
+Still open from that review: unbounded response reads/decompression in
+`httpengine.Execute`, unvalidated `itemID` in the response-cache paths,
+`internal/wailsapp` at 0% coverage, `App.svelte` at 3k lines, no CI, the
+unenforced `$backend` contract, and the unused `script`/`importer` stubs.
+
 ---
 
 ## Also already built (not on the survey list)

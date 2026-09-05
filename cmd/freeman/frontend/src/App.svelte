@@ -1943,7 +1943,9 @@
         </div>
         <p class="hint prose">
           {#if controlApiAddr}
-            Base URL: <code>http://{controlApiAddr}</code> — no auth, loopback-only.
+            Base URL: <code>http://{controlApiAddr}</code> — no auth, loopback-only. Requests with a body must
+            send <code>Content-Type: application/json</code>, and anything a browser marks as coming from
+            another site is refused — that's what stops a web page you have open from driving this.
           {:else}
             Only available in the desktop build.
           {/if}

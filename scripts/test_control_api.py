@@ -38,6 +38,12 @@ workspace this run created them in is discarded regardless — but every
 test still gets its own real saveRequest/deleteRequest round trip
 against a real, distinct item.
 
+One section is not about a UI action at all: test_api_guard asserts the
+API refuses the request shapes a web page can send cross-origin (see
+internal/httpapi/guard.go). It sits early, right after the read-only
+routes, because everything after it depends on the guard *not* getting
+in a plain script's way.
+
 KEEP THIS IN SYNC with App.svelte's `uiActions`/`apiEndpoints` tables —
 when an action's payload shape changes, or a new one is added, update
 the matching section here (see CLAUDE.md).
@@ -134,10 +140,22 @@ class ControlAPI:
         self.delay = delay
         self.verbose = verbose
 
-    def _request(self, method: str, path: str, body: Optional[dict] = None) -> tuple[int, Any]:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: Optional[dict] = None,
+        content_type: Optional[str] = "application/json",
+        extra_headers: Optional[dict] = None,
+    ) -> tuple[int, Any]:
+        """content_type/extra_headers exist for test_api_guard, which has
+        to send the exact header shapes a browser would (see
+        internal/httpapi/guard.go); every other caller takes the
+        defaults."""
         url = f"{self.base_url}{path}"
         data = json.dumps(body).encode("utf-8") if body is not None else None
-        headers = {"Content-Type": "application/json"} if data is not None else {}
+        headers = {"Content-Type": content_type} if data is not None and content_type else {}
+        headers.update(extra_headers or {})
         req = urllib.request.Request(url, data=data, method=method, headers=headers)
         if self.verbose:
             print(f"    -> {method} {path}" + (f" {json.dumps(body)}" if body else ""))
@@ -171,6 +189,19 @@ class ControlAPI:
 
     def delete(self, path: str) -> tuple[int, Any]:
         return self._request("DELETE", path)
+
+    def raw(
+        self,
+        method: str,
+        path: str,
+        body: Optional[dict] = None,
+        content_type: Optional[str] = "application/json",
+        extra_headers: Optional[dict] = None,
+    ) -> tuple[int, Any]:
+        """Send a request with full control over the headers, returning
+        (status, body) without raising on 4xx — test_api_guard needs to
+        assert on refusals, not trip over them."""
+        return self._request(method, path, body, content_type, extra_headers)
 
     def action(self, name: str, payload: Optional[dict] = None, wait: bool = True) -> None:
         """Fire one ui:action. Waits `self.delay` seconds afterward by
@@ -318,6 +349,82 @@ def test_read_only_routes(api: ControlAPI, r: Report) -> dict:
     r.check("GET /api/ui/state returns an object", isinstance(ui_state, dict), str(ui_state))
 
     return workspace
+
+
+def test_api_guard(api: ControlAPI, r: Report) -> None:
+    """Regression cover for the CSRF hole internal/httpapi/guard.go
+    closes. Binding to loopback keeps other machines out, but not the
+    browser the user already has open: any page could reach the control
+    API with a CORS "simple request" — no preflight, reply unreadable,
+    write still applied. That was enough to exfiltrate secrets (point a
+    request at an attacker's URL, put {{apiToken}} in its body, send it).
+
+    Every check here sends a shape a browser *can* produce cross-origin
+    and asserts it's refused. Nothing that would mutate state is ever
+    expected to run, so this leaves no trace even if the guard were
+    removed — the payloads below are toggles that cancel out, and the
+    positive case is a plain GET /api/health.
+
+    Go-level coverage of the same rules (including the same-origin
+    browser case freeman-server depends on) is in
+    internal/httpapi/guard_test.go."""
+    r.section("API guard (cross-origin / content-type refusals — internal/httpapi/guard.go)")
+
+    evil = "https://evil.example"
+    toggle = {"action": "toggleHelp", "payload": {}}
+
+    r.step("POST /api/ui/action with Content-Type: text/plain  (the no-preflight simple-request shape)")
+    status, body = api.raw("POST", "/api/ui/action", toggle, content_type="text/plain")
+    r.check(
+        "text/plain body refused with 415, not parsed as JSON",
+        status == 415,
+        f"status={status} body={body}",
+    )
+
+    r.step("POST /api/ui/action with Content-Type: application/x-www-form-urlencoded")
+    status, body = api.raw("POST", "/api/ui/action", toggle, content_type="application/x-www-form-urlencoded")
+    r.check("form-encoded body refused with 415", status == 415, f"status={status} body={body}")
+
+    r.step(f"POST /api/ui/action with Origin: {evil}  (correct content type, foreign origin)")
+    status, body = api.raw("POST", "/api/ui/action", toggle, extra_headers={"Origin": evil})
+    r.check(
+        "a foreign Origin is refused with 403 even with the right content type",
+        status == 403,
+        f"status={status} body={body}",
+    )
+
+    r.step(f"GET /api/environments with Origin: {evil}  (reads are guarded too)")
+    status, body = api.raw("GET", "/api/environments", extra_headers={"Origin": evil})
+    r.check("a foreign Origin is refused on reads", status == 403, f"status={status} body={body}")
+
+    r.step("GET /api/workspace with Sec-Fetch-Site: cross-site")
+    status, body = api.raw("GET", "/api/workspace", extra_headers={"Sec-Fetch-Site": "cross-site"})
+    r.check("Sec-Fetch-Site cross-site is refused", status == 403, f"status={status} body={body}")
+
+    r.step("GET /api/workspace with Sec-Fetch-Site: same-site  (same site is still a different origin)")
+    status, body = api.raw("GET", "/api/workspace", extra_headers={"Sec-Fetch-Site": "same-site"})
+    r.check("Sec-Fetch-Site same-site is refused", status == 403, f"status={status} body={body}")
+
+    r.step("POST /api/codegen with Content-Type: application/json; charset=utf-8  (a real client's shape)")
+    status, body = api.raw(
+        "POST",
+        "/api/codegen",
+        {"item": {"method": "GET", "url": "https://example.com"}, "environmentId": "", "format": "curl"},
+        content_type="application/json; charset=utf-8",
+    )
+    r.check(
+        "a charset parameter on the content type is still accepted",
+        status == 200 and isinstance(body, dict) and body.get("code", "").startswith("curl "),
+        f"status={status} body={body}",
+    )
+
+    r.step("GET /api/health with no browser headers  (this script's own shape — must still pass)")
+    status, body = api.raw("GET", "/api/health")
+    r.check(
+        "a plain scripted request is untouched by the guard",
+        status == 200 and body == {"status": "ok"},
+        f"status={status} body={body}",
+    )
 
 
 def test_workspace_navigation(api: ControlAPI, r: Report, workspace: dict) -> tuple[str, str]:
@@ -1553,6 +1660,7 @@ def main() -> int:
         )
 
         workspace = test_read_only_routes(api, r)
+        test_api_guard(api, r)
         collection_id, environment_id = test_workspace_navigation(api, r, workspace)
 
         collection = api.get(f"/api/collections/{collection_id}")

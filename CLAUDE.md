@@ -53,7 +53,12 @@ Actions with no such ambiguity (`selectCollection`, `newRequest`,
 
 When finishing such a change, verify the new action actually works by
 driving it through `POST http://127.0.0.1:8090/api/ui/action` (or the
-relevant `/api/*` route), not just by clicking the UI.
+relevant `/api/*` route), not just by clicking the UI. Send
+`Content-Type: application/json` — `internal/httpapi.GuardSameOrigin`
+refuses any request with a body that doesn't, and any request a browser
+marks as cross-origin, so that a web page the user has open can't drive
+the app behind their back. Don't relax that guard to make a client
+easier to write; fix the client.
 
 ## Control API regression script
 

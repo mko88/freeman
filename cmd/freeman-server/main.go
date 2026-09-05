@@ -24,7 +24,17 @@ var webFS embed.FS
 
 func main() {
 	workspace := flag.String("workspace", os.Getenv("FREEMAN_WORKSPACE"), "workspace directory (required)")
-	listen := flag.String("listen", envOr("FREEMAN_LISTEN", ":8080"), "listen address")
+	// Loopback by default: this server has no authentication, serves the
+	// workspace (including the .local.json secret overlays) for reading
+	// and writing, and will issue arbitrary outbound HTTP on request via
+	// POST /api/execute — so anyone who can reach it gets both a
+	// disclosure and an SSRF pivot. Exposing it beyond localhost has to
+	// be a deliberate act (FREEMAN_LISTEN / -listen), and should mean
+	// putting an authenticating proxy in front. The container image sets
+	// FREEMAN_LISTEN=:8080 because a published Docker port can only
+	// reach a container process bound to all interfaces; docker-compose
+	// then publishes it on the host's loopback only.
+	listen := flag.String("listen", envOr("FREEMAN_LISTEN", "127.0.0.1:8080"), "listen address")
 	flag.Parse()
 
 	if *workspace == "" {
