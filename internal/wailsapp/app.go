@@ -132,6 +132,18 @@ func (a *App) OpenResponseExternally(path string) error {
 	return openExternally(path)
 }
 
+// OpenResponseInFileExplorer shows a truncated response's full body (see
+// httpengine.Response.Truncated) in the OS's file manager, selecting it
+// where the platform supports that — the same file OpenResponseExternally
+// opens, just revealed rather than launched. No server equivalent — a
+// browser can't launch a native file manager.
+func (a *App) OpenResponseInFileExplorer(path string) error {
+	if !httpengine.IsResponseBodyFile(path) {
+		return fmt.Errorf("not a response body file: %q", path)
+	}
+	return openInFileExplorer(path)
+}
+
 // SetControlAPIAddr records where cmd/freeman's control API (see
 // startControlAPI) is actually listening, so ControlAPIAddr can report it
 // to the frontend. Called once from main, before wails.Run.

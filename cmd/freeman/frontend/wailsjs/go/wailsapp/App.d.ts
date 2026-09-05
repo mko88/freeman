@@ -31,6 +31,8 @@ export function ListEnvironments():Promise<Array<core.EnvironmentSummary>>;
 
 export function OpenResponseExternally(arg1:string):Promise<void>;
 
+export function OpenResponseInFileExplorer(arg1:string):Promise<void>;
+
 export function OpenWorkspace(arg1:string):Promise<core.WorkspaceInfo>;
 
 export function ReportUIState(arg1:string):Promise<void>;

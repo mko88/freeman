@@ -14,4 +14,5 @@ export {
   GetTheme,
   GetResponseBody,
   OpenResponseExternally,
+  OpenResponseInFileExplorer,
 } from '../wailsjs/go/wailsapp/App.js'

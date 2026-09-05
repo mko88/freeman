@@ -78,3 +78,9 @@ export async function GetResponseBody(path: string): Promise<string> {
 export function OpenResponseExternally(_path: string): Promise<void> {
   return Promise.reject(new Error('OpenResponseExternally is not available in web mode — there is no local application to hand it to'))
 }
+
+export function OpenResponseInFileExplorer(_path: string): Promise<void> {
+  return Promise.reject(
+    new Error('OpenResponseInFileExplorer is not available in web mode — there is no local file manager to hand it to'),
+  )
+}

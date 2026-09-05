@@ -3,6 +3,7 @@ package wailsapp
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 )
 
@@ -24,6 +25,27 @@ func openExternally(path string) error {
 		cmd = exec.Command("xdg-open", path)
 	default:
 		return fmt.Errorf("opening files externally isn't supported on %s", runtime.GOOS)
+	}
+	return cmd.Start()
+}
+
+// openInFileExplorer asks the OS's file manager to show path — Explorer
+// and Finder both support opening a folder with a specific file already
+// selected in it; Linux has no universal equivalent, so this falls back
+// to just opening path's containing folder.
+func openInFileExplorer(path string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		// /select, (comma attached, no space before the path) is
+		// Explorer's own documented syntax for this.
+		cmd = exec.Command("explorer", "/select,"+path)
+	case "darwin":
+		cmd = exec.Command("open", "-R", path)
+	case "linux":
+		cmd = exec.Command("xdg-open", filepath.Dir(path))
+	default:
+		return fmt.Errorf("opening a file manager isn't supported on %s", runtime.GOOS)
 	}
 	return cmd.Start()
 }

@@ -799,7 +799,9 @@ def test_large_response_truncation(
     local server (spun up just for this function — nothing public
     reliably returns a body over httpengine.LargeResponseThreshold on
     demand) that returns a fixed 1.5 MB body, then drives showResponseBody
-    and openResponseExternally against the real truncated response."""
+    against the real truncated response. See the comment near the end of
+    this function for why openResponseExternally/copyResponsePath/
+    openResponseInFileExplorer aren't exercised here."""
     r.section("Large response truncation (show anyway / open externally)")
 
     if not item_id:
@@ -868,8 +870,12 @@ def test_large_response_truncation(
         rejected_status, _ = api.raw_get(f"/api/execute/body?path={urllib.parse.quote(body_file + '.does-not-exist')}")
         r.check("a nonexistent path errors rather than serving something", rejected_status == 400, f"status={rejected_status}")
 
-        r.step("openResponseExternally  (watch: the OS should open the body in its default app for .json)")
-        api.action("openResponseExternally")
+        # openResponseExternally/copyResponsePath/openResponseInFileExplorer
+        # aren't exercised here — each has a real, disruptive OS side
+        # effect (launching an app, touching the clipboard, opening a
+        # file manager window) with nothing meaningful to assert over the
+        # control API beyond "the call didn't error", not worth
+        # triggering on every automated run.
     finally:
         server.shutdown()
         thread.join(timeout=5)

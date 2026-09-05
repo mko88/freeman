@@ -12,6 +12,7 @@
     ExecuteRequest,
     GetResponseBody,
     OpenResponseExternally,
+    OpenResponseInFileExplorer,
   } from '$backend'
   import type { domain, httpengine, core } from '../wailsjs/go/models'
   import { EventsOn } from '../wailsjs/runtime/runtime'
@@ -212,6 +213,16 @@
       action: 'openResponseExternally',
       payload: '—',
       desc: "Open a truncated response's full body in its default external application (desktop only).",
+    },
+    {
+      action: 'copyResponsePath',
+      payload: '—',
+      desc: "Copy a truncated response's full-body file path to the clipboard.",
+    },
+    {
+      action: 'openResponseInFileExplorer',
+      payload: '—',
+      desc: "Reveal a truncated response's full-body file in the OS file manager (desktop only).",
     },
     { action: 'openWorkspace', payload: '{ path }', desc: 'Open a workspace by path (no folder dialog).' },
     { action: 'toggleHelp', payload: '—', desc: 'Open/close this help panel.' },
@@ -452,6 +463,12 @@
         break
       case 'openResponseExternally':
         await openResponseExternally()
+        break
+      case 'copyResponsePath':
+        await copyResponsePath()
+        break
+      case 'openResponseInFileExplorer':
+        await openResponseInFileExplorer()
         break
       case 'openWorkspace': {
         const path = payload?.path
@@ -787,6 +804,24 @@
     }
   }
 
+  async function copyResponsePath() {
+    if (!response?.truncated) return
+    try {
+      await navigator.clipboard.writeText(response.bodyFile ?? '')
+    } catch (e) {
+      logEvent(`copyResponsePath failed: ${e}`)
+    }
+  }
+
+  async function openResponseInFileExplorer() {
+    if (!response?.truncated) return
+    try {
+      await OpenResponseInFileExplorer(response.bodyFile ?? '')
+    } catch (e) {
+      logEvent(`openResponseInFileExplorer failed: ${e}`)
+    }
+  }
+
   async function selectEnvironment(id: string) {
     environmentId = id
     environment = await GetEnvironment(id)
@@ -1078,6 +1113,8 @@
               <div class="response-truncated-actions">
                 <button on:click={showResponseBodyAnyway}>Show anyway</button>
                 <button on:click={openResponseExternally}>Open in external editor</button>
+                <button on:click={copyResponsePath}>Copy path</button>
+                <button on:click={openResponseInFileExplorer}>Open in File Explorer</button>
               </div>
             </div>
           {:else}
