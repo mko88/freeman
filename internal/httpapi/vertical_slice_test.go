@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,12 +143,11 @@ func TestVerticalSliceOverHTTP(t *testing.T) {
 	}
 }
 
-// TestExecuteBodyRoute drives a response over httpengine.LargeResponseThreshold
-// through POST /api/execute, confirming it comes back truncated with a
-// bodyFile reference, and that GET /api/execute/body reads the full body
-// back — the headless server's counterpart to the desktop app's "show
-// anyway". It also confirms the route refuses a path it didn't write.
-func TestExecuteBodyRoute(t *testing.T) {
+// TestExecuteReturnsLargeBodyInline confirms the headless server hands
+// back a body over httpengine.LargeResponseThreshold inline in the
+// /api/execute reply — the desktop-only response cache is what trims
+// large bodies now, and the server has no equivalent.
+func TestExecuteReturnsLargeBodyInline(t *testing.T) {
 	root := t.TempDir()
 	app := core.NewApp()
 	ws, err := app.OpenWorkspace(root)
@@ -175,33 +173,13 @@ func TestExecuteBodyRoute(t *testing.T) {
 		Body      string `json:"body"`
 		Truncated bool   `json:"truncated"`
 		BodyFile  string `json:"bodyFile"`
-		SizeBytes int    `json:"sizeBytes"`
 	}
 	mustPost(t, srv.URL+"/api/execute", executeRequest{CollectionID: collectionID, ItemID: saved.ID}, &resp)
-	if !resp.Truncated || resp.Body != "" || resp.BodyFile == "" {
-		t.Fatalf("expected a truncated response with a bodyFile, got %+v", resp)
+	if resp.Truncated || resp.BodyFile != "" {
+		t.Fatalf("expected the server to return a large body inline, got Truncated=%v BodyFile=%q", resp.Truncated, resp.BodyFile)
 	}
-	if resp.SizeBytes != len(big) {
-		t.Fatalf("expected sizeBytes %d, got %d", len(big), resp.SizeBytes)
-	}
-
-	bodyResp, err := http.Get(srv.URL + "/api/execute/body?path=" + url.QueryEscape(resp.BodyFile))
-	if err != nil {
-		t.Fatalf("GET /api/execute/body: %v", err)
-	}
-	defer bodyResp.Body.Close()
-	got, _ := io.ReadAll(bodyResp.Body)
-	if bodyResp.StatusCode != http.StatusOK || string(got) != big {
-		t.Fatalf("expected the full body back (status %d), got %d bytes", bodyResp.StatusCode, len(got))
-	}
-
-	rejected, err := http.Get(srv.URL + "/api/execute/body?path=" + url.QueryEscape(filepath.Join(root, "collection.json")))
-	if err != nil {
-		t.Fatalf("GET /api/execute/body: %v", err)
-	}
-	defer rejected.Body.Close()
-	if rejected.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected a path outside the response-file convention to be refused, got %d", rejected.StatusCode)
+	if resp.Body != big {
+		t.Fatalf("expected the full %d-byte body inline, got %d bytes", len(big), len(resp.Body))
 	}
 }
 

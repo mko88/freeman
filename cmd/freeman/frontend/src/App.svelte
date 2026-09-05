@@ -10,8 +10,6 @@
     GetEnvironment,
     SaveEnvironment,
     ExecuteRequest,
-    OpenResponseExternally,
-    OpenResponseInFileExplorer,
     GetCachedResponse,
     ClearResponseCache,
     ClearCachedResponse,
@@ -183,13 +181,6 @@
     { method: 'GET', path: '/api/environments/{id}', desc: 'Get an environment and its variables.' },
     { method: 'POST', path: '/api/environments', desc: 'Save an environment. Body: a domain.Environment.' },
     { method: 'POST', path: '/api/execute', desc: 'Execute a saved request. Body: {collectionId, itemId, environmentId}.' },
-    {
-      method: 'GET',
-      path: '/api/execute/body',
-      desc:
-        "Read back a truncated response's full body (see /api/execute's response.truncated/bodyFile). " +
-        'Query: ?path={bodyFile}.',
-    },
     { method: 'GET', path: '/api/theme', desc: 'Resolved color palette.' },
     { method: 'GET', path: '/api/headers', desc: 'Common request-header names/values for editor autocomplete (from headers.yaml).' },
     { method: 'POST', path: '/api/ui/action', desc: 'Drive the GUI itself (desktop only, see below). Body: {action, payload}.' },
@@ -199,10 +190,9 @@
       desc:
         'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/params/headers/' +
         'formFields/tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
-        '(truncated/bodyFile in place of body when it was too large — see /api/execute/body); ' +
-        'responseTab (body/headers), responseView (pretty/raw) and responseKind (json/xml/html/image/text, ' +
-        'lightly autodetected); every response is also ' +
-        'cached to disk per request and reloaded on reselect, see clearResponseCache)/' +
+        '(truncated/bodyFile in place of body when it was too large — bodyFile is its path in the ' +
+        'per-request on-disk cache, see clearResponseCache); responseTab (body/headers), ' +
+        'responseView (pretty/raw) and responseKind (json/xml/html/image/text, lightly autodetected))/' +
         'showResponseActionsMenu/showSettings/settingsTab/showHelp/sidebarWidth/statusBarHeight/showControlApiLog — so a script ' +
         "can read what the UI shows instead of screenshotting it (desktop only).",
     },
@@ -230,21 +220,6 @@
     { action: 'newRequest', payload: '—', desc: 'Clear the editor for a new, unsaved request.' },
     { action: 'saveRequest', payload: '—', desc: 'Save the request currently in the editor.' },
     { action: 'sendRequest', payload: '—', desc: 'Save, then execute, the request currently in the editor.' },
-    {
-      action: 'openResponseExternally',
-      payload: '—',
-      desc: "Open a truncated response's full body in its default external application (desktop only).",
-    },
-    {
-      action: 'copyResponsePath',
-      payload: '—',
-      desc: "Copy a truncated response's full-body file path to the clipboard.",
-    },
-    {
-      action: 'openResponseInFileExplorer',
-      payload: '—',
-      desc: "Reveal a truncated response's full-body file in the OS file manager (desktop only).",
-    },
     {
       action: 'toggleResponseActionsMenu',
       payload: '—',
@@ -533,15 +508,6 @@
         break
       case 'sendRequest':
         await sendRequest()
-        break
-      case 'openResponseExternally':
-        await openResponseExternally()
-        break
-      case 'copyResponsePath':
-        await copyResponsePath()
-        break
-      case 'openResponseInFileExplorer':
-        await openResponseInFileExplorer()
         break
       case 'toggleResponseActionsMenu':
         toggleResponseActionsMenu()
@@ -930,43 +896,13 @@
     }
   }
 
-  async function openResponseExternally() {
-    if (!response?.truncated) return
-    try {
-      await OpenResponseExternally(response.bodyFile ?? '')
-    } catch (e) {
-      logEvent(`openResponseExternally failed: ${e}`)
-    }
-  }
-
-  async function copyResponsePath() {
-    if (!response?.truncated) return
-    try {
-      await navigator.clipboard.writeText(response.bodyFile ?? '')
-    } catch (e) {
-      logEvent(`copyResponsePath failed: ${e}`)
-    }
-  }
-
-  async function openResponseInFileExplorer() {
-    if (!response?.truncated) return
-    try {
-      await OpenResponseInFileExplorer(response.bodyFile ?? '')
-    } catch (e) {
-      logEvent(`openResponseInFileExplorer failed: ${e}`)
-    }
-  }
-
   function toggleResponseActionsMenu() {
     showResponseActionsMenu = !showResponseActionsMenu
   }
 
-  // The "..." menu's own Open in external editor/Copy path/Open in File
-  // Explorer — the OpenResponse*Externally/InFileExplorer functions
-  // above do the same things but only for a truncated response's
-  // ephemeral bodyFile; these key off selectedItemId instead, so they
-  // work for any response that's ever been cached (see
-  // saveResponseCache), truncated or not.
+  // The "..." menu's actions (and the too-large callout's) — keyed by
+  // selectedItemId, they act on the request's cache file (see
+  // saveResponseCache), which exists for any response that's been sent.
   async function openResponseCacheExternally() {
     showResponseActionsMenu = false
     if (!selectedItemId) return
@@ -1543,9 +1479,9 @@
                 Response body is {formatBytes(response.sizeBytes)} — too large to show here.
               </p>
               <div class="response-truncated-actions">
-                <button on:click={openResponseExternally}>Open in external editor</button>
-                <button on:click={copyResponsePath}>Copy path</button>
-                <button on:click={openResponseInFileExplorer}>Open in File Explorer</button>
+                <button on:click={openResponseCacheExternally}>Open in external editor</button>
+                <button on:click={copyResponseCachePath}>Copy path</button>
+                <button on:click={openResponseCacheInFileExplorer}>Open in File Explorer</button>
               </div>
             </div>
           {:else if formattedResponse.kind === 'image'}

@@ -9,7 +9,6 @@ package wailsapp
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"os"
 	"sync"
 
@@ -30,13 +29,6 @@ type App struct {
 
 	uiStateMu sync.RWMutex
 	uiState   string
-
-	// responseFile is the temp file backing the current response's full
-	// body when httpengine.Response.Truncated is true, "" otherwise. Only
-	// one at a time — see ExecuteRequest, which deletes the previous one
-	// before recording a new one.
-	responseFileMu sync.Mutex
-	responseFile   string
 }
 
 func NewApp() *App {
@@ -89,25 +81,33 @@ func (a *App) OpenWorkspace(root string) (*core.WorkspaceInfo, error) {
 // ExecuteRequest shadows core.App's to supply the Wails startup context
 // core.App.ExecuteRequest now takes explicitly, keeping this method's own
 // signature (no ctx param) unchanged for the existing generated bindings.
-// It also deletes the previous call's response-body temp file (see
-// httpengine.Response.Truncated) once it's superseded — OpenResponseExternally
-// takes the path explicitly rather than reading this back, so this is
-// cleanup bookkeeping only, not a lookup table — and persists a durable
-// copy of resp for GetCachedResponse (see saveResponseCache),
-// independent of that temp file's own cleanup.
+// It persists resp to the response cache (see saveResponseCache) and,
+// for a body over httpengine.LargeResponseThreshold, blanks Body and
+// points BodyFile at that cache file — so the multi-MB string never
+// crosses the Wails bridge or gets re-mirrored by GET /api/ui/state.
 func (a *App) ExecuteRequest(collectionID, itemID, environmentID string) (*httpengine.Response, error) {
 	resp, err := a.App.ExecuteRequest(a.ctx, collectionID, itemID, environmentID)
 	if err != nil {
 		return nil, err
 	}
 	a.saveResponseCache(itemID, resp) // best-effort; see its own doc comment
-	a.responseFileMu.Lock()
-	if a.responseFile != "" {
-		os.Remove(a.responseFile) // best-effort — a stale leftover isn't harmful
-	}
-	a.responseFile = resp.BodyFile // "" when the response wasn't truncated
-	a.responseFileMu.Unlock()
+	a.trimLargeBody(itemID, resp)
 	return resp, nil
+}
+
+// trimLargeBody blanks resp.Body and points resp.BodyFile at itemID's
+// cache file when the body is over httpengine.LargeResponseThreshold —
+// the shared shape ExecuteRequest and GetCachedResponse both hand the
+// frontend for an oversized response.
+func (a *App) trimLargeBody(itemID string, resp *httpengine.Response) {
+	if len(resp.Body) <= httpengine.LargeResponseThreshold {
+		return
+	}
+	if path, err := a.responseCacheBodyPath(itemID); err == nil {
+		resp.Truncated = true
+		resp.BodyFile = path
+		resp.Body = ""
+	}
 }
 
 // DeleteRequest shadows core.App's to also drop itemID's cached response
@@ -128,20 +128,13 @@ func (a *App) DeleteRequest(collectionID, itemID string) error {
 // selectRequest. An error (a request never sent, or the cache was
 // cleared) means "nothing cached" — App.svelte's selectRequest treats
 // that the same as before, falling back to a blank response pane, not a
-// surfaced error. Also takes over responseFile's cleanup bookkeeping
-// (see ExecuteRequest) for a large cached response's freshly
-// materialized temp file, the same as a live one.
+// surfaced error.
 func (a *App) GetCachedResponse(itemID string) (*httpengine.Response, error) {
 	resp, err := a.loadResponseCache(itemID)
 	if err != nil {
 		return nil, err
 	}
-	a.responseFileMu.Lock()
-	if a.responseFile != "" {
-		os.Remove(a.responseFile)
-	}
-	a.responseFile = resp.BodyFile
-	a.responseFileMu.Unlock()
+	a.trimLargeBody(itemID, resp)
 	return resp, nil
 }
 
@@ -218,28 +211,6 @@ func (a *App) OpenResponseCacheInFileExplorer(itemID string) error {
 	return openInFileExplorer(path)
 }
 
-// OpenResponseExternally opens a truncated response's full body (see
-// httpengine.Response.Truncated) in whatever application the OS
-// associates with its file extension. No server equivalent — a browser
-// can't launch a native application.
-func (a *App) OpenResponseExternally(path string) error {
-	if !httpengine.IsResponseBodyFile(path) {
-		return fmt.Errorf("not a response body file: %q", path)
-	}
-	return openExternally(path)
-}
-
-// OpenResponseInFileExplorer shows a truncated response's full body (see
-// httpengine.Response.Truncated) in the OS's file manager, selecting it
-// where the platform supports that — the same file OpenResponseExternally
-// opens, just revealed rather than launched. No server equivalent — a
-// browser can't launch a native file manager.
-func (a *App) OpenResponseInFileExplorer(path string) error {
-	if !httpengine.IsResponseBodyFile(path) {
-		return fmt.Errorf("not a response body file: %q", path)
-	}
-	return openInFileExplorer(path)
-}
 
 // SetControlAPIAddr records where cmd/freeman's control API (see
 // startControlAPI) is actually listening, so ControlAPIAddr can report it

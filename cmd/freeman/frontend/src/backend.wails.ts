@@ -12,8 +12,6 @@ export {
   SaveEnvironment,
   ExecuteRequest,
   GetTheme,
-  OpenResponseExternally,
-  OpenResponseInFileExplorer,
   GetCachedResponse,
   ClearResponseCache,
   ClearCachedResponse,

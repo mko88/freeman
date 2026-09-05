@@ -9,17 +9,12 @@ import (
 )
 
 // This file persists one response per request — the last one it got — to
-// <workspaceRoot>/.cache/responses, independent of the ephemeral OS-temp
-// file httpengine.Execute itself writes for an oversized response (see
-// httpengine.Response.Truncated's doc comment): that one exists purely
-// to keep a huge body off the Wails IPC bridge for the *current*
-// response, and is cleaned up as soon as the next one supersedes it.
-// This cache is durable — it's what makes reselecting a request (see
-// App.GetCachedResponse) show its last response again instead of a
-// blank pane, even after quitting and relaunching the app — and it
-// exists for every response, not just an oversized one, so the response
-// pane's "..." menu (OpenResponseCacheExternally/GetResponseCachePath/
-// OpenResponseCacheInFileExplorer) always has a real file to act on.
+// <workspaceRoot>/.cache/responses. It's the single place a response
+// body lives on disk: durable (reselecting a request shows its last
+// response again, even after a relaunch — see App.GetCachedResponse),
+// the file the response pane's "..." menu acts on, and the source
+// App.ExecuteRequest reads a large body back from after blanking it out
+// of the response it hands the frontend (see httpengine.Response.Truncated).
 //
 // It lives under the workspace (not a per-user app-data directory) so
 // each workspace has its own — "Clear response cache" then only clears
@@ -55,10 +50,10 @@ func fileExists(path string) bool {
 // saveResponseCache persists resp for itemID as two files — <itemID>
 // .meta.json (status/headers/duration/size) and <itemID>.body<ext> (the
 // exact response body, ext guessed from its Content-Type via
-// httpengine.ExtensionFor). Best-effort: a failure (no workspace open, a
-// full disk) is silently ignored rather than failing a request that
-// already succeeded — the same reasoning httpengine.Execute itself uses
-// for its own temp-file write.
+// httpengine.ExtensionFor). Called with resp.Body still inline (the
+// trimming in App.ExecuteRequest happens after this), best-effort: a
+// failure (no workspace open, a full disk) is silently ignored rather
+// than failing a request that already succeeded.
 func (a *App) saveResponseCache(itemID string, resp *httpengine.Response) {
 	dir := a.responsesDir()
 	if dir == "" {
@@ -66,13 +61,6 @@ func (a *App) saveResponseCache(itemID string, resp *httpengine.Response) {
 	}
 
 	body := []byte(resp.Body)
-	if resp.Truncated {
-		data, err := httpengine.ReadResponseBodyFile(resp.BodyFile)
-		if err != nil {
-			return
-		}
-		body = data
-	}
 
 	// Remove any previous body file for this item first — its extension
 	// (and so its filename) may not match this response's, e.g. a
@@ -142,13 +130,9 @@ func (a *App) responseCacheBodyPath(itemID string) (string, error) {
 // loadResponseCache returns the last cached response for itemID (see
 // saveResponseCache) — an error (wrapping os.ErrNotExist for the normal
 // "nothing cached yet" case: a request never sent, or the cache was
-// cleared) otherwise. A body over httpengine.LargeResponseThreshold
-// comes back Truncated exactly the way a live Execute response would,
-// with BodyFile pointing at a fresh temp file (see
-// httpengine.WriteResponseBodyFile) — so OpenResponseExternally/
-// OpenResponseInFileExplorer and the response pane's own truncated-body
-// callout work identically whether the response just arrived or was
-// reloaded from disk.
+// cleared) otherwise. Body comes back inline; App.GetCachedResponse
+// applies the same large-body trimming ExecuteRequest does before
+// handing it to the frontend.
 func (a *App) loadResponseCache(itemID string) (*httpengine.Response, error) {
 	dir := a.responsesDir()
 	if dir == "" {
@@ -173,18 +157,6 @@ func (a *App) loadResponseCache(itemID string) (*httpengine.Response, error) {
 		return nil, err
 	}
 
-	if len(body) > httpengine.LargeResponseThreshold {
-		contentType := ""
-		if v := resp.Headers["Content-Type"]; len(v) > 0 {
-			contentType = v[0]
-		}
-		if tempPath, werr := httpengine.WriteResponseBodyFile(body, contentType); werr == nil {
-			resp.Truncated = true
-			resp.BodyFile = tempPath
-			resp.Body = ""
-			return &resp, nil
-		}
-	}
 	resp.Body = string(body)
 	resp.Truncated = false
 	resp.BodyFile = ""

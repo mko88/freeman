@@ -66,20 +66,9 @@ export function GetTheme(): Promise<Record<string, string>> {
   return request('GET', '/api/theme')
 }
 
-export function OpenResponseExternally(_path: string): Promise<void> {
-  return Promise.reject(new Error('OpenResponseExternally is not available in web mode — there is no local application to hand it to'))
-}
-
-export function OpenResponseInFileExplorer(_path: string): Promise<void> {
-  return Promise.reject(
-    new Error('OpenResponseInFileExplorer is not available in web mode — there is no local file manager to hand it to'),
-  )
-}
-
 // The response cache (see internal/wailsapp/responsecache.go) is
-// desktop-only — it lives in the desktop app's own OS-level app-data
-// directory, which has no equivalent for a server whose "app data" is
-// just whatever's in its container.
+// desktop-only — it lives under the desktop app's workspace, which a
+// server that just returns bodies over HTTP has no equivalent for.
 export function GetCachedResponse(_itemId: string): Promise<httpengine.Response> {
   return Promise.reject(new Error('GetCachedResponse is not available in web mode — the server does not cache responses'))
 }

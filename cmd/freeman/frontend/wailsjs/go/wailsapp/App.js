@@ -74,14 +74,6 @@ export function OpenResponseCacheInFileExplorer(arg1) {
   return window['go']['wailsapp']['App']['OpenResponseCacheInFileExplorer'](arg1);
 }
 
-export function OpenResponseExternally(arg1) {
-  return window['go']['wailsapp']['App']['OpenResponseExternally'](arg1);
-}
-
-export function OpenResponseInFileExplorer(arg1) {
-  return window['go']['wailsapp']['App']['OpenResponseInFileExplorer'](arg1);
-}
-
 export function OpenWorkspace(arg1) {
   return window['go']['wailsapp']['App']['OpenWorkspace'](arg1);
 }

@@ -68,7 +68,6 @@ import tempfile
 import threading
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
@@ -165,21 +164,6 @@ class ControlAPI:
         if status >= 400:
             raise ApiError(f"GET {path} -> {status}: {body}")
         return body
-
-    def raw_get(self, path: str) -> tuple[int, str]:
-        """Like get(), but never attempts to JSON-decode the response —
-        GET /api/execute/body's body is plain text (Content-Type:
-        text/plain) that can itself happen to look like JSON, which
-        _request()'s "try json.loads, fall back to text" would silently
-        turn into a parsed dict instead of the exact original string."""
-        url = f"{self.base_url}{path}"
-        req = urllib.request.Request(url, method="GET")
-        try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                raw, status = resp.read(), resp.status
-        except urllib.error.HTTPError as e:
-            raw, status = e.read(), e.code
-        return status, raw.decode("utf-8", errors="replace")
 
     def post(self, path: str, body: Optional[dict] = None) -> tuple[int, Any]:
         return self._request("POST", path, body)
@@ -839,11 +823,9 @@ def test_large_response_truncation(
     """Points the empty scratch request main() made for this test at a
     local server (spun up just for this function — nothing public
     reliably returns a body over httpengine.LargeResponseThreshold on
-    demand) that returns a fixed 1.5 MB body, and checks the response
-    comes back truncated with the body kept off the state mirror and
-    readable via GET /api/execute/body. See the comment near the end of
-    this function for why openResponseExternally/copyResponsePath/
-    openResponseInFileExplorer aren't exercised here."""
+    demand) that returns a fixed 1.5 MB body, and checks the desktop app
+    blanks it out of the response it mirrors, pointing bodyFile at the
+    on-disk cache instead."""
     r.section("Large response truncation")
 
     if not item_id:
@@ -866,7 +848,6 @@ def test_large_response_truncation(
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), BigHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    body_file = ""  # set once the response comes back — see the finally below
 
     try:
         port = server.server_address[1]
@@ -885,7 +866,12 @@ def test_large_response_truncation(
         r.check("response.body was left empty, not inlined", resp.get("body") == "", f"{len(resp.get('body') or '')} bytes")
         r.check("response.sizeBytes reflects the real body size", resp.get("sizeBytes") == len(big_body), str(resp.get("sizeBytes")))
         body_file = resp.get("bodyFile") or ""
-        r.check("response.bodyFile is set", bool(body_file), repr(body_file))
+        r.check(
+            "response.bodyFile points at the workspace cache, not a stray temp file",
+            os.path.normpath(body_file).startswith(os.path.normpath(os.path.join(state.get("workspaceRoot") or "", ".cache", "responses"))),
+            repr(body_file),
+        )
+        r.check("the cache body file actually exists on disk", os.path.exists(body_file), body_file)
 
         state_json = json.dumps(state)
         r.check(
@@ -894,38 +880,15 @@ def test_large_response_truncation(
             f"{len(state_json)} bytes",
         )
 
-        r.step(f"GET /api/execute/body?path={body_file}  (reads the full truncated body back)")
-        status, body_text = api.raw_get(f"/api/execute/body?path={urllib.parse.quote(body_file)}")
-        r.check("GET /api/execute/body -> 200 with the exact original body", status == 200 and body_text == big_body.decode("utf-8"), f"status={status} len={len(body_text) if isinstance(body_text, str) else 'n/a'}")
-
-        # The real security boundary (a path outside os.TempDir() entirely,
-        # e.g. the workspace's own collection.json) is covered at the Go
-        # level by internal/httpapi.TestExecuteBodyRoute — this is just a
-        # sanity check that the route errors instead of 200-ing on garbage.
-        r.step("GET /api/execute/body with a made-up path  (expect an error, not 200)")
-        rejected_status, _ = api.raw_get(f"/api/execute/body?path={urllib.parse.quote(body_file + '.does-not-exist')}")
-        r.check("a nonexistent path errors rather than serving something", rejected_status == 400, f"status={rejected_status}")
-
-        # openResponseExternally/copyResponsePath/openResponseInFileExplorer
-        # aren't exercised here — each has a real, disruptive OS side
-        # effect (launching an app, touching the clipboard, opening a
-        # file manager window) with nothing meaningful to assert over the
-        # control API beyond "the call didn't error", not worth
-        # triggering on every automated run.
+        # openResponseCacheExternally/copyResponseCachePath/
+        # openResponseCacheInFileExplorer aren't exercised here — each has
+        # a real, disruptive OS side effect (launching an app, touching
+        # the clipboard, opening a file manager window) with nothing
+        # meaningful to assert over the control API beyond "the call
+        # didn't error", not worth triggering on every automated run.
     finally:
         server.shutdown()
         thread.join(timeout=5)
-        # bodyFile lives directly under the OS temp dir, not under the
-        # disposable workspace main() deletes at the end — without this,
-        # it'd be the one thing this run leaves behind. The app itself
-        # will also delete it once another request executes (see
-        # wailsapp.App.ExecuteRequest), but that's not guaranteed to
-        # happen before this script exits.
-        if body_file:
-            try:
-                os.remove(body_file)
-            except OSError:
-                pass
 
 
 def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environment_id: str, item_id: str) -> None:
