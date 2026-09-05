@@ -17,3 +17,28 @@ export const methodColorVar: Record<string, string> = {
 export function methodColor(method: string): string {
   return methodColorVar[method] ?? 'var(--fm-method-neutral)'
 }
+
+export function formatDuration(ns: number): string {
+  return `${Math.round(ns / 1e6)} ms`
+}
+
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} bytes`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// Go's http.Response.Status (httpengine.Response.status) is already
+// "<code> <reason>", e.g. "200 OK" — this strips the leading code so
+// it isn't shown twice next to statusCode ("200 200 OK").
+export function reasonPhrase(status: string): string {
+  return status.replace(/^\d+\s*/, '')
+}
+
+// Standard HTTP status-class semantics, for coloring the status badge.
+export function statusTone(code: number): 'success' | 'info' | 'warning' | 'error' {
+  if (code >= 200 && code < 300) return 'success'
+  if (code >= 300 && code < 400) return 'info'
+  if (code >= 400 && code < 500) return 'warning'
+  return 'error'
+}

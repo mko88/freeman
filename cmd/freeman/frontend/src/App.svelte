@@ -23,7 +23,9 @@
   import type { domain, httpengine, core } from '../wailsjs/go/models'
   import { EventsOn } from '../wailsjs/runtime/runtime'
   import HelpModal from './components/HelpModal.svelte'
-  import { methodColor } from './lib/format'
+  import SettingsModal from './components/SettingsModal.svelte'
+  import { formatBytes, formatDuration, methodColor, reasonPhrase, statusTone } from './lib/format'
+  import { detectResponseKind, formatResponse } from './lib/responseFormat'
   import { ControlAPIAddr, GetHeaderCatalog, SelectFile, ReportUIState } from '../wailsjs/go/wailsapp/App.js'
 
   // Common request headers (and, per header, common values) offered as
@@ -950,6 +952,22 @@
     }
   }
 
+  // Handed to SettingsModal as one prop. Built once rather than inline
+  // in the markup so the component doesn't see a new object — and so
+  // re-render — every time anything else on this page changes. The
+  // functions themselves stay here: dispatchUIAction drives the same
+  // ones, so a scripted selectEnvironment and a clicked one take
+  // exactly the same path.
+  const environmentActions = {
+    select: selectEnvironment,
+    create: newEnvironment,
+    setName: (value: string) => setEnvironmentField('name', value),
+    confirmDelete: confirmDeleteEnvironment,
+    addVariable: () => addEnvironmentVariable(),
+    removeVariable: removeEnvironmentVariable,
+    save: saveEnvironment,
+  }
+
   function addEnvironmentVariable(initial?: Partial<domain.Variable>) {
     if (!environment) return
     environment.variables = [...environment.variables, { key: '', value: '', enabled: true, secret: false, ...initial }]
@@ -975,23 +993,6 @@
         e.id === saved.id ? { ...e, name: saved.name } : e,
       )
     }
-  }
-
-  function formatDuration(ns: number): string {
-    return `${Math.round(ns / 1e6)} ms`
-  }
-
-  function formatBytes(n: number): string {
-    if (n < 1024) return `${n} bytes`
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-    return `${(n / (1024 * 1024)).toFixed(1)} MB`
-  }
-
-  // Go's http.Response.Status (httpengine.Response.status) is already
-  // "<code> <reason>", e.g. "200 OK" — this strips the leading code so
-  // it isn't shown twice next to statusCode ("200 200 OK").
-  function reasonPhrase(status: string): string {
-    return status.replace(/^\d+\s*/, '')
   }
 
   // selectRequestTab (control API) always deterministically switches to
@@ -1062,123 +1063,10 @@
       : ''
   $: if (codeKey) regenerateCode()
 
-  // Standard HTTP status-class semantics, for coloring the status badge.
-  function statusTone(code: number): 'success' | 'info' | 'warning' | 'error' {
-    if (code >= 200 && code < 300) return 'success'
-    if (code >= 300 && code < 400) return 'info'
-    if (code >= 400 && code < 500) return 'warning'
-    return 'error'
-  }
-
-  // Above this the pretty view isn't worth the JSON.parse + regex pass on
-  // every render — show raw instead. (Anything over the truncation
-  // threshold never reaches the inline view at all; this is a lower cap
-  // just for keeping the formatted path snappy.)
-  const RESPONSE_PRETTY_MAX = 256 * 1024
-
-  type ResponseKind = 'json' | 'xml' | 'html' | 'image' | 'text'
-
-  function responseHeader(r: httpengine.Response | null, name: string): string {
-    if (!r?.headers) return ''
-    const key = Object.keys(r.headers).find((k) => k.toLowerCase() === name.toLowerCase())
-    return key ? (r.headers[key]?.[0] ?? '') : ''
-  }
-
-  // Content-Type first, then a one-character sniff of the body — enough
-  // to pick a renderer, not a full content classifier.
-  function detectResponseKind(r: httpengine.Response | null): ResponseKind {
-    const ct = responseHeader(r, 'Content-Type').toLowerCase()
-    if (ct.startsWith('image/')) return 'image'
-    if (ct.includes('json')) return 'json'
-    if (ct.includes('html')) return 'html'
-    if (ct.includes('xml')) return 'xml'
-    if (ct) return 'text'
-    const s = (r?.body ?? '').trimStart()
-    if (s.startsWith('{') || s.startsWith('[')) return 'json'
-    if (s.startsWith('<')) return 'xml'
-    return 'text'
-  }
-
-  // Wraps JSON tokens in <span class="syntax-*"> for {@html}. The whole
-  // string is HTML-escaped first and the replacement only ever inserts
-  // those known spans, so the result is safe to render as HTML even
-  // though the body itself is untrusted.
-  function highlightJson(json: string): string {
-    const escaped = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    return escaped.replace(
-      /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
-      (match) => {
-        let cls = 'syntax-num'
-        if (/^"/.test(match)) cls = /:$/.test(match) ? 'syntax-key' : 'syntax-str'
-        else if (match === 'true' || match === 'false') cls = 'syntax-bool'
-        else if (match === 'null') cls = 'syntax-null'
-        return `<span class="${cls}">${match}</span>`
-      },
-    )
-  }
-
-  // Reindents XML by breaking between adjacent tags and tracking depth —
-  // a lightweight formatter, not a parser (comments/CDATA pass through
-  // as-is). Only called once the body is known to parse as XML.
-  function prettyXml(xml: string): string {
-    let depth = 0
-    return xml
-      .replace(/>\s*</g, '>\n<')
-      .trim()
-      .split('\n')
-      .map((line) => {
-        const node = line.trim()
-        if (/^<\//.test(node)) depth = Math.max(depth - 1, 0)
-        const out = '  '.repeat(depth) + node
-        // An opening tag with no matching close on the same line and not
-        // self-closing pushes the next line in a level.
-        if (/^<[^!?]/.test(node) && !/\/>$/.test(node) && !/<\/[\w:.-]+>$/.test(node)) depth += 1
-        return out
-      })
-      .join('\n')
-  }
-
-  // Same idea as highlightJson, for XML: escape first, then wrap tag
-  // delimiters, names, attribute names and attribute values in the same
-  // syntax-* spans. XML declarations and comments are left plain.
-  function highlightXml(xml: string): string {
-    const escaped = xml.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    return escaped.replace(
-      /(&lt;\/?)([\w:.-]+)((?:\s+[\w:.-]+(?:=(?:"[^"]*"|'[^']*'))?)*\s*)(\/?&gt;)/g,
-      (_full, open, name, attrs, close) => {
-        const attrsHtml = attrs.replace(
-          /([\w:.-]+)(=)("[^"]*"|'[^']*')/g,
-          '<span class="syntax-num">$1</span>$2<span class="syntax-str">$3</span>',
-        )
-        return `<span class="syntax-null">${open}</span><span class="syntax-key">${name}</span>${attrsHtml}<span class="syntax-null">${close}</span>`
-      },
-    )
-  }
-
-  // Derived once per response/view change: the detected kind, whether a
-  // pretty view is available (valid JSON/XML, small enough, not
-  // truncated), and the highlighted HTML when it's the pretty view's
-  // turn to render.
-  $: formattedResponse = ((r: httpengine.Response | null, view: 'pretty' | 'raw') => {
-    const kind = detectResponseKind(r)
-    const inRange = !!r && !r.truncated && (r.body?.length ?? 0) <= RESPONSE_PRETTY_MAX
-    if (inRange && kind === 'json') {
-      try {
-        const parsed = JSON.parse(r!.body)
-        return { kind, canPretty: true, html: view === 'pretty' ? highlightJson(JSON.stringify(parsed, null, 2)) : '' }
-      } catch {
-        return { kind: 'text' as ResponseKind, canPretty: false, html: '' }
-      }
-    }
-    if (inRange && kind === 'xml') {
-      const doc = new DOMParser().parseFromString(r!.body, 'application/xml')
-      if (doc.getElementsByTagName('parsererror').length > 0) {
-        return { kind: 'text' as ResponseKind, canPretty: false, html: '' }
-      }
-      return { kind, canPretty: true, html: view === 'pretty' ? highlightXml(prettyXml(r!.body)) : '' }
-    }
-    return { kind, canPretty: false, html: '' }
-  })(response, responseView)
+  // The response pane's derived view model: what kind of body came
+  // back, whether a pretty view is even possible, and the highlighted
+  // HTML when it's the pretty view's turn to render.
+  $: formattedResponse = formatResponse(response, responseView)
 
   function setResponseView(view: 'pretty' | 'raw') {
     responseView = view
@@ -1613,98 +1501,18 @@
   </footer>
 
   {#if showSettings && workspace}
-    <div
-      class="modal-backdrop"
-      role="presentation"
-      on:click={() => (showSettings = false)}
-      on:keydown={(e) => e.key === 'Escape' && (showSettings = false)}
-    >
-      <div
-        class="modal settings-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-title"
-        tabindex="-1"
-        on:click|stopPropagation
-        on:keydown={(e) => e.key === 'Escape' && (showSettings = false)}
-      >
-        <div class="modal-header">
-          <h2 id="settings-title">Settings</h2>
-          <button class="icon-btn" title="Close" on:click={() => (showSettings = false)}>×</button>
-        </div>
-
-        <div class="tabs">
-          <button class:active={settingsTab === 'workspace'} on:click={() => (settingsTab = 'workspace')}>Workspace</button>
-          <button class:active={settingsTab === 'environments'} on:click={() => (settingsTab = 'environments')}
-            >Environments</button
-          >
-        </div>
-
-        <div class="settings-body">
-          {#if settingsTab === 'workspace'}
-            <p class="prose">Collections and environments are read from this folder.</p>
-            <div class="row">
-              <code class="workspace-path">{workspace.root}</code>
-              <button on:click={openWorkspace}>Change…</button>
-            </div>
-            {#if openError}<p class="error">{openError}</p>{/if}
-
-            <p class="prose">
-              Every request's last response is cached under this workspace (<code>.cache/responses</code>), so reopening
-              it later shows what it last returned.
-            </p>
-            <div class="row">
-              <button on:click={clearResponseCache}>Clear response cache</button>
-              {#if responseCacheCleared}<span class="muted">Cleared.</span>{/if}
-            </div>
-          {:else}
-            <div class="row env-fields">
-              <select bind:value={environmentId} on:change={() => selectEnvironment(environmentId)}>
-                {#each workspace.environments as env (env.id)}
-                  <option value={env.id}>{env.name}</option>
-                {/each}
-              </select>
-              <input
-                class="env-name"
-                type="text"
-                value={environment ? environment.name : ''}
-                on:input={(e) => setEnvironmentField('name', e.currentTarget.value)}
-                placeholder="Environment name"
-                disabled={!environment}
-              />
-            </div>
-
-            <div class="row env-actions">
-              <button on:click={newEnvironment}>New</button>
-              <button on:click={confirmDeleteEnvironment} disabled={workspace.environments.length <= 1}>Delete</button>
-              <button class="env-actions-split" on:click={() => addEnvironmentVariable()} disabled={!environment}
-                >Add variable</button
-              >
-              <button class="primary" on:click={saveEnvironment} disabled={!environment}>Save environment</button>
-            </div>
-
-            {#if environment}
-              <table class="kv-table">
-                <thead>
-                  <tr><th></th><th>Key</th><th>Value</th><th>Secret</th><th></th></tr>
-                </thead>
-                <tbody>
-                  {#each environment.variables as v, i}
-                    <tr>
-                      <td><input type="checkbox" bind:checked={v.enabled} /></td>
-                      <td><input type="text" bind:value={v.key} placeholder="key" /></td>
-                      <td><input type="text" bind:value={v.value} placeholder="value" /></td>
-                      <td><input type="checkbox" bind:checked={v.secret} /></td>
-                      <td><button class="icon-btn kv-remove-btn" on:click={() => removeEnvironmentVariable(i)}>×</button></td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            {/if}
-          {/if}
-        </div>
-      </div>
-    </div>
+    <SettingsModal
+      {workspace}
+      {openError}
+      {responseCacheCleared}
+      bind:settingsTab
+      bind:environmentId
+      bind:environment
+      env={environmentActions}
+      onClose={() => (showSettings = false)}
+      onOpenWorkspace={openWorkspace}
+      onClearResponseCache={clearResponseCache}
+    />
   {/if}
 
   {#if showHelp}
@@ -1880,55 +1688,6 @@
     margin-right: 8px;
   }
 
-  /* Same footprint as the help modal, but a fixed height so it doesn't
-     jump around between tabs, and a flex column so the header and tab
-     bar stay put while only .settings-body scrolls. */
-  .settings-modal {
-    width: min(960px, 94vw);
-    height: min(680px, 90vh);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .settings-modal > .modal-header,
-  .settings-modal > .tabs {
-    flex: none;
-  }
-
-  .settings-body {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-  }
-
-  /* The two fields at the top of the Environments tab — the active-env
-     picker and its rename box — share the row evenly. */
-  .env-fields > select,
-  .env-name {
-    flex: 1;
-    min-width: 0;
-  }
-
-  /* One toolbar for both environment-level (New/Delete) and
-     variable-level (Add/Save) actions; the split pushes the
-     variable pair to the right edge. */
-  .env-actions {
-    flex-wrap: wrap;
-  }
-
-  .env-actions-split {
-    margin-left: auto;
-  }
-
-  .workspace-path {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   /* No width here — set inline from sidebarWidth (see the splitter next
      to it). */
   .sidebar {
@@ -2046,18 +1805,6 @@
     font-weight: 600;
     color: var(--m);
     border-left: 2px solid var(--m);
-  }
-
-  .settings-modal .tabs {
-    margin-bottom: 0.75rem;
-  }
-
-  /* The Environments tab's table has a second narrow (checkbox) column —
-     Secret — that isn't first or last, so it needs its own rule or it'd
-     claim an even share of the remaining width like Key/Value do. */
-  .settings-modal .kv-table th:nth-child(4),
-  .settings-modal .kv-table td:nth-child(4) {
-    width: 4.5rem;
   }
 
   .body-editor {
