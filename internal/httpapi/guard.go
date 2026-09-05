@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -44,15 +45,34 @@ var (
 func GuardSameOrigin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !originAllowed(r) {
-			writeError(w, http.StatusForbidden, errCrossOrigin)
+			reject(w, r, http.StatusForbidden, errCrossOrigin)
 			return
 		}
 		if r.ContentLength != 0 && !isJSONContentType(r.Header.Get("Content-Type")) {
-			writeError(w, http.StatusUnsupportedMediaType, errNotJSON)
+			reject(w, r, http.StatusUnsupportedMediaType, errNotJSON)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// maxDrainOnReject bounds how much of a refused request's body is read
+// before the response goes out. Generous next to anything this API
+// takes, and small enough that refusing a request can't be turned into
+// a way to make the server read an unbounded amount.
+const maxDrainOnReject = 1 << 20
+
+// reject answers with an error status, first discarding the body the
+// client was in the middle of sending. Replying without reading it
+// leaves the connection in a state the client can see as a reset
+// instead of the status we meant to give it — which showed up as an
+// intermittent ConnectionResetError in the control-API suite rather
+// than the 415 it was asserting on.
+func reject(w http.ResponseWriter, r *http.Request, status int, err error) {
+	if r.Body != nil {
+		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, maxDrainOnReject))
+	}
+	writeError(w, status, err)
 }
 
 // originAllowed reports whether r's browser-set provenance headers, if

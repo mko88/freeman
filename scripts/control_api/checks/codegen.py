@@ -39,9 +39,20 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
     # {{pyTestBase}} is https://httpbin.org (set by test_environment_editor).
     checks = {
         "curl": ["curl -X POST 'https://httpbin.org/post'", "-H 'X-Trace: abc'", "-H 'Authorization: Bearer t0ken'"],
-        "shell": ["#!/usr/bin/env bash", "curl -X POST 'https://httpbin.org/post' \\"],
+        # The script forms pull the parts out as variables; the
+        # one-liners keep everything inline. See internal/codegen.
+        "shell": [
+            "#!/usr/bin/env bash\nset -euo pipefail",
+            "url='https://httpbin.org/post'",
+            "-H 'Authorization: Bearer t0ken'",
+            'curl -X POST "$url" \\\n  "${headers[@]}"',
+        ],
         "powershell": ["Invoke-RestMethod -Method POST -Uri 'https://httpbin.org/post'", "'Authorization' = 'Bearer t0ken'"],
-        "powershell-script": ["$headers = @{", "Invoke-RestMethod `"],
+        "powershell-script": [
+            "$uri = 'https://httpbin.org/post'",
+            "$headers = @{",
+            "Invoke-RestMethod `\n    -Method POST `\n    -Uri $uri `\n    -Headers $headers",
+        ],
     }
     for fmt, needles in checks.items():
         r.step(f"selectCodeFormat {{format: {fmt!r}}}")
