@@ -937,8 +937,9 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     """Sends the empty scratch request main() made for this test, then
     confirms its response survives navigating away and back (newRequest
     stands in for closing and reopening the app — the cache is on disk),
-    that the response pane's "..." menu toggles, and that both
-    clearCachedResponse (per request) and clearResponseCache (whole
+    that the body view autodetects as JSON and setResponseView flips
+    pretty/raw, that the response pane's "..." menu toggles, and that
+    both clearCachedResponse (per request) and clearResponseCache (whole
     workspace) really delete the entry, not just the in-memory copy.
 
     Those clears only touch the open workspace's own .cache/responses —
@@ -974,6 +975,19 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
         (state.get("response") or {}).get("body") == original_body,
         f"got {(state.get('response') or {}).get('body', '')[:80]!r}",
     )
+
+    # httpbin's /get returns application/json, so the body view should
+    # autodetect as JSON and default to the pretty (highlighted) view.
+    r.check("responseKind autodetected as json", state.get("responseKind") == "json", str(state.get("responseKind")))
+    r.check("responseView defaults to pretty", state.get("responseView") == "pretty", str(state.get("responseView")))
+    r.step("setResponseView {view: 'raw'}  (watch: the body should drop the highlighting/indentation)")
+    api.action("setResponseView", {"view": "raw"})
+    state = poll(api.state, lambda s: s.get("responseView") == "raw")
+    r.check("state.responseView reflects setResponseView 'raw'", state.get("responseView") == "raw", str(state.get("responseView")))
+    r.step("setResponseView {view: 'pretty'}  (back to the formatted view)")
+    api.action("setResponseView", {"view": "pretty"})
+    state = poll(api.state, lambda s: s.get("responseView") == "pretty")
+    r.check("state.responseView reflects setResponseView 'pretty'", state.get("responseView") == "pretty", str(state.get("responseView")))
 
     r.step('toggleResponseActionsMenu  (watch: the response pane\'s "..." menu should open)')
     api.action("toggleResponseActionsMenu")

@@ -99,6 +99,11 @@
   // response gets cached to disk (see saveResponseCache) regardless of
   // size.
   let showResponseActionsMenu = false
+  // 'pretty' pretty-prints + syntax-highlights a JSON response body;
+  // 'raw' shows exactly what came back. Sticky across requests — a view
+  // preference, not per-response state. See formattedResponse below for
+  // the (lightweight) detection of whether pretty is even possible.
+  let responseView: 'pretty' | 'raw' = 'pretty'
   let activeTab: RequestTab = 'headers'
   // Collapsed by re-clicking whichever tab is already active (see
   // onRequestTabClick below) — the Headers/Body table hides, and
@@ -194,7 +199,8 @@
         'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/params/headers/' +
         'formFields/tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
         '(truncated/bodyFile in place of body when it was too large — see /api/execute/body — plus ' +
-        'responseBodyExpanded for whether showResponseBody has since loaded it; every response is also ' +
+        'responseBodyExpanded for whether showResponseBody has since loaded it; responseView (pretty/raw) ' +
+        'and responseKind (json/xml/html/text, lightly autodetected); every response is also ' +
         'cached to disk per request and reloaded on reselect, see clearResponseCache)/' +
         'showResponseActionsMenu/showSettings/settingsTab/showHelp/sidebarWidth/statusBarHeight/showControlApiLog — so a script ' +
         "can read what the UI shows instead of screenshotting it (desktop only).",
@@ -247,6 +253,11 @@
       action: 'toggleResponseActionsMenu',
       payload: '—',
       desc: 'Open/close the response pane\'s "..." actions menu.',
+    },
+    {
+      action: 'setResponseView',
+      payload: '{ view }',
+      desc: "Switch the response body view. view is 'pretty' (JSON pretty-printed + highlighted) or 'raw'.",
     },
     {
       action: 'openResponseCacheExternally',
@@ -416,6 +427,8 @@
       sendError,
       response,
       responseBodyExpanded: expandedResponseBody !== null,
+      responseView,
+      responseKind: formattedResponse.kind,
       showResponseActionsMenu,
       sidebarWidth,
       statusBarHeight,
@@ -535,6 +548,11 @@
       case 'toggleResponseActionsMenu':
         toggleResponseActionsMenu()
         break
+      case 'setResponseView': {
+        const view = payload?.view
+        if (view === 'pretty' || view === 'raw') setResponseView(view)
+        break
+      }
       case 'openResponseCacheExternally':
         await openResponseCacheExternally()
         break
@@ -1114,6 +1132,77 @@
     return 'error'
   }
 
+  // Above this the pretty view isn't worth the JSON.parse + regex pass on
+  // every render — show raw instead. (Anything over the truncation
+  // threshold never reaches the inline view at all; this is a lower cap
+  // just for keeping the formatted path snappy.)
+  const RESPONSE_PRETTY_MAX = 256 * 1024
+
+  type ResponseKind = 'json' | 'xml' | 'html' | 'text'
+
+  function responseHeader(r: httpengine.Response | null, name: string): string {
+    if (!r?.headers) return ''
+    const key = Object.keys(r.headers).find((k) => k.toLowerCase() === name.toLowerCase())
+    return key ? (r.headers[key]?.[0] ?? '') : ''
+  }
+
+  // Content-Type first, then a one-character sniff of the body — enough
+  // to pick a highlighter, not a full content classifier.
+  function detectResponseKind(r: httpengine.Response | null): ResponseKind {
+    const ct = responseHeader(r, 'Content-Type').toLowerCase()
+    if (ct.includes('json')) return 'json'
+    if (ct.includes('html')) return 'html'
+    if (ct.includes('xml')) return 'xml'
+    if (ct) return 'text'
+    const s = (r?.body ?? '').trimStart()
+    if (s.startsWith('{') || s.startsWith('[')) return 'json'
+    if (s.startsWith('<')) return 'xml'
+    return 'text'
+  }
+
+  // Wraps JSON tokens in <span class="syntax-*"> for {@html}. The whole
+  // string is HTML-escaped first and the replacement only ever inserts
+  // those known spans, so the result is safe to render as HTML even
+  // though the body itself is untrusted.
+  function highlightJson(json: string): string {
+    const escaped = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    return escaped.replace(
+      /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
+      (match) => {
+        let cls = 'syntax-num'
+        if (/^"/.test(match)) cls = /:$/.test(match) ? 'syntax-key' : 'syntax-str'
+        else if (match === 'true' || match === 'false') cls = 'syntax-bool'
+        else if (match === 'null') cls = 'syntax-null'
+        return `<span class="${cls}">${match}</span>`
+      },
+    )
+  }
+
+  // Derived once per response/view change: the detected kind, whether a
+  // pretty view is available (valid JSON, small enough, not truncated),
+  // and the highlighted HTML when it's the pretty view's turn to render.
+  $: formattedResponse = ((r: httpengine.Response | null, view: 'pretty' | 'raw') => {
+    const kind = detectResponseKind(r)
+    if (!r || r.truncated || kind !== 'json' || (r.body?.length ?? 0) > RESPONSE_PRETTY_MAX) {
+      return { kind, canPretty: false, html: '' }
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(r.body)
+    } catch {
+      return { kind: 'text' as ResponseKind, canPretty: false, html: '' }
+    }
+    return {
+      kind,
+      canPretty: true,
+      html: view === 'pretty' ? highlightJson(JSON.stringify(parsed, null, 2)) : '',
+    }
+  })(response, responseView)
+
+  function setResponseView(view: 'pretty' | 'raw') {
+    responseView = view
+  }
+
   // Each HTTP method gets one consistent color everywhere it appears
   // (sidebar row accent, method tag, the method select) — a real
   // structural device: the method is the single most important fact
@@ -1341,8 +1430,19 @@
                 <span class="response-stat-label">Size</span>
                 <span>{response.sizeBytes} bytes</span>
               </div>
+              <div class="response-stat">
+                <span class="response-stat-label">Type</span>
+                <span>{formattedResponse.kind.toUpperCase()}</span>
+              </div>
             </div>
-            <div class="response-actions-menu">
+            <div class="response-header-actions">
+              {#if formattedResponse.canPretty}
+                <div class="response-view-toggle">
+                  <button class:active={responseView === 'pretty'} on:click={() => setResponseView('pretty')}>Pretty</button>
+                  <button class:active={responseView === 'raw'} on:click={() => setResponseView('raw')}>Raw</button>
+                </div>
+              {/if}
+              <div class="response-actions-menu">
               <button class="icon-btn" title="Response actions" on:click={toggleResponseActionsMenu}>⋯</button>
               {#if showResponseActionsMenu}
                 <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -1358,6 +1458,7 @@
                   <button on:click={clearCachedResponse}>Clear cached response</button>
                 </div>
               {/if}
+              </div>
             </div>
           </div>
           {#if response.truncated && expandedResponseBody === null}
@@ -1372,6 +1473,8 @@
                 <button on:click={openResponseInFileExplorer}>Open in File Explorer</button>
               </div>
             </div>
+          {:else if formattedResponse.canPretty && responseView === 'pretty'}
+            <pre class="response-body">{@html formattedResponse.html}</pre>
           {:else}
             <pre class="response-body">{response.truncated ? expandedResponseBody : response.body}</pre>
           {/if}
@@ -2200,6 +2303,39 @@
     margin-bottom: 0.5rem;
   }
 
+  .response-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  .response-view-toggle {
+    display: flex;
+  }
+
+  .response-view-toggle button {
+    padding: 0.15rem 0.5rem;
+    font-size: 0.8rem;
+    border-radius: 0;
+    background: none;
+    color: var(--fm-text-muted);
+  }
+
+  .response-view-toggle button:first-child {
+    border-radius: var(--fm-radius) 0 0 var(--fm-radius);
+  }
+
+  .response-view-toggle button:last-child {
+    border-radius: 0 var(--fm-radius) var(--fm-radius) 0;
+    border-left: none;
+  }
+
+  .response-view-toggle button.active {
+    color: var(--fm-text);
+    background: var(--fm-bg-hover);
+  }
+
   .response-actions-menu {
     position: relative;
   }
@@ -2290,6 +2426,31 @@
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  /* JSON syntax colors — deliberately the same hues the rest of the app
+     already uses (the accent for keys, the method/status palette for
+     values) so a highlighted body reads as part of this UI, not a
+     dropped-in editor theme. :global because the spans come from
+     {@html}. */
+  .response-body :global(.syntax-key) {
+    color: var(--fm-accent);
+  }
+
+  .response-body :global(.syntax-str) {
+    color: var(--fm-success);
+  }
+
+  .response-body :global(.syntax-num) {
+    color: var(--fm-method-get);
+  }
+
+  .response-body :global(.syntax-bool) {
+    color: var(--fm-method-put);
+  }
+
+  .response-body :global(.syntax-null) {
+    color: var(--fm-text-muted);
   }
 
   .response-truncated {
