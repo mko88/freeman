@@ -1083,6 +1083,29 @@
     }
   }
 
+  // Tab badges — count of rows with a key filled in (a blank row the
+  // user just added isn't a param/header/field yet), blank at zero.
+  const filledCount = (rows: { key: string }[]) => rows.filter((row) => row.key.trim()).length
+  $: paramsTabBadge = filledCount(draftParams)
+  $: headersTabBadge = filledCount(draftHeaders)
+  // A body isn't a list, so its badge shows the field count for the form
+  // modes and the mode name for raw/binary — again only once there's
+  // actually something there.
+  $: bodyTabBadge =
+    draftBodyMode === 'form-data' || draftBodyMode === 'x-www-form-urlencoded'
+      ? filledCount(draftFormFields)
+        ? String(filledCount(draftFormFields))
+        : ''
+      : draftBodyMode === 'raw'
+        ? draftBodyRaw.trim()
+          ? 'raw'
+          : ''
+        : draftBodyMode === 'binary'
+          ? draftBinaryFilePath
+            ? 'binary'
+            : ''
+          : ''
+
   // Standard HTTP status-class semantics, for coloring the status badge.
   function statusTone(code: number): 'success' | 'info' | 'warning' | 'error' {
     if (code >= 200 && code < 300) return 'success'
@@ -1168,15 +1191,15 @@
 
       <div class="tabs">
         <button class:active={activeTab === 'params'} on:click={() => onRequestTabClick('params')}>
-          Params{#if draftParams.length}<span class="tab-count">{draftParams.length}</span>{/if}
+          Params{#if paramsTabBadge}<span class="tab-count">{paramsTabBadge}</span>{/if}
           {#if activeTab === 'params'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
         </button>
         <button class:active={activeTab === 'headers'} on:click={() => onRequestTabClick('headers')}>
-          Headers{#if draftHeaders.length}<span class="tab-count">{draftHeaders.length}</span>{/if}
+          Headers{#if headersTabBadge}<span class="tab-count">{headersTabBadge}</span>{/if}
           {#if activeTab === 'headers'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
         </button>
         <button class:active={activeTab === 'body'} on:click={() => onRequestTabClick('body')}>
-          Body
+          Body{#if bodyTabBadge}<span class="tab-count">{bodyTabBadge}</span>{/if}
           {#if activeTab === 'body'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
         </button>
       </div>
