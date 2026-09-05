@@ -939,10 +939,11 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     stands in for closing and reopening the app — the cache is on disk),
     that the body view autodetects as JSON and setResponseView flips
     pretty/raw, that an image/png response autodetects as image and its
-    cache file gets a .png extension, that the response pane's "..." menu
-    toggles, and that both clearCachedResponse (per request) and
-    clearResponseCache (whole workspace) really delete the entry, not
-    just the in-memory copy.
+    cache file gets a .png extension, that a brotli-encoded response is
+    decoded and an XML one autodetects + formats, that the response
+    pane's "..." menu toggles, and that both clearCachedResponse (per
+    request) and clearResponseCache (whole workspace) really delete the
+    entry, not just the in-memory copy.
 
     Those clears only touch the open workspace's own .cache/responses —
     here that's the disposable temp workspace, so this leaves no trace
@@ -1003,6 +1004,33 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     r.check("responseKind autodetected as image for an image/png response", state.get("responseKind") == "image", str(state.get("responseKind")))
     png_path = os.path.join(state.get("workspaceRoot") or "", ".cache", "responses", f"{item_id}.body.png")
     r.check("the cached body file got a .png extension from its Content-Type", os.path.exists(png_path), png_path)
+
+    r.step("setRequestField url -> /brotli, saveRequest, sendRequest  (Content-Encoding: br, decoded to JSON)")
+    api.action("setRequestField", {"field": "url", "value": f"{{{{{TEST_VAR_KEY}}}}}/brotli"})
+    api.action("saveRequest")
+    api.action("sendRequest")
+    state = poll(
+        api.state,
+        lambda s: (s.get("response") or {}).get("statusCode") == 200 and s.get("responseKind") == "json",
+        timeout=15.0,
+    )
+    r.check(
+        "a brotli-encoded response is decoded (kind autodetects as json, not garbled text)",
+        state.get("responseKind") == "json",
+        f"kind={state.get('responseKind')}",
+    )
+
+    r.step("setRequestField url -> /xml, saveRequest, sendRequest, then setResponseView raw/pretty")
+    api.action("setRequestField", {"field": "url", "value": f"{{{{{TEST_VAR_KEY}}}}}/xml"})
+    api.action("saveRequest")
+    api.action("sendRequest")
+    state = poll(api.state, lambda s: (s.get("response") or {}).get("statusCode") == 200 and s.get("responseKind") == "xml", timeout=15.0)
+    r.check("responseKind autodetected as xml", state.get("responseKind") == "xml", str(state.get("responseKind")))
+    api.action("setResponseView", {"view": "raw"})
+    state = poll(api.state, lambda s: s.get("responseView") == "raw")
+    r.check("setResponseView 'raw' works for an XML response too", state.get("responseView") == "raw", str(state.get("responseView")))
+    api.action("setResponseView", {"view": "pretty"})
+    poll(api.state, lambda s: s.get("responseView") == "pretty")
 
     r.step('toggleResponseActionsMenu  (watch: the response pane\'s "..." menu should open)')
     api.action("toggleResponseActionsMenu")

@@ -1,6 +1,10 @@
 package httpengine
 
 import (
+	"bytes"
+	"compress/flate"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"io"
 	"mime/multipart"
@@ -10,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andybalholm/brotli"
 
 	"freeman/internal/domain"
 )
@@ -405,6 +411,79 @@ func TestExecuteSmallResponseBodyIsNotTruncated(t *testing.T) {
 	}
 	if resp.Body != `{"ok":true}` {
 		t.Fatalf("unexpected body: %q", resp.Body)
+	}
+}
+
+// TestExecuteDecodesContentEncodings confirms a body that comes back
+// still compressed — brotli or deflate, which net/http doesn't decode on
+// its own (it only auto-handles gzip) — is decoded before Execute
+// returns it, and that Content-Encoding is stripped so the response
+// reflects the decoded bytes.
+func TestExecuteDecodesContentEncodings(t *testing.T) {
+	const payload = `{"message":"hello, decoded world","n":42}`
+
+	deflate := func(b []byte) []byte {
+		var buf bytes.Buffer
+		w := zlib.NewWriter(&buf)
+		w.Write(b)
+		w.Close()
+		return buf.Bytes()
+	}
+	rawDeflate := func(b []byte) []byte {
+		var buf bytes.Buffer
+		w, _ := flate.NewWriter(&buf, flate.DefaultCompression)
+		w.Write(b)
+		w.Close()
+		return buf.Bytes()
+	}
+	brot := func(b []byte) []byte {
+		var buf bytes.Buffer
+		w := brotli.NewWriter(&buf)
+		w.Write(b)
+		w.Close()
+		return buf.Bytes()
+	}
+	gz := func(b []byte) []byte {
+		var buf bytes.Buffer
+		w := gzip.NewWriter(&buf)
+		w.Write(b)
+		w.Close()
+		return buf.Bytes()
+	}
+
+	cases := []struct {
+		enc  string
+		body []byte
+	}{
+		{"br", brot([]byte(payload))},
+		{"deflate", deflate([]byte(payload))},
+		{"deflate", rawDeflate([]byte(payload))}, // server sent raw, not zlib-wrapped
+		{"gzip", gz([]byte(payload))},            // server sent it unrequested
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.enc, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Content-Encoding", tc.enc)
+				w.Write(tc.body)
+			}))
+			defer srv.Close()
+
+			resp, err := Execute(context.Background(), domain.Item{Method: "GET", URL: srv.URL}, nil)
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if resp.Body != payload {
+				t.Fatalf("expected the decoded body %q, got %q", payload, resp.Body)
+			}
+			if resp.SizeBytes != len(payload) {
+				t.Fatalf("expected SizeBytes to be the decoded length %d, got %d", len(payload), resp.SizeBytes)
+			}
+			if ce := resp.Headers["Content-Encoding"]; len(ce) != 0 {
+				t.Fatalf("expected Content-Encoding stripped after decode, still have %v", ce)
+			}
+		})
 	}
 }
 

@@ -2,6 +2,9 @@ package httpengine
 
 import (
 	"bytes"
+	"compress/flate"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"fmt"
 	"io"
@@ -14,6 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/andybalholm/brotli"
 
 	"freeman/internal/domain"
 )
@@ -84,6 +89,7 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 	if err != nil {
 		return nil, err
 	}
+	bodyBytes = decodeContentEncoding(resp.Header, bodyBytes)
 	duration := time.Since(start)
 
 	result := &Response{
@@ -104,6 +110,46 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 	}
 	result.Body = string(bodyBytes)
 	return result, nil
+}
+
+// decodeContentEncoding transparently decodes a still-compressed
+// response body. net/http already does this for gzip when it added the
+// Accept-Encoding header itself (and then clears Content-Encoding) — this
+// covers what's left: deflate, brotli, and gzip a server sent
+// unrequested. On success it strips Content-Encoding/Content-Length from
+// h so the returned response reflects the decoded bytes, the same way
+// net/http's own gzip handling does. A decode failure returns the body
+// untouched rather than failing a request that already came back.
+func decodeContentEncoding(h http.Header, body []byte) []byte {
+	var reader io.Reader
+	switch strings.ToLower(strings.TrimSpace(h.Get("Content-Encoding"))) {
+	case "gzip", "x-gzip":
+		gr, err := gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			return body
+		}
+		reader = gr
+	case "br":
+		reader = brotli.NewReader(bytes.NewReader(body))
+	case "deflate":
+		// Content-Encoding: deflate is meant to be zlib-wrapped, but
+		// plenty of servers send raw DEFLATE — try zlib, fall back.
+		if zr, err := zlib.NewReader(bytes.NewReader(body)); err == nil {
+			reader = zr
+		} else {
+			reader = flate.NewReader(bytes.NewReader(body))
+		}
+	default:
+		return body
+	}
+
+	decoded, err := io.ReadAll(reader)
+	if err != nil {
+		return body
+	}
+	h.Del("Content-Encoding")
+	h.Del("Content-Length")
+	return decoded
 }
 
 // WriteResponseBodyFile writes data to a new temp file, named with an
