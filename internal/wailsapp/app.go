@@ -153,6 +153,14 @@ func (a *App) ClearResponseCache() error {
 	return a.clearResponseCache()
 }
 
+// ClearCachedResponse drops just itemID's cached response (see
+// saveResponseCache) — the response pane's "..." menu's per-request
+// counterpart to ClearResponseCache. No server equivalent.
+func (a *App) ClearCachedResponse(itemID string) error {
+	a.deleteResponseCache(itemID)
+	return nil
+}
+
 // OpenResponseCacheExternally opens itemID's cached response body (see
 // saveResponseCache) in whatever application the OS associates with its
 // file extension — the response pane's "..." menu's equivalent of

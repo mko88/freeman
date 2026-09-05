@@ -97,6 +97,10 @@ export function ClearResponseCache(): Promise<void> {
   return Promise.reject(new Error('ClearResponseCache is not available in web mode — the server does not cache responses'))
 }
 
+export function ClearCachedResponse(_itemId: string): Promise<void> {
+  return Promise.reject(new Error('ClearCachedResponse is not available in web mode — the server does not cache responses'))
+}
+
 export function OpenResponseCacheExternally(_itemId: string): Promise<void> {
   return Promise.reject(new Error('OpenResponseCacheExternally is not available in web mode — the server does not cache responses'))
 }

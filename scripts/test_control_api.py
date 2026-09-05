@@ -900,12 +900,13 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     """Sends the empty scratch request main() made for this test, then
     confirms its response survives navigating away and back (newRequest
     stands in for closing and reopening the app — the cache is on disk),
-    that the response pane's "..." menu toggles, and that
-    clearResponseCache really empties it.
+    that the response pane's "..." menu toggles, and that both
+    clearCachedResponse (per request) and clearResponseCache (whole
+    workspace) really delete the entry, not just the in-memory copy.
 
-    clearResponseCache only touches the open workspace's own
-    .cache/responses — here that's the disposable temp workspace, so
-    this leaves no trace like everything else."""
+    Those clears only touch the open workspace's own .cache/responses —
+    here that's the disposable temp workspace, so this leaves no trace
+    like everything else."""
     r.section("Response cache (persisted per-request, reloaded on reselect)")
 
     if not item_id:
@@ -953,14 +954,35 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
         str(state.get("showResponseActionsMenu")),
     )
 
-    r.step("clearResponseCache, then newRequest + selectRequest again  (watch: the pane should now be blank)")
+    r.step('clearCachedResponse  (the "..." menu\'s per-request clear — watch: the pane should blank immediately)')
+    api.action("clearCachedResponse")
+    state = poll(api.state, lambda s: not (s.get("response") or {}).get("body"))
+    r.check(
+        "clearCachedResponse blanks the pane right away",
+        not (state.get("response") or {}).get("body"),
+        str(state.get("response")),
+    )
+    api.action("newRequest")
+    poll(api.state, lambda s: s.get("selectedItemId") is None)
+    api.action("selectRequest", {"id": item_id})
+    state = poll(api.state, lambda s: s.get("selectedItemId") == item_id)
+    r.check(
+        "and it stays gone on reselect — the cache entry was deleted, not just the in-memory copy",
+        not (state.get("response") or {}).get("body"),
+        str(state.get("response")),
+    )
+
+    # Re-send so there's something for the whole-workspace clear to remove.
+    r.step("sendRequest again, then clearResponseCache + newRequest + selectRequest  (watch: blank again)")
+    api.action("sendRequest")
+    poll(api.state, lambda s: (s.get("response") or {}).get("statusCode") == 200, timeout=15.0)
     api.action("clearResponseCache")
     api.action("newRequest")
     poll(api.state, lambda s: s.get("selectedItemId") is None)
     api.action("selectRequest", {"id": item_id})
     state = poll(api.state, lambda s: s.get("selectedItemId") == item_id)
     r.check(
-        "the response is gone after clearResponseCache — the cache really was cleared",
+        "the response is gone after clearResponseCache — the whole-workspace cache really was cleared",
         not (state.get("response") or {}).get("body"),
         str(state.get("response")),
     )

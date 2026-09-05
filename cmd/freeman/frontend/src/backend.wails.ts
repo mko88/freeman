@@ -17,6 +17,7 @@ export {
   OpenResponseInFileExplorer,
   GetCachedResponse,
   ClearResponseCache,
+  ClearCachedResponse,
   OpenResponseCacheExternally,
   GetResponseCachePath,
   OpenResponseCacheInFileExplorer,

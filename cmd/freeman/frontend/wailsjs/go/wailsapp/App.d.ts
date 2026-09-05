@@ -5,6 +5,8 @@ import {httpengine} from '../models';
 import {domain} from '../models';
 import {headercatalog} from '../models';
 
+export function ClearCachedResponse(arg1:string):Promise<void>;
+
 export function ClearResponseCache():Promise<void>;
 
 export function ControlAPIAddr():Promise<string>;

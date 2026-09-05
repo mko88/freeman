@@ -15,6 +15,7 @@
     OpenResponseInFileExplorer,
     GetCachedResponse,
     ClearResponseCache,
+    ClearCachedResponse,
     OpenResponseCacheExternally,
     GetResponseCachePath,
     OpenResponseCacheInFileExplorer,
@@ -258,9 +259,14 @@
       desc: "Reveal the selected request's cached response body file in the OS file manager (desktop only).",
     },
     {
+      action: 'clearCachedResponse',
+      payload: '—',
+      desc: "Delete just the selected request's cached response and clear the pane.",
+    },
+    {
       action: 'clearResponseCache',
       payload: '—',
-      desc: 'Delete every cached response (see GET /api/ui/state\'s response field).',
+      desc: "Delete every cached response in the open workspace (see GET /api/ui/state's response field).",
     },
     { action: 'openWorkspace', payload: '{ path }', desc: 'Open a workspace by path (no folder dialog).' },
     { action: 'toggleHelp', payload: '—', desc: 'Open/close this help panel.' },
@@ -520,6 +526,9 @@
         break
       case 'openResponseCacheInFileExplorer':
         await openResponseCacheInFileExplorer()
+        break
+      case 'clearCachedResponse':
+        await clearCachedResponse()
         break
       case 'clearResponseCache':
         await clearResponseCache()
@@ -925,6 +934,21 @@
     }
   }
 
+  // Just this request's cached response — the per-request counterpart to
+  // the settings window's whole-workspace clearResponseCache. Clears the
+  // pane too, so it matches what a fresh (never-sent) request shows.
+  async function clearCachedResponse() {
+    showResponseActionsMenu = false
+    if (!selectedItemId) return
+    try {
+      await ClearCachedResponse(selectedItemId)
+      response = null
+      expandedResponseBody = null
+    } catch (e) {
+      logEvent(`clearCachedResponse failed: ${e}`)
+    }
+  }
+
   let responseCacheCleared = false
   async function clearResponseCache() {
     try {
@@ -1233,6 +1257,7 @@
                   <button on:click={openResponseCacheExternally}>Open in external editor</button>
                   <button on:click={copyResponseCachePath}>Copy path</button>
                   <button on:click={openResponseCacheInFileExplorer}>Open in File Explorer</button>
+                  <button on:click={clearCachedResponse}>Clear cached response</button>
                 </div>
               {/if}
             </div>
