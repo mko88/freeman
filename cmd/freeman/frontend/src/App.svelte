@@ -23,10 +23,20 @@
   import type { domain, httpengine, core } from '../wailsjs/go/models'
   import { EventsOn } from '../wailsjs/runtime/runtime'
   import HelpModal from './components/HelpModal.svelte'
+  import RequestEditor from './components/RequestEditor.svelte'
   import ResponsePane from './components/ResponsePane.svelte'
   import SettingsModal from './components/SettingsModal.svelte'
   import { formatBytes, formatDuration, methodColor, reasonPhrase, statusTone } from './lib/format'
   import { detectResponseKind, formatResponse } from './lib/responseFormat'
+  import { bodyModes, codeFormats, emptyAuth, emptyDraft, methods } from './lib/requestDraft'
+  import type { AuthType, BodyMode, CodeFormat, FormFieldType, RequestDraft, RequestTab } from './lib/requestDraft'
+
+  // The request currently in the editor, before it's saved. RequestEditor
+  // takes it as one bound prop, and reportUIState spreads it — its keys
+  // are deliberately the names GET /api/ui/state reports and
+  // setRequestField accepts, so the mirror can't drift from what it
+  // mirrors. See lib/requestDraft.ts.
+  let draft: RequestDraft = emptyDraft()
   import { ControlAPIAddr, GetHeaderCatalog, SelectFile, ReportUIState } from '../wailsjs/go/wailsapp/App.js'
 
   // Common request headers (and, per header, common values) offered as
@@ -37,73 +47,12 @@
   type HeaderCatalogEntry = { name: string; values?: string[] }
   let headerCatalog: HeaderCatalogEntry[] = []
 
-  // Common values for a header the user has typed, matched case-insensitively
-  // against the catalog. [] when the header isn't in the catalog or has no
-  // typical values — the caller then omits the value dropdown.
-  function headerValues(key: string): string[] {
-    const norm = key.trim().toLowerCase()
-    return headerCatalog.find((e) => e.name.toLowerCase() === norm)?.values ?? []
-  }
-
   let workspace: core.WorkspaceInfo | null = null
   let openError = ''
 
   let collectionId = ''
   let collection: domain.Collection | null = null
   let selectedItemId: string | null = null
-
-  // Mirrors domain.BodyMode's / domain.FormFieldType's string constants —
-  // Wails' binding generator doesn't emit a type for a named string type,
-  // only struct classes, so these are redefined here (domain.Body.mode
-  // and domain.FormField.type are themselves typed as plain strings in
-  // models.ts).
-  type BodyMode = 'none' | 'raw' | 'form-data' | 'x-www-form-urlencoded' | 'binary'
-  type FormFieldType = 'text' | 'file'
-  type RequestTab = 'params' | 'headers' | 'auth' | 'body' | 'code'
-  type AuthType = 'none' | 'bearer' | 'basic' | 'apikey'
-  type CodeFormat = 'curl' | 'shell' | 'powershell' | 'powershell-script'
-  const codeFormats: { value: CodeFormat; label: string }[] = [
-    { value: 'curl', label: 'curl' },
-    { value: 'shell', label: 'shell script' },
-    { value: 'powershell', label: 'PowerShell' },
-    { value: 'powershell-script', label: 'PowerShell script' },
-  ]
-
-  let draftName = 'New Request'
-  let draftMethod = 'GET'
-  let draftUrl = ''
-  // Query params are appended to the URL at execution time (see
-  // internal/httpengine.buildURL) — the Params tab edits them as a list
-  // rather than syncing them into the URL string field.
-  let draftParams: domain.QueryParam[] = []
-  let draftHeaders: domain.Header[] = []
-  // The Auth tab. type 'none' means "leave the Authorization header
-  // alone"; the other types are turned into a header at execute time by
-  // internal/httpengine.applyAuth (with {{var}} substitution), and a
-  // configured auth overrides a hand-written Authorization row. Only the
-  // fields the current type uses are read — the rest are kept so
-  // switching type and back doesn't lose what was typed.
-  const emptyAuth = (): {
-    type: AuthType
-    token: string
-    username: string
-    password: string
-    key: string
-    value: string
-  } => ({ type: 'none', token: '', username: '', password: '', key: '', value: '' })
-  let draftAuth = emptyAuth()
-  let draftBodyMode: BodyMode = 'none'
-  let draftBodyRaw = ''
-  let draftFormFields: domain.FormField[] = []
-  let draftBinaryFilePath = ''
-
-  const bodyModes: { value: BodyMode; label: string }[] = [
-    { value: 'none', label: 'none' },
-    { value: 'raw', label: 'raw' },
-    { value: 'form-data', label: 'form-data' },
-    { value: 'x-www-form-urlencoded', label: 'x-www-form-urlencoded' },
-    { value: 'binary', label: 'binary' },
-  ]
 
   let environmentId = ''
   let environment: domain.Environment | null = null
@@ -202,8 +151,6 @@
     saveLayoutPrefs()
   }
 
-  const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
-
   // Reference shown in the help modal — must match internal/httpapi's
   // registered routes (handler.go) and main.go's POST /api/ui/action, and
   // the action names handled in dispatchUIAction below. Kept as plain
@@ -259,16 +206,10 @@
       selectedItemId,
       tab: activeTab,
       requestPaneCollapsed,
-      name: draftName,
-      method: draftMethod,
-      url: draftUrl,
-      bodyMode: draftBodyMode,
-      bodyRaw: draftBodyRaw,
-      binaryFilePath: draftBinaryFilePath,
-      params: draftParams,
-      headers: draftHeaders,
-      auth: draftAuth,
-      formFields: draftFormFields,
+      // name/method/url/params/headers/auth/bodyMode/bodyRaw/
+      // formFields/binaryFilePath — the draft's keys are the mirror's
+      // keys on purpose, so this can't fall out of step with it.
+      ...draft,
       codeFormat,
       code: generatedCode,
       environment,
@@ -476,22 +417,22 @@
         if (typeof value !== 'string') break
         switch (payload?.field) {
           case 'name':
-            draftName = value
+            draft.name = value
             break
           case 'method':
-            draftMethod = value
+            draft.method = value
             break
           case 'url':
-            draftUrl = value
+            draft.url = value
             break
           case 'bodyRaw':
-            draftBodyRaw = value
+            draft.bodyRaw = value
             break
           case 'bodyMode':
-            if (bodyModes.some((m) => m.value === value)) draftBodyMode = value as BodyMode
+            if (bodyModes.some((m) => m.value === value)) draft.bodyMode = value as BodyMode
             break
           case 'binaryFilePath':
-            draftBinaryFilePath = value
+            draft.binaryFilePath = value
             break
         }
         break
@@ -501,7 +442,7 @@
         const value = payload?.value
         if (field === 'type') {
           if (value === 'none' || value === 'bearer' || value === 'basic' || value === 'apikey') {
-            draftAuth = { ...draftAuth, type: value }
+            draft.auth = { ...draft.auth, type: value }
           }
         } else if (
           (field === 'token' ||
@@ -511,7 +452,7 @@
             field === 'value') &&
           typeof value === 'string'
         ) {
-          draftAuth = { ...draftAuth, [field]: value }
+          draft.auth = { ...draft.auth, [field]: value }
         }
         break
       }
@@ -533,7 +474,7 @@
         break
       }
       case 'removeRequestHeader': {
-        const index = rowIndex(draftHeaders, payload)
+        const index = rowIndex(draft.headers, payload)
         if (index >= 0) removeRequestHeader(index)
         break
       }
@@ -555,7 +496,7 @@
         break
       }
       case 'removeRequestParam': {
-        const index = rowIndex(draftParams, payload)
+        const index = rowIndex(draft.params, payload)
         if (index >= 0) removeRequestParam(index)
         break
       }
@@ -581,7 +522,7 @@
         break
       }
       case 'removeRequestFormField': {
-        const index = rowIndex(draftFormFields, payload)
+        const index = rowIndex(draft.formFields, payload)
         if (index >= 0) removeRequestFormField(index)
         break
       }
@@ -658,21 +599,25 @@
 
   async function selectRequest(item: domain.Item) {
     selectedItemId = item.id
-    draftName = item.name
-    draftMethod = item.method || 'GET'
-    draftUrl = item.url || ''
-    draftParams = item.params ? item.params.map((p) => ({ ...p })) : []
-    draftHeaders = item.headers ? item.headers.map((h) => ({ ...h })) : []
-    draftAuth = item.auth ? { ...emptyAuth(), ...item.auth, type: (item.auth.type as AuthType) || 'none' } : emptyAuth()
-    draftBodyMode = (item.body?.mode as BodyMode) || 'none'
-    draftBodyRaw = item.body?.raw || ''
-    // { type: 'text', filePath: '', ...f } normalizes rows saved before
-    // file fields existed (omitempty means those keys are simply absent,
-    // never present-but-undefined, so the defaults only apply then).
-    draftFormFields = item.body?.formFields
-      ? item.body.formFields.map((f) => ({ type: 'text', filePath: '', ...f }))
-      : []
-    draftBinaryFilePath = item.body?.binaryFilePath || ''
+    draft = {
+      name: item.name,
+      method: item.method || 'GET',
+      url: item.url || '',
+      params: item.params ? item.params.map((p) => ({ ...p })) : [],
+      headers: item.headers ? item.headers.map((h) => ({ ...h })) : [],
+      auth: item.auth
+        ? { ...emptyAuth(), ...item.auth, type: (item.auth.type as AuthType) || 'none' }
+        : emptyAuth(),
+      bodyMode: (item.body?.mode as BodyMode) || 'none',
+      bodyRaw: item.body?.raw || '',
+      // { type: 'text', filePath: '', ...f } normalizes rows saved before
+      // file fields existed (omitempty means those keys are simply absent,
+      // never present-but-undefined, so the defaults only apply then).
+      formFields: item.body?.formFields
+        ? item.body.formFields.map((f) => ({ type: 'text', filePath: '', ...f }))
+        : [],
+      binaryFilePath: item.body?.binaryFilePath || '',
+    }
     sendError = ''
     responseImageUri = null
     // GetCachedResponse rejects with "nothing cached yet" for a request
@@ -689,55 +634,61 @@
 
   function newRequest() {
     selectedItemId = null
-    draftName = 'New Request'
-    draftMethod = 'GET'
-    draftUrl = ''
-    draftParams = []
-    draftHeaders = []
-    draftAuth = emptyAuth()
-    draftBodyMode = 'none'
-    draftBodyRaw = ''
-    draftFormFields = []
-    draftBinaryFilePath = ''
+    draft = emptyDraft()
     response = null
     sendError = ''
     responseImageUri = null
   }
 
   function addRequestHeader(initial?: Partial<domain.Header>) {
-    draftHeaders = [...draftHeaders, { key: '', value: '', enabled: true, ...initial }]
+    draft.headers = [...draft.headers, { key: '', value: '', enabled: true, ...initial }]
   }
 
   function setRequestHeader(index: number, fields: Partial<domain.Header>) {
-    draftHeaders = draftHeaders.map((h, i) => (i === index ? { ...h, ...fields } : h))
+    draft.headers = draft.headers.map((h, i) => (i === index ? { ...h, ...fields } : h))
   }
 
   function removeRequestHeader(index: number) {
-    draftHeaders = draftHeaders.filter((_, i) => i !== index)
+    draft.headers = draft.headers.filter((_, i) => i !== index)
   }
 
   function addRequestParam(initial?: Partial<domain.QueryParam>) {
-    draftParams = [...draftParams, { key: '', value: '', enabled: true, ...initial }]
+    draft.params = [...draft.params, { key: '', value: '', enabled: true, ...initial }]
   }
 
   function setRequestParam(index: number, fields: Partial<domain.QueryParam>) {
-    draftParams = draftParams.map((p, i) => (i === index ? { ...p, ...fields } : p))
+    draft.params = draft.params.map((p, i) => (i === index ? { ...p, ...fields } : p))
   }
 
   function removeRequestParam(index: number) {
-    draftParams = draftParams.filter((_, i) => i !== index)
+    draft.params = draft.params.filter((_, i) => i !== index)
   }
 
   function addRequestFormField(initial?: Partial<domain.FormField>) {
-    draftFormFields = [...draftFormFields, { key: '', value: '', enabled: true, type: 'text', filePath: '', ...initial }]
+    draft.formFields = [...draft.formFields, { key: '', value: '', enabled: true, type: 'text', filePath: '', ...initial }]
   }
 
   function setRequestFormField(index: number, fields: Partial<domain.FormField>) {
-    draftFormFields = draftFormFields.map((f, i) => (i === index ? { ...f, ...fields } : f))
+    draft.formFields = draft.formFields.map((f, i) => (i === index ? { ...f, ...fields } : f))
   }
 
   function removeRequestFormField(index: number) {
-    draftFormFields = draftFormFields.filter((_, i) => i !== index)
+    draft.formFields = draft.formFields.filter((_, i) => i !== index)
+  }
+
+  // Handed to RequestEditor as one prop, built once (see
+  // environmentActions). These stay here because dispatchUIAction drives
+  // the same operations, and the file pickers are a desktop-only Wails
+  // call the editor shouldn't reach for itself.
+  const requestRowActions = {
+    addParam: () => addRequestParam(),
+    removeParam: removeRequestParam,
+    addHeader: () => addRequestHeader(),
+    removeHeader: removeRequestHeader,
+    addFormField: () => addRequestFormField(),
+    removeFormField: removeRequestFormField,
+    pickFormFieldFile: pickRequestFormFieldFile,
+    pickBinaryFile,
   }
 
   // Opens the native file picker (desktop only) and writes the chosen
@@ -752,27 +703,27 @@
 
   async function pickBinaryFile() {
     const path = await SelectFile()
-    if (path) draftBinaryFilePath = path
+    if (path) draft.binaryFilePath = path
   }
 
   // The draft editor state as a domain.Item — shared by saveRequest and
   // the Code tab's generator so both see exactly the same request.
   function buildDraftItem(): domain.Item {
-    const isFormMode = draftBodyMode === 'form-data' || draftBodyMode === 'x-www-form-urlencoded'
+    const isFormMode = draft.bodyMode === 'form-data' || draft.bodyMode === 'x-www-form-urlencoded'
     return {
       id: selectedItemId ?? '',
       type: 'request',
-      name: draftName || 'Untitled Request',
-      method: draftMethod,
-      url: draftUrl,
-      params: draftParams,
-      headers: draftHeaders,
-      auth: draftAuth.type === 'none' ? undefined : { ...draftAuth },
+      name: draft.name || 'Untitled Request',
+      method: draft.method,
+      url: draft.url,
+      params: draft.params,
+      headers: draft.headers,
+      auth: draft.auth.type === 'none' ? undefined : { ...draft.auth },
       body: {
-        mode: draftBodyMode,
-        raw: draftBodyMode === 'raw' ? draftBodyRaw : '',
-        formFields: isFormMode ? draftFormFields : [],
-        binaryFilePath: draftBodyMode === 'binary' ? draftBinaryFilePath : '',
+        mode: draft.bodyMode,
+        raw: draft.bodyMode === 'raw' ? draft.bodyRaw : '',
+        formFields: isFormMode ? draft.formFields : [],
+        binaryFilePath: draft.bodyMode === 'binary' ? draft.binaryFilePath : '',
       },
     } as unknown as domain.Item
   }
@@ -1019,38 +970,6 @@
     activeTab = tab
     requestPaneCollapsed = false
   }
-  function onRequestTabClick(tab: RequestTab) {
-    if (activeTab === tab) {
-      requestPaneCollapsed = !requestPaneCollapsed
-    } else {
-      selectRequestEditorTab(tab)
-    }
-  }
-
-  // Tab badges — count of rows with a key filled in (a blank row the
-  // user just added isn't a param/header/field yet), blank at zero.
-  const filledCount = (rows: { key: string }[]) => rows.filter((row) => row.key.trim()).length
-  $: paramsTabBadge = filledCount(draftParams)
-  $: headersTabBadge = filledCount(draftHeaders)
-  // The Auth badge is the type name (never a count) — or blank for 'none'.
-  $: authTabBadge = draftAuth.type === 'none' ? '' : draftAuth.type === 'apikey' ? 'API key' : draftAuth.type
-  // A body isn't a list, so its badge shows the field count for the form
-  // modes and the mode name for raw/binary — again only once there's
-  // actually something there.
-  $: bodyTabBadge =
-    draftBodyMode === 'form-data' || draftBodyMode === 'x-www-form-urlencoded'
-      ? filledCount(draftFormFields)
-        ? String(filledCount(draftFormFields))
-        : ''
-      : draftBodyMode === 'raw'
-        ? draftBodyRaw.trim()
-          ? 'raw'
-          : ''
-        : draftBodyMode === 'binary'
-          ? draftBinaryFilePath
-            ? 'binary'
-            : ''
-          : ''
 
   // Regenerate the Code tab whenever it's open and anything the snippet
   // depends on changes. codeKey stringifies exactly those inputs so the
@@ -1060,16 +979,16 @@
     activeTab === 'code'
       ? JSON.stringify([
           codeFormat,
-          draftName,
-          draftMethod,
-          draftUrl,
-          draftBodyMode,
-          draftBodyRaw,
-          draftBinaryFilePath,
-          draftParams,
-          draftHeaders,
-          draftFormFields,
-          draftAuth,
+          draft.name,
+          draft.method,
+          draft.url,
+          draft.bodyMode,
+          draft.bodyRaw,
+          draft.binaryFilePath,
+          draft.params,
+          draft.headers,
+          draft.formFields,
+          draft.auth,
           environmentId,
         ])
       : ''
@@ -1154,213 +1073,20 @@
     ></div>
 
     <main class="editor">
-      <div class="request-name">
-        <input type="text" bind:value={draftName} placeholder="Request name" />
-      </div>
-
-      <div class="url-bar">
-        <select class="method-select" bind:value={draftMethod} style="--m: {methodColor(draftMethod)}">
-          {#each methods as m}<option value={m}>{m}</option>{/each}
-        </select>
-        <input
-          type="text"
-          bind:value={draftUrl}
-          placeholder="{'{'}{'{'}schema{'}'}{'}'}://{'{'}{'{'}base{'}'}{'}'}/api/{'{'}{'{'}version{'}'}{'}'}/health"
-        />
-        <button on:click={saveRequest}>Save</button>
-        <button class="primary" on:click={sendRequest} disabled={sending}>
-          {sending ? 'Sending…' : 'Send'}
-        </button>
-      </div>
-
-      <div class="tabs">
-        <button class:active={activeTab === 'params'} on:click={() => onRequestTabClick('params')}>
-          Params{#if paramsTabBadge}<span class="tab-count">{paramsTabBadge}</span>{/if}
-          {#if activeTab === 'params'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
-        </button>
-        <button class:active={activeTab === 'headers'} on:click={() => onRequestTabClick('headers')}>
-          Headers{#if headersTabBadge}<span class="tab-count">{headersTabBadge}</span>{/if}
-          {#if activeTab === 'headers'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
-        </button>
-        <button class:active={activeTab === 'auth'} on:click={() => onRequestTabClick('auth')}>
-          Auth{#if authTabBadge}<span class="tab-count">{authTabBadge}</span>{/if}
-          {#if activeTab === 'auth'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
-        </button>
-        <button class:active={activeTab === 'body'} on:click={() => onRequestTabClick('body')}>
-          Body{#if bodyTabBadge}<span class="tab-count">{bodyTabBadge}</span>{/if}
-          {#if activeTab === 'body'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
-        </button>
-        <button class:active={activeTab === 'code'} on:click={() => onRequestTabClick('code')}>
-          Code
-          {#if activeTab === 'code'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
-        </button>
-      </div>
-
-      {#if !requestPaneCollapsed}
-      {#if activeTab === 'params'}
-        <table class="kv-table">
-          <thead>
-            <tr><th></th><th>Key</th><th>Value</th><th></th></tr>
-          </thead>
-          <tbody>
-            {#each draftParams as p, i}
-              <tr>
-                <td><input type="checkbox" bind:checked={p.enabled} /></td>
-                <td><input type="text" bind:value={p.key} placeholder="param" /></td>
-                <td><input type="text" bind:value={p.value} placeholder="value" /></td>
-                <td><button class="icon-btn kv-remove-btn" on:click={() => removeRequestParam(i)}>×</button></td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-        <button on:click={() => addRequestParam()}>Add param</button>
-      {:else if activeTab === 'headers'}
-        <!-- Shared suggestion list of common header names (from the
-             backend catalog / headers.yaml). Attached to every key input
-             via list="fm-header-names". -->
-        <datalist id="fm-header-names">
-          {#each headerCatalog as entry}<option value={entry.name}></option>{/each}
-        </datalist>
-
-        <table class="kv-table">
-          <thead>
-            <tr><th></th><th>Key</th><th>Value</th><th></th></tr>
-          </thead>
-          <tbody>
-            {#each draftHeaders as h, i}
-              <tr>
-                <td><input type="checkbox" bind:checked={h.enabled} /></td>
-                <td><input type="text" list="fm-header-names" bind:value={h.key} placeholder="Header-Name" /></td>
-                <td>
-                  <input
-                    type="text"
-                    list={headerValues(h.key).length ? `fm-header-values-${i}` : undefined}
-                    bind:value={h.value}
-                    placeholder="value"
-                  />
-                  {#if headerValues(h.key).length}
-                    <datalist id={`fm-header-values-${i}`}>
-                      {#each headerValues(h.key) as v}<option value={v}></option>{/each}
-                    </datalist>
-                  {/if}
-                </td>
-                <td><button class="icon-btn kv-remove-btn" on:click={() => removeRequestHeader(i)}>×</button></td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-        <button on:click={() => addRequestHeader()}>Add header</button>
-      {:else if activeTab === 'auth'}
-        <div class="auth-editor">
-          <label class="auth-field">
-            <span>Type</span>
-            <select bind:value={draftAuth.type}>
-              <option value="none">No auth</option>
-              <option value="bearer">Bearer token</option>
-              <option value="basic">Basic</option>
-              <option value="apikey">API key (header)</option>
-            </select>
-          </label>
-
-          {#if draftAuth.type === 'bearer'}
-            <label class="auth-field">
-              <span>Token</span>
-              <input type="text" bind:value={draftAuth.token} placeholder="token or {'{'}{'{'}var{'}'}{'}'}" />
-            </label>
-          {:else if draftAuth.type === 'basic'}
-            <label class="auth-field">
-              <span>Username</span>
-              <input type="text" bind:value={draftAuth.username} placeholder="username or {'{'}{'{'}var{'}'}{'}'}" />
-            </label>
-            <label class="auth-field">
-              <span>Password</span>
-              <input type="text" bind:value={draftAuth.password} placeholder="password or {'{'}{'{'}var{'}'}{'}'}" />
-            </label>
-          {:else if draftAuth.type === 'apikey'}
-            <label class="auth-field">
-              <span>Header</span>
-              <input type="text" list="fm-header-names" bind:value={draftAuth.key} placeholder="X-API-Key" />
-            </label>
-            <label class="auth-field">
-              <span>Value</span>
-              <input type="text" bind:value={draftAuth.value} placeholder="key or {'{'}{'{'}var{'}'}{'}'}" />
-            </label>
-          {/if}
-        </div>
-      {:else if activeTab === 'code'}
-        <div class="code-tab">
-          <div class="code-formats">
-            {#each codeFormats as f}
-              <button class:active={codeFormat === f.value} on:click={() => (codeFormat = f.value)}>{f.label}</button>
-            {/each}
-            <button class="code-copy" on:click={copyRequestCode} disabled={!generatedCode}>Copy</button>
-          </div>
-          {#if codeError}
-            <p class="error">{codeError}</p>
-          {:else}
-            <pre class="code-output">{generatedCode}</pre>
-          {/if}
-        </div>
-      {:else}
-        <div class="body-mode-picker">
-          {#each bodyModes as m}
-            <label class="body-mode-option">
-              <input type="radio" name="body-mode" value={m.value} bind:group={draftBodyMode} />
-              {m.label}
-            </label>
-          {/each}
-        </div>
-
-        {#if draftBodyMode === 'raw'}
-          <textarea class="body-editor" bind:value={draftBodyRaw} placeholder="Raw request body"></textarea>
-        {:else if draftBodyMode === 'form-data' || draftBodyMode === 'x-www-form-urlencoded'}
-          <table class="kv-table">
-            <thead>
-              <tr>
-                <th></th>
-                <th>Key</th>
-                {#if draftBodyMode === 'form-data'}<th class="form-field-type-col">Type</th>{/if}
-                <th>Value</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each draftFormFields as f, i}
-                <tr>
-                  <td><input type="checkbox" bind:checked={f.enabled} /></td>
-                  <td><input type="text" bind:value={f.key} placeholder="key" /></td>
-                  {#if draftBodyMode === 'form-data'}
-                    <td>
-                      <select bind:value={f.type}>
-                        <option value="text">text</option>
-                        <option value="file">file</option>
-                      </select>
-                    </td>
-                  {/if}
-                  <td>
-                    {#if draftBodyMode === 'form-data' && f.type === 'file'}
-                      <div class="file-field">
-                        <input type="text" bind:value={f.filePath} placeholder="path to file" />
-                        <button on:click={() => pickRequestFormFieldFile(i)}>Browse…</button>
-                      </div>
-                    {:else}
-                      <input type="text" bind:value={f.value} placeholder="value" />
-                    {/if}
-                  </td>
-                  <td><button class="icon-btn kv-remove-btn" on:click={() => removeRequestFormField(i)}>×</button></td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-          <button on:click={() => addRequestFormField()}>Add field</button>
-        {:else if draftBodyMode === 'binary'}
-          <div class="file-field">
-            <input type="text" bind:value={draftBinaryFilePath} placeholder="Path to file — sent as the entire body" />
-            <button on:click={pickBinaryFile}>Browse…</button>
-          </div>
-        {/if}
-      {/if}
-      {/if}
+      <RequestEditor
+        bind:draft
+        bind:activeTab
+        bind:requestPaneCollapsed
+        bind:codeFormat
+        {generatedCode}
+        {codeError}
+        {headerCatalog}
+        {sending}
+        onSave={saveRequest}
+        onSend={sendRequest}
+        onCopyCode={copyRequestCode}
+        rows={requestRowActions}
+      />
 
       <ResponsePane
         {response}
@@ -1692,144 +1418,5 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-  }
-
-  .request-name input {
-    font-size: 1.15rem;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    background: none;
-    border: none;
-    color: inherit;
-    width: 100%;
-  }
-
-  .url-bar {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .url-bar input[type='text'] {
-    flex: 1;
-  }
-
-  /* --m (set inline from methodColor()) makes the currently selected
-     method legible before you've even read the letters — the same
-     device as the sidebar's left accent bar. */
-  .method-select {
-    font-weight: 600;
-    color: var(--m);
-    border-left: 2px solid var(--m);
-  }
-
-  .body-editor {
-    width: 100%;
-    min-height: 140px;
-    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
-    resize: vertical;
-  }
-
-  .body-mode-picker {
-    display: flex;
-    gap: 1rem;
-  }
-
-  .body-mode-option {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.8rem;
-    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
-    color: var(--fm-text-muted);
-    cursor: pointer;
-  }
-
-  .body-mode-option:has(input:checked) {
-    color: var(--fm-text);
-  }
-
-  .body-mode-option input[type='radio'] {
-    width: auto;
-    padding: 0;
-    accent-color: var(--fm-accent);
-  }
-
-  /* The form-data table's Type column (text/file) is narrow and doesn't
-     need to share the Key/Value split evenly, same reasoning as the
-     first/last narrow columns in .kv-table. table-layout: fixed means
-     declaring the width once on the header cell is enough for the whole
-     column. */
-  .form-field-type-col {
-    width: 6rem;
-  }
-
-  .file-field {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .file-field input {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .file-field button {
-    flex-shrink: 0;
-  }
-
-  /* The Auth tab: a short stack of labelled fields, each label a fixed
-     column so the inputs line up regardless of label length. */
-  .auth-editor {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    max-width: 42rem;
-  }
-
-  .auth-field {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-  }
-
-  .auth-field > span {
-    flex-shrink: 0;
-    width: 5.5rem;
-    font-size: 0.8rem;
-    color: var(--fm-text-muted);
-  }
-
-  .auth-field > select,
-  .auth-field > input {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .code-tab {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    min-height: 0;
-  }
-
-  .code-formats {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-  }
-
-  .code-formats .code-copy {
-    margin-left: auto;
-  }
-
-  .code-output {
-    margin: 0;
-    max-height: 16rem;
-    overflow: auto;
-    background: var(--fm-bg-response);
-    padding: 0.75rem;
-    font-size: 0.8rem;
-    white-space: pre;
-    word-break: normal;
   }
 </style>
