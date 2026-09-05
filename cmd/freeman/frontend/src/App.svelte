@@ -1658,27 +1658,32 @@
               {#if responseCacheCleared}<span class="muted">Cleared.</span>{/if}
             </div>
           {:else}
-            <div class="row">
+            <div class="row env-fields">
               <select bind:value={environmentId} on:change={() => selectEnvironment(environmentId)}>
                 {#each workspace.environments as env (env.id)}
                   <option value={env.id}>{env.name}</option>
                 {/each}
               </select>
+              <input
+                class="env-name"
+                type="text"
+                value={environment ? environment.name : ''}
+                on:input={(e) => setEnvironmentField('name', e.currentTarget.value)}
+                placeholder="Environment name"
+                disabled={!environment}
+              />
+            </div>
+
+            <div class="row env-actions">
               <button on:click={newEnvironment}>New</button>
+              <button on:click={confirmDeleteEnvironment} disabled={workspace.environments.length <= 1}>Delete</button>
+              <button class="env-actions-split" on:click={() => addEnvironmentVariable()} disabled={!environment}
+                >Add variable</button
+              >
+              <button class="primary" on:click={saveEnvironment} disabled={!environment}>Save environment</button>
             </div>
 
             {#if environment}
-              <div class="row">
-                <input
-                  class="env-name"
-                  type="text"
-                  value={environment.name}
-                  on:input={(e) => setEnvironmentField('name', e.currentTarget.value)}
-                  placeholder="Environment name"
-                />
-                <button on:click={confirmDeleteEnvironment} disabled={workspace.environments.length <= 1}>Delete</button>
-              </div>
-
               <table class="kv-table">
                 <thead>
                   <tr><th></th><th>Key</th><th>Value</th><th>Secret</th><th></th></tr>
@@ -1695,10 +1700,6 @@
                   {/each}
                 </tbody>
               </table>
-              <div class="row">
-                <button on:click={() => addEnvironmentVariable()}>Add variable</button>
-                <button class="primary" on:click={saveEnvironment}>Save environment</button>
-              </div>
             {/if}
           {/if}
         </div>
@@ -2009,9 +2010,23 @@
     overflow-y: auto;
   }
 
+  /* The two fields at the top of the Environments tab — the active-env
+     picker and its rename box — share the row evenly. */
+  .env-fields > select,
   .env-name {
     flex: 1;
     min-width: 0;
+  }
+
+  /* One toolbar for both environment-level (New/Delete) and
+     variable-level (Add/Save) actions; the split pushes the
+     variable pair to the right edge. */
+  .env-actions {
+    flex-wrap: wrap;
+  }
+
+  .env-actions-split {
+    margin-left: auto;
   }
 
   .modal-header {
@@ -2028,8 +2043,7 @@
   }
 
   /* A modal's action/control row (the settings window's workspace-path +
-     Change…, environment select, and the Environments tab's Add/Save
-     variable buttons). */
+     Change…, and the Environments tab's field and action rows). */
   .modal .row {
     display: flex;
     align-items: center;
