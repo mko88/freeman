@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // writeJSON marshals v with stable 2-space indentation (struct field
@@ -47,5 +48,49 @@ func writeJSON(path string, v any) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	return retryOnWindowsFileLock(func() error { return os.Rename(tmpPath, path) })
+}
+
+// readFile is os.ReadFile with the same retry: opening path for read can
+// just as transiently fail while a rename is briefly replacing it (the
+// other side of the same race renameWithRetry guards — see
+// retryOnWindowsFileLock).
+func readFile(path string) ([]byte, error) {
+	var data []byte
+	err := retryOnWindowsFileLock(func() error {
+		var readErr error
+		data, readErr = os.ReadFile(path)
+		return readErr
+	})
+	return data, err
+}
+
+// retryOnWindowsFileLock retries fn a few times on failure. Windows can
+// transiently fail either side of a rename-over-an-existing-file with
+// "Access is denied" / "used by another process" if something else
+// briefly has the destination open even just to read it — a concurrent
+// GET /api/collections/{id} or /api/environments/{id}, a virus scanner, a
+// search indexer. POSIX has no such restriction (renaming over an open
+// file, or opening a file mid-rename, both just work), so this loop is a
+// no-op there — the first attempt always succeeds. Found live: a burst
+// of saveEnvironment/saveRequest calls immediately followed by
+// scripts/test_control_api.py polling (reading) the same files hit both
+// sides of this intermittently.
+//
+// Stops immediately (no retries) on a "file does not exist" error — that
+// one's never transient, and is a normal, expected result in callers
+// like LoadEnvironment's optional .local.json sidecar; retrying it would
+// just add a pointless delay to the common case of it genuinely not
+// being there.
+func retryOnWindowsFileLock(fn func() error) error {
+	const attempts = 10
+	var err error
+	for i := 0; i < attempts; i++ {
+		err = fn()
+		if err == nil || os.IsNotExist(err) {
+			return err
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return err
 }

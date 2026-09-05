@@ -14,7 +14,7 @@ import (
 // Key (local wins). This is how secret variable values — which are never
 // written to the tracked file — make it back into a loaded Environment.
 func LoadEnvironment(path string) (*domain.Environment, error) {
-	data, err := os.ReadFile(path)
+	data, err := readFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -23,7 +23,7 @@ func LoadEnvironment(path string) (*domain.Environment, error) {
 		return nil, err
 	}
 
-	localData, err := os.ReadFile(localPathFor(path))
+	localData, err := readFile(localPathFor(path))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &e, nil

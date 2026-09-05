@@ -8,16 +8,32 @@ and every action in App.svelte's `uiActions` table — and checks the
 result on disk / over HTTP after each step, the same way a human would
 click around and then look at what got saved.
 
-It leaves no trace: everything it creates (a scratch request, a couple
-of header rows, an environment variable, ...) is deleted/removed again
-before it exits — in a `finally`, so a failed check or a crash mid-run
-doesn't leave fixtures behind either — and it also sweeps for and
-removes any leftovers from a *previous* interrupted run before it starts
-(a "Pre-clean" section runs first). Run it back-to-back as many times as
-you like; the workspace should look identical before and after. The one
+It leaves no trace by running entirely inside a disposable workspace:
+the very first thing main() does is point the running app at a
+brand-new OS temp directory (openWorkspace), and the very last thing it
+does — in a `finally`, so this happens no matter how the run ends — is
+switch back to whatever workspace was open before and delete that temp
+directory. Run it back-to-back as many times as you like. The one
 exception is scripts/random-sample.bin, a committed random-bytes fixture
 the file-upload test only ever reads — reused across runs, not
-regenerated or deleted.
+regenerated or deleted. Switching to a brand-new, empty workspace like
+this also happens to be full regression coverage for a real bug: a
+freshly auto-created collection's Items round-tripping as JSON null
+instead of [] (see the check for it early in main(), and
+internal/core.TestNewCollectionHasEmptyNotNilItems for the same thing at
+the Go level).
+
+Every test that needs a saved request follows the same three-phase
+shape, in three separate passes rather than interleaved per test (see
+REQUEST_TEST_NAMES): first every one of them is created — empty, just a
+name — and saved; then, once every request exists, each test in turn
+selects its own, populates whatever fields it needs, and executes it if
+that's what it's testing; only once every test has run are all of those
+requests deleted, one by one. Nothing is shared between tests and
+nothing needs precise leftover-tracking across runs — the whole temp
+workspace this run created them in is discarded regardless — but every
+test still gets its own real saveRequest/deleteRequest round trip
+against a real, distinct item.
 
 KEEP THIS IN SYNC with App.svelte's `uiActions`/`apiEndpoints` tables —
 when an action's payload shape changes, or a new one is added, update
@@ -29,6 +45,7 @@ Usage:
     py scripts/test_control_api.py --delay 0           # no pauses, fast/CI-style
     py scripts/test_control_api.py --base-url http://127.0.0.1:9090
     py scripts/test_control_api.py --skip-rapid-fire   # skip the ordering regression check
+    py scripts/test_control_api.py --pause-before-revert  # hold on the temp workspace so you can look at it yourself
 
 Requires Python 3.8+, standard library only — no pip install needed.
 Freeman must already be running (desktop build) with a workspace open
@@ -41,7 +58,9 @@ import argparse
 import base64
 import json
 import os
+import shutil
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -49,12 +68,17 @@ from pathlib import Path
 from typing import Any, Optional
 
 # ---------------------------------------------------------------------------
-# Test data identifiers. Every run creates these fresh and removes them
-# again (see cleanup() and each test function) — fixed names/keys just
-# make a mid-run screenshot or a crash's leftovers recognizable as this
-# script's, not because anything here is meant to persist.
+# Test data identifiers. Every run creates these fresh inside the
+# disposable temp workspace main() switches to — fixed names/keys just
+# make a mid-run screenshot recognizable as this script's, not because
+# anything here needs cleaning up (the whole temp workspace is discarded
+# at the end regardless).
 # ---------------------------------------------------------------------------
-TEST_REQUEST_NAME = "Python Control API Test"
+TEST_REQUEST_NAME = "Python Request Editor Test (scratch)"
+EXECUTE_TEST_NAME = "Python Execute Test (scratch)"
+UI_STATE_GETTER_TEST_NAME = "Python UI State Getter Test (scratch)"
+FILE_UPLOAD_TEST_NAME = "Python File Upload Test (scratch)"
+DELETE_TEST_NAME = "Python Delete Test (scratch)"
 TEST_HEADER_KEY = "X-Py-Test"
 SCRATCH_HEADER_KEY = "X-Py-Scratch"
 FORM_FIELD_KEY = "item"
@@ -62,8 +86,23 @@ SCRATCH_FIELD_KEY = "scratchField"
 TEST_VAR_KEY = "pyTestBase"
 TEST_VAR_VALUE = "https://httpbin.org"
 SCRATCH_VAR_KEY = "pyScratchVar"
-DELETE_TEST_NAME = "Python Delete Test (scratch)"
-FILE_UPLOAD_TEST_NAME = "Python File Upload Test (scratch)"
+HTTP_METHODS = ("GET", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
+
+# Every test below that needs a saved request gets its own dedicated
+# name here — created empty in main()'s Phase 1 (before any test runs),
+# selected/populated/executed by its own test when its turn comes, and
+# deleted in main()'s Phase 3 (after every test has run). Nothing here
+# is shared between tests. DELETE_TEST_NAME is deliberately not part of
+# this: test_delete_request's own create-then-delete cycle *is* what it
+# tests, so it manages its own lifecycle independently rather than
+# reusing a pre-made empty request.
+REQUEST_TEST_NAMES: dict[str, str] = {
+    "request_editor": TEST_REQUEST_NAME,
+    "execute": EXECUTE_TEST_NAME,
+    "ui_state_getter": UI_STATE_GETTER_TEST_NAME,
+    "file_upload": FILE_UPLOAD_TEST_NAME,
+    **{m: f"Python {m} Test (scratch)" for m in HTTP_METHODS},
+}
 
 # A committed, reusable fixture (real random bytes, not text) — read-only
 # to every test that uses it; nothing here ever writes to or deletes it.
@@ -243,88 +282,6 @@ def decode_data_uri_bytes(data_uri: str) -> bytes:
 # ---------------------------------------------------------------------------
 # Test sections
 # ---------------------------------------------------------------------------
-def precleanup(api: ControlAPI, r: Report, collection_id: str, environment_id: str) -> None:
-    """Removes any fixture data left behind by a previous run that never
-    reached its own cleanup() — the app was closed mid-run, a check
-    raised before cleanup ran, Ctrl-C, etc. Every run starts from this,
-    so the workspace can never accumulate this script's leftovers no
-    matter how a previous run ended, and running it once is also how you
-    clear out whatever an old run already left on disk."""
-    r.section("Pre-clean (remove any leftovers from a previous run)")
-
-    found_any = False
-    collection = api.get(f"/api/collections/{collection_id}")
-    for name in (TEST_REQUEST_NAME, DELETE_TEST_NAME, FILE_UPLOAD_TEST_NAME):
-        item = find_item(collection, name)
-        while item is not None:
-            found_any = True
-            r.step(f"deleteRequest {{id: {item['id']}}}  (leftover {name!r})")
-            api.action("deleteRequest", {"id": item["id"]})
-            collection = poll(
-                lambda: api.get(f"/api/collections/{collection_id}"),
-                lambda c, n=name: find_item(c, n) is None,
-            )
-            item = find_item(collection, name)
-
-    env = api.get(f"/api/environments/{environment_id}")
-    if find_variable_index(env.get("variables"), TEST_VAR_KEY) is not None:
-        found_any = True
-        r.step(f"removeEnvironmentVariable {{key: {TEST_VAR_KEY!r}}}  (leftover), saveEnvironment")
-        api.action("removeEnvironmentVariable", {"key": TEST_VAR_KEY})
-        api.action("saveEnvironment")
-        poll(
-            lambda: api.get(f"/api/environments/{environment_id}"),
-            lambda e: find_variable_index(e.get("variables"), TEST_VAR_KEY) is None,
-        )
-
-    if not found_any:
-        r.step("nothing to clean up — workspace was already clear")
-
-
-def cleanup(
-    api: ControlAPI,
-    r: Report,
-    collection_id: Optional[str],
-    item_id: Optional[str],
-    environment_id: Optional[str],
-) -> None:
-    """Removes everything test_request_editor/test_environment_editor
-    created, so the workspace ends up exactly as precleanup() found it.
-    Called from main()'s `finally`, so it runs even if an earlier check
-    failed or an action raised. test_delete_request cleans up its own
-    scratch request itself, immediately, as part of what it's testing —
-    nothing left for this function to do there."""
-    if not ((item_id and collection_id) or environment_id):
-        return
-    r.section("Cleanup (leave the workspace exactly as found)")
-
-    if item_id and collection_id:
-        r.step(f"deleteRequest {{id: {item_id}}}")
-        try:
-            api.action("deleteRequest", {"id": item_id})
-            collection = poll(
-                lambda: api.get(f"/api/collections/{collection_id}"),
-                lambda c: find_item_by_id(c, item_id) is None,
-            )
-            r.check("test request removed", find_item_by_id(collection, item_id) is None)
-        except ApiError as e:
-            r.check("test request removed", False, str(e))
-
-    if environment_id:
-        r.step(f"removeEnvironmentVariable {{key: {TEST_VAR_KEY!r}}}, saveEnvironment")
-        try:
-            api.action("removeEnvironmentVariable", {"key": TEST_VAR_KEY})
-            api.action("saveEnvironment")
-            env = poll(
-                lambda: api.get(f"/api/environments/{environment_id}"),
-                lambda e: find_variable_index(e.get("variables"), TEST_VAR_KEY) is None,
-            )
-            r.check(
-                f"{TEST_VAR_KEY} variable removed",
-                find_variable_index(env.get("variables"), TEST_VAR_KEY) is None,
-            )
-        except ApiError as e:
-            r.check(f"{TEST_VAR_KEY} variable removed", False, str(e))
 
 
 def test_read_only_routes(api: ControlAPI, r: Report) -> dict:
@@ -370,17 +327,20 @@ def test_workspace_navigation(api: ControlAPI, r: Report, workspace: dict) -> tu
     return collection_id, environment_id
 
 
-def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
-    """Creates TEST_REQUEST_NAME from scratch every time (no "does it
-    already exist" check) — precleanup() already guarantees it doesn't.
-    Returns its id, which main() hands to cleanup() to delete again."""
+def test_request_editor(api: ControlAPI, r: Report, collection_id: str, item_id: str) -> None:
+    """Populates the empty scratch request main() already created and
+    saved for this test (see REQUEST_TEST_NAMES) — selecting it, not
+    creating it, is the first step here."""
     r.section("Request editor (newRequest / setRequestField / tabs / headers)")
 
-    r.step("newRequest")
-    api.action("newRequest")
+    if not item_id:
+        r.check("skipped — no empty scratch request for this test", False)
+        return
 
-    r.step(f"setRequestField name = {TEST_REQUEST_NAME!r}")
-    api.action("setRequestField", {"field": "name", "value": TEST_REQUEST_NAME})
+    r.step(f"selectRequest {{id: {item_id}}}")
+    api.action("selectRequest", {"id": item_id})
+    poll(api.state, lambda s: s.get("selectedItemId") == item_id)
+
     r.step("setRequestField method = 'POST'")
     api.action("setRequestField", {"field": "method", "value": "POST"})
     url = f"{{{{{TEST_VAR_KEY}}}}}/post"
@@ -461,7 +421,7 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
     saved = find_item(collection, TEST_REQUEST_NAME)
     r.check("saveRequest persisted the request", saved is not None)
     if saved is None:
-        return ""
+        return
 
     r.check("name round-tripped", saved.get("name") == TEST_REQUEST_NAME)
     r.check("method round-tripped", saved.get("method") == "POST")
@@ -495,15 +455,34 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str) -> str:
         str(saved_headers),
     )
 
-    return saved["id"]
 
-
-def test_execute(api: ControlAPI, r: Report, collection_id: str, item_id: str, environment_id: str) -> None:
+def test_execute(api: ControlAPI, r: Report, collection_id: str, environment_id: str, item_id: str) -> None:
+    """Populates the empty scratch request main() already created and
+    saved for this test (see REQUEST_TEST_NAMES) with just enough — a
+    JSON POST — to prove sendRequest/execute works, independent of
+    test_request_editor's own (much more thoroughly exercised) request."""
     r.section("Execute (sendRequest)")
 
     if not item_id:
-        r.check("skipped — no saved request id from the previous section", False)
+        r.check("skipped — no empty scratch request for this test", False)
         return
+
+    r.step(f"selectRequest {{id: {item_id}}}, setRequestField method/url/bodyMode/bodyRaw, addRequestHeader, saveRequest")
+    api.action("selectRequest", {"id": item_id})
+    poll(api.state, lambda s: s.get("selectedItemId") == item_id)
+    api.action("setRequestField", {"field": "method", "value": "POST"})
+    api.action("setRequestField", {"field": "url", "value": f"{{{{{TEST_VAR_KEY}}}}}/post"})
+    api.action("selectRequestTab", {"tab": "body"})
+    api.action("setRequestField", {"field": "bodyMode", "value": "raw"})
+    body_raw = '{"widget":"gizmo","qty":3,"source":"python-test-script"}'
+    api.action("setRequestField", {"field": "bodyRaw", "value": body_raw})
+    api.action("selectRequestTab", {"tab": "headers"})
+    api.action("addRequestHeader", {"key": "Content-Type", "value": "application/json"})
+    api.action("saveRequest")
+    poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: ((find_item_by_id(c, item_id) or {}).get("body") or {}).get("raw") == body_raw,
+    )
 
     # Fire the same action a click on "Send" would, so it's visible in the
     # running app — but verify the result via POST /api/execute directly,
@@ -528,19 +507,32 @@ def test_execute(api: ControlAPI, r: Report, collection_id: str, item_id: str, e
         r.check("posted body round-tripped through httpbin", "python-test-script" in body_text, body_text[:200])
 
 
-def test_ui_state_getter(api: ControlAPI, r: Report, item_id: str) -> None:
+def test_ui_state_getter(api: ControlAPI, r: Report, collection_id: str, item_id: str) -> None:
     """GET /api/ui/state is the read-side counterpart to every ui:action
     (see CLAUDE.md): App.svelte's reportUIState mirrors the whole editor
     draft after each dispatched action, so a script can read back what
     an action did instead of screenshotting the window. Exercises a
     setter -> getter round trip for a few representative fields plus the
     main point of the feature — the result of the last sendRequest
-    landing in state.response — rather than a screenshot."""
+    landing in state.response — rather than a screenshot. Populates the
+    empty scratch request main() already created and saved for this test
+    (see REQUEST_TEST_NAMES) with just enough — a GET — to have
+    something real to send."""
     r.section("UI state getter (GET /api/ui/state)")
 
     if not item_id:
-        r.check("skipped — no saved request id from the previous section", False)
+        r.check("skipped — no empty scratch request for this test", False)
         return
+
+    r.step(f"selectRequest {{id: {item_id}}}, setRequestField url, saveRequest")
+    api.action("selectRequest", {"id": item_id})
+    poll(api.state, lambda s: s.get("selectedItemId") == item_id)
+    api.action("setRequestField", {"field": "url", "value": f"{{{{{TEST_VAR_KEY}}}}}/get"})
+    api.action("saveRequest")
+    poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: bool((find_item_by_id(c, item_id) or {}).get("url")),
+    )
 
     r.step("setRequestField name = 'State Getter Check'")
     api.action("setRequestField", {"field": "name", "value": "State Getter Check"})
@@ -572,52 +564,84 @@ def test_ui_state_getter(api: ControlAPI, r: Report, item_id: str) -> None:
         str(response)[:200],
     )
 
-    # Restore the name test_delete_request/cleanup's setup wasn't expecting
-    # to have changed — the item still needs to read as TEST_REQUEST_NAME
-    # for the rest of the run (e.g. precleanup on a future run).
-    r.step(f"setRequestField name = {TEST_REQUEST_NAME!r}  (restore)")
-    api.action("setRequestField", {"field": "name", "value": TEST_REQUEST_NAME})
-    api.action("saveRequest")
-    poll(api.state, lambda s: s.get("name") == TEST_REQUEST_NAME)
 
 
-def test_http_methods(api: ControlAPI, r: Report, collection_id: str, item_id: str, environment_id: str) -> None:
-    """POST is already exercised by test_execute; this switches the same
-    saved request through the other common methods against httpbin's
-    method-specific endpoints (each one accepts only its own verb, so a
-    200 here is real evidence the right method was actually sent — not
-    just that some request happened to land). Exhaustive method x
-    body-mode coverage lives in Go (TestExecuteAllMethodsAndBodyTypes in
+# httpbin has a dedicated echo endpoint per body-carrying verb (/get,
+# /put, /patch, /delete), each answering only its own verb with a real
+# body — a clean, strong "the right method was actually sent" signal (a
+# 200 there is otherwise unreachable). HEAD and OPTIONS have no endpoint
+# of their own: HEAD is the bodyless twin of GET wherever GET is
+# allowed, and httpbin answers OPTIONS everywhere (it's CORS support,
+# not a per-resource verb). Both still have their own equally strong
+# tell, though — neither ever carries a response body, unlike GET/POST
+# at that same path — so they're tested against /get too, just checked
+# for an empty body instead of a method-specific 200.
+METHOD_ENDPOINT = {
+    "GET": "get",
+    "PUT": "put",
+    "PATCH": "patch",
+    "DELETE": "delete",
+    "HEAD": "get",
+    "OPTIONS": "get",
+}
+
+
+def test_http_methods(api: ControlAPI, r: Report, collection_id: str, environment_id: str, item_ids: dict[str, str]) -> None:
+    """POST is already exercised by test_execute; this covers the other
+    common methods, each against its own empty scratch request main()
+    already created and saved (see REQUEST_TEST_NAMES) — selected,
+    populated with its method/url, saved, and sent. See METHOD_ENDPOINT
+    for how each method is verified against real httpbin. Exhaustive
+    method x body-mode coverage lives in Go
+    (TestExecuteAllMethodsAndBodyTypes in
     internal/httpengine/executor_test.go, deterministic, no network);
-    this is the thinner end-to-end slice proving method switching works
-    through the real UI + control API + a real network call."""
-    r.section("HTTP methods (GET / PUT / PATCH / DELETE via the real UI + network)")
+    this is the thinner end-to-end slice proving it through the real UI
+    + control API + a real network call."""
+    r.section("HTTP methods (GET / PUT / PATCH / DELETE / HEAD / OPTIONS via the real UI + network)")
 
-    if not item_id:
-        r.check("skipped — no saved request id from the previous section", False)
-        return
-
-    for method in ("GET", "PUT", "PATCH", "DELETE"):
-        endpoint = method.lower()
-        r.step(f"setRequestField method={method!r}, url='{{{{{TEST_VAR_KEY}}}}}/{endpoint}', saveRequest, sendRequest")
+    for method in HTTP_METHODS:
+        item_id = item_ids.get(method)
+        if not item_id:
+            r.check(f"{method} skipped — no empty scratch request for this test", False)
+            continue
+        endpoint = METHOD_ENDPOINT[method]
+        r.step(f"selectRequest {{id: {item_id}}}  ({method}), setRequestField method/url, saveRequest")
+        api.action("selectRequest", {"id": item_id})
+        poll(api.state, lambda s, iid=item_id: s.get("selectedItemId") == iid)
         api.action("setRequestField", {"field": "method", "value": method})
         api.action("setRequestField", {"field": "url", "value": f"{{{{{TEST_VAR_KEY}}}}}/{endpoint}"})
         api.action("saveRequest")
-        api.action("sendRequest")
+        collection = poll(
+            lambda: api.get(f"/api/collections/{collection_id}"),
+            lambda c, iid=item_id, m=method: (find_item_by_id(c, iid) or {}).get("method") == m,
+        )
+        saved = find_item_by_id(collection, item_id)
+        r.check(f"{method} method round-tripped", (saved or {}).get("method") == method, str(saved))
 
+        r.step("sendRequest")
+        api.action("sendRequest")
         status, resp = api.post(
             "/api/execute",
             {"collectionId": collection_id, "itemId": item_id, "environmentId": environment_id},
         )
-        ok = status == 200 and isinstance(resp, dict) and resp.get("statusCode") == 200
-        r.check(
-            f"{method} {{{{{TEST_VAR_KEY}}}}}/{endpoint} -> 200 (httpbin only accepts {method} on that path)",
-            ok,
-            f"status={status} body={resp}",
-        )
+        got_200 = status == 200 and isinstance(resp, dict) and resp.get("statusCode") == 200
+        if method in ("HEAD", "OPTIONS"):
+            ok = got_200 and not resp.get("body")
+            r.check(
+                f"{method} {{{{{TEST_VAR_KEY}}}}}/{endpoint} -> 200 with an empty body "
+                f"(GET/POST at that path always return one, so this proves {method} was actually sent)",
+                ok,
+                f"status={status} body={resp}",
+            )
+        else:
+            r.check(
+                f"{method} {{{{{TEST_VAR_KEY}}}}}/{endpoint} -> 200 (httpbin only accepts {method} on that path)",
+                got_200,
+                f"status={status} body={resp}",
+            )
 
 
-def test_file_upload(api: ControlAPI, r: Report, collection_id: str, environment_id: str) -> None:
+def test_file_upload(api: ControlAPI, r: Report, collection_id: str, environment_id: str, item_id: str) -> None:
     """Uses the committed scripts/random-sample.bin fixture — real random
     bytes, not text, so a substring check can't accidentally pass; this
     test only ever reads it, never writes or deletes it, so it's reused
@@ -626,22 +650,27 @@ def test_file_upload(api: ControlAPI, r: Report, collection_id: str, environment
     alongside a plain text field, and the standalone binary body mode —
     against httpbin, decoding its data:...;base64,... response back to
     bytes each time for an exact comparison against the original file.
-    The scratch request itself is still deleted at the end. Neither
-    file-sending path can be driven through the native file *dialog*
-    headlessly (SelectFile opens a real OS picker); the control API sets
-    filePath/binaryFilePath directly instead, the same split as
-    openWorkspace vs. SelectWorkspaceFolder."""
+    Populates the empty scratch request main() already created and saved
+    for this test (see REQUEST_TEST_NAMES); main()'s final phase deletes
+    it along with every other test's, so this function doesn't delete it
+    itself. Neither file-sending path can be driven through the native
+    file *dialog* headlessly (SelectFile opens a real OS picker); the
+    control API sets filePath/binaryFilePath directly instead, the same
+    split as openWorkspace vs. SelectWorkspaceFolder."""
     r.section("File upload (form-data file field + binary body mode)")
 
+    if not item_id:
+        r.check("skipped — no empty scratch request for this test", False)
+        return
     if not RANDOM_FILE_PATH.exists():
         r.check(f"skipped — fixture not found at {RANDOM_FILE_PATH}", False)
         return
     original_bytes = RANDOM_FILE_PATH.read_bytes()
     path = str(RANDOM_FILE_PATH)
 
-    r.step(f"newRequest, setRequestField name={FILE_UPLOAD_TEST_NAME!r}, method=POST, url, selectRequestTab 'body'")
-    api.action("newRequest")
-    api.action("setRequestField", {"field": "name", "value": FILE_UPLOAD_TEST_NAME})
+    r.step(f"selectRequest {{id: {item_id}}}, setRequestField method=POST, url, selectRequestTab 'body'")
+    api.action("selectRequest", {"id": item_id})
+    poll(api.state, lambda s: s.get("selectedItemId") == item_id)
     api.action("setRequestField", {"field": "method", "value": "POST"})
     api.action("setRequestField", {"field": "url", "value": f"{{{{{TEST_VAR_KEY}}}}}/post"})
     api.action("selectRequestTab", {"tab": "body"})
@@ -657,13 +686,12 @@ def test_file_upload(api: ControlAPI, r: Report, collection_id: str, environment
 
     collection = poll(
         lambda: api.get(f"/api/collections/{collection_id}"),
-        lambda c: find_item(c, FILE_UPLOAD_TEST_NAME) is not None,
+        lambda c: ((find_item_by_id(c, item_id) or {}).get("body") or {}).get("mode") == "form-data",
     )
-    saved = find_item(collection, FILE_UPLOAD_TEST_NAME)
-    r.check("scratch request with a file field was saved", saved is not None)
+    saved = find_item_by_id(collection, item_id)
+    r.check("the form-data body was saved", saved is not None, str(collection))
     if saved is None:
         return
-    item_id = saved["id"]
 
     saved_fields = (saved.get("body") or {}).get("formFields") or []
     blob_field = next((f for f in saved_fields if f.get("key") == "blob"), None)
@@ -744,19 +772,12 @@ def test_file_upload(api: ControlAPI, r: Report, collection_id: str, environment
             str(parsed.get("headers")),
         )
 
-    r.step(f"deleteRequest {{id: {item_id}}}")
-    api.action("deleteRequest", {"id": item_id})
-    collection = poll(
-        lambda: api.get(f"/api/collections/{collection_id}"),
-        lambda c: find_item(c, FILE_UPLOAD_TEST_NAME) is None,
-    )
-    r.check("scratch upload request removed", find_item(collection, FILE_UPLOAD_TEST_NAME) is None)
-
 
 def test_delete_request(api: ControlAPI, r: Report, collection_id: str) -> None:
     """Fully self-contained: creates DELETE_TEST_NAME and deletes it
-    again within this function, regardless of what main()'s cleanup()
-    does — nothing here relies on, or needs, outside cleanup."""
+    again within this function — this is what actually exercises
+    deleteRequest, not a cleanup step; the temp workspace gets discarded
+    wholesale regardless of what's left in it."""
     r.section("Delete a request (deleteRequest / DELETE /api/collections/{id}/requests/{itemId})")
 
     r.step(f"newRequest, setRequestField name={DELETE_TEST_NAME!r}, saveRequest  (a throwaway request, just to delete it)")
@@ -797,31 +818,47 @@ def test_delete_request(api: ControlAPI, r: Report, collection_id: str) -> None:
 
 
 def test_environment_editor(api: ControlAPI, r: Report, environment_id: str) -> None:
-    """Adds TEST_VAR_KEY (left for test_execute's {{pyTestBase}} to use,
-    then removed by main()'s cleanup() at the very end) and a fully
-    self-contained SCRATCH_VAR_KEY (added, updated, and removed again
-    right here, proving add/set/remove all work without relying on
-    outside cleanup for it)."""
-    r.section("Environment editor (toggleEnvironmentEditor / *Variable / saveEnvironment)")
+    """Adds TEST_VAR_KEY, left in place for the rest of the run — every
+    later section that needs {{pyTestBase}} substituted relies on it
+    still being there, and the temp workspace is discarded wholesale at
+    the end regardless. SCRATCH_VAR_KEY is fully self-contained (added,
+    updated, and removed again right here), proving add/set/remove all
+    work, independent of that."""
+    r.section("Environment editor (settings window's Environments tab / *Variable / saveEnvironment)")
 
-    r.step("toggleEnvironmentEditor  (watch: the modal should open)")
-    api.action("toggleEnvironmentEditor")
+    def env_var(state: dict, key: str) -> Optional[dict]:
+        variables = (state.get("environment") or {}).get("variables") or []
+        return next((v for v in variables if v.get("key") == key), None)
 
+    r.step("toggleSettings, selectSettingsTab 'environments'  (watch: the settings window opens on that tab)")
+    api.action("toggleSettings")
+    api.action("selectSettingsTab", {"tab": "environments"})
+
+    # Polling state() after each mutation (not just once at the very
+    # end) closes a real race: firing the next action before this one's
+    # effect is confirmed in the frontend's own state — not just emitted
+    # — let a rapid burst of preceding actions (main()'s Phase 1 creates
+    # ten requests right before this test runs) occasionally clobber an
+    # add/remove here.
     r.step(f"addEnvironmentVariable {{key: {TEST_VAR_KEY!r}, value: {TEST_VAR_VALUE!r}}}")
     api.action("addEnvironmentVariable", {"key": TEST_VAR_KEY, "value": TEST_VAR_VALUE})
+    poll(api.state, lambda s: env_var(s, TEST_VAR_KEY) is not None)
 
     r.step(f"addEnvironmentVariable {{key: {SCRATCH_VAR_KEY!r}, secret: true}}  (scratch)")
     api.action("addEnvironmentVariable", {"key": SCRATCH_VAR_KEY, "value": "temp", "secret": True})
+    poll(api.state, lambda s: env_var(s, SCRATCH_VAR_KEY) is not None)
     r.step(f"setEnvironmentVariable {{key: {SCRATCH_VAR_KEY!r}, value: 'updated'}}")
     api.action("setEnvironmentVariable", {"key": SCRATCH_VAR_KEY, "value": "updated"})
+    poll(api.state, lambda s: (env_var(s, SCRATCH_VAR_KEY) or {}).get("value") == "updated")
     r.step(f"removeEnvironmentVariable {{key: {SCRATCH_VAR_KEY!r}}}")
     api.action("removeEnvironmentVariable", {"key": SCRATCH_VAR_KEY})
+    poll(api.state, lambda s: env_var(s, SCRATCH_VAR_KEY) is None)
 
     r.step("saveEnvironment")
     api.action("saveEnvironment")
 
-    r.step("toggleEnvironmentEditor  (watch: the modal should close)")
-    api.action("toggleEnvironmentEditor")
+    r.step("toggleSettings  (watch: the settings window should close)")
+    api.action("toggleSettings")
 
     env = poll(
         lambda: api.get(f"/api/environments/{environment_id}"),
@@ -838,6 +875,51 @@ def test_environment_editor(api: ControlAPI, r: Report, environment_id: str) -> 
         find_variable_index(variables, SCRATCH_VAR_KEY) is None,
         str(variables),
     )
+
+
+def test_settings_window(api: ControlAPI, r: Report) -> None:
+    """The settings window: a Workspace tab (current folder + Change…,
+    which just re-runs openWorkspace) and an Environments tab (covered by
+    test_environment_editor instead, since it needs a real environment_id
+    to work with). This covers the window/tab chrome itself plus
+    openWorkspace's round trip — a real reload, not just a dialog
+    stand-in, which is the whole point of the control API having it."""
+    r.section("Settings window (toggleSettings / selectSettingsTab / openWorkspace)")
+
+    r.step("toggleSettings  (watch: the settings window should open)")
+    api.action("toggleSettings")
+    state = poll(api.state, lambda s: s.get("showSettings") is True)
+    r.check("state.showSettings reflects toggleSettings", state.get("showSettings") is True, str(state.get("showSettings")))
+    # settingsTab is sticky across opens (same as the request editor's own
+    # tab) rather than resetting — set it explicitly rather than assuming
+    # whichever tab an earlier section left it on.
+    r.step("selectSettingsTab {tab: 'workspace'}")
+    api.action("selectSettingsTab", {"tab": "workspace"})
+    state = poll(api.state, lambda s: s.get("settingsTab") == "workspace")
+    r.check("state.settingsTab reflects selectSettingsTab", state.get("settingsTab") == "workspace", str(state.get("settingsTab")))
+    root = state.get("workspaceRoot")
+    r.check("state.workspaceRoot is a non-empty path", bool(root), str(root))
+
+    r.step("selectSettingsTab {tab: 'environments'}")
+    api.action("selectSettingsTab", {"tab": "environments"})
+    state = poll(api.state, lambda s: s.get("settingsTab") == "environments")
+    r.check("state.settingsTab reflects selectSettingsTab", state.get("settingsTab") == "environments", str(state.get("settingsTab")))
+
+    r.step("selectSettingsTab {tab: 'workspace'}")
+    api.action("selectSettingsTab", {"tab": "workspace"})
+    poll(api.state, lambda s: s.get("settingsTab") == "workspace")
+
+    r.step("toggleSettings  (watch: it should close again)")
+    api.action("toggleSettings")
+    state = poll(api.state, lambda s: s.get("showSettings") is False)
+    r.check("state.showSettings reflects the second toggleSettings", state.get("showSettings") is False, str(state.get("showSettings")))
+
+    if not root:
+        return
+    r.step(f"openWorkspace {{path: {root!r}}}  (re-open the same workspace — a real reload, not just a dialog stand-in)")
+    api.action("openWorkspace", {"path": root})
+    state = poll(api.state, lambda s: s.get("workspaceRoot") == root)
+    r.check("state.workspaceRoot still matches after re-opening it", state.get("workspaceRoot") == root, str(state.get("workspaceRoot")))
 
 
 def test_help_modal(api: ControlAPI, r: Report) -> None:
@@ -893,6 +975,11 @@ def main() -> int:
         "--delay", type=float, default=0.6, help="seconds to pause after each action, so you can watch it (default: 0.6, use 0 to run fast)"
     )
     parser.add_argument("--skip-rapid-fire", action="store_true", help="skip the ordering regression check")
+    parser.add_argument(
+        "--pause-before-revert",
+        action="store_true",
+        help="once every check has run, pause with the app pointed at the temp workspace so you can look at it yourself, before switching back to your real one",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="print every HTTP call")
     parser.add_argument("--no-color", action="store_true", help="disable ANSI colors")
     args = parser.parse_args()
@@ -905,24 +992,94 @@ def main() -> int:
 
     collection_id: Optional[str] = None
     environment_id: Optional[str] = None
-    item_id: Optional[str] = None
+    item_ids: dict[str, str] = {}
     exit_code = 0
+
+    # Everything below runs inside a disposable OS temp directory, not
+    # your real workspace/ — switched to right here, before any other
+    # check, and switched back in the very last `finally`, however the
+    # run ends (success, a failed check, an exception, Ctrl-C). This is
+    # also full end-to-end regression coverage for a real bug: a
+    # brand-new collection's Items round-tripping as JSON null instead
+    # of [] — see the check for it just below, and
+    # internal/core.TestNewCollectionHasEmptyNotNilItems for the same
+    # thing at the Go level.
+    original_root = api.get("/api/workspace").get("root")
+    tmp_root = tempfile.mkdtemp(prefix="freeman-test-workspace-")
     try:
+        r.section("Switching to a disposable temp workspace for this run")
+        r.step(f"openWorkspace {{path: {tmp_root!r}}}  (a folder with nothing in it yet)")
+        api.action("openWorkspace", {"path": tmp_root})
+        # workspaceRoot flips synchronously at the very start of the
+        # frontend's initWorkspace() cascade — well before
+        # selectEnvironment/selectCollection (each its own async round
+        # trip) finish settling selectedItemId/name/environment. Poll for
+        # the whole cascade being done, not just the first field to
+        # change, or this can observe a real but transient in-between
+        # snapshot (temp root, but the old workspace's selected item).
+        state = poll(
+            api.state,
+            lambda s: s.get("workspaceRoot") == tmp_root and s.get("selectedItemId") is None,
+        )
+        r.check(
+            "state.workspaceRoot switched to the temp workspace",
+            state.get("workspaceRoot") == tmp_root,
+            str(state.get("workspaceRoot")),
+        )
+        r.check(
+            "the app came up on a clean, unsaved 'New Request' instead of crashing",
+            state.get("selectedItemId") is None and state.get("name") == "New Request",
+            str(state),
+        )
+
         workspace = test_read_only_routes(api, r)
         collection_id, environment_id = test_workspace_navigation(api, r, workspace)
-        precleanup(api, r, collection_id, environment_id)
+
+        collection = api.get(f"/api/collections/{collection_id}")
+        r.check(
+            "the new collection's items is an empty list, not null — the actual bug",
+            collection.get("items") == [],
+            str(collection),
+        )
+
+        r.section("Creating one empty scratch request per test")
+        for key, name in REQUEST_TEST_NAMES.items():
+            r.step(f"newRequest, setRequestField name={name!r}, saveRequest")
+            api.action("newRequest")
+            api.action("setRequestField", {"field": "name", "value": name})
+            api.action("saveRequest")
+            collection = poll(
+                lambda: api.get(f"/api/collections/{collection_id}"),
+                lambda c, n=name: find_item(c, n) is not None,
+            )
+            saved = find_item(collection, name)
+            r.check(f"{name!r} created empty", saved is not None, str(collection))
+            if saved is not None:
+                item_ids[key] = saved["id"]
+
         # Runs before test_request_editor/test_execute: it's what creates
         # TEST_VAR_KEY, which the test request's URL substitutes.
         test_environment_editor(api, r, environment_id)
-        item_id = test_request_editor(api, r, collection_id)
-        test_execute(api, r, collection_id, item_id, environment_id)
-        test_ui_state_getter(api, r, item_id)
-        test_http_methods(api, r, collection_id, item_id, environment_id)
-        test_file_upload(api, r, collection_id, environment_id)
+        test_request_editor(api, r, collection_id, item_ids.get("request_editor"))
+        test_execute(api, r, collection_id, environment_id, item_ids.get("execute"))
+        test_ui_state_getter(api, r, collection_id, item_ids.get("ui_state_getter"))
+        test_http_methods(api, r, collection_id, environment_id, item_ids)
+        test_file_upload(api, r, collection_id, environment_id, item_ids.get("file_upload"))
         test_delete_request(api, r, collection_id)
+        test_settings_window(api, r)
         test_help_modal(api, r)
         if not args.skip_rapid_fire:
             test_rapid_fire_regression(api, r, environment_id)
+
+        r.section("Deleting every scratch request created for this run")
+        for key, item_id in item_ids.items():
+            r.step(f"deleteRequest {{id: {item_id}}}  ({key})")
+            api.action("deleteRequest", {"id": item_id})
+            coll = poll(
+                lambda: api.get(f"/api/collections/{collection_id}"),
+                lambda c, iid=item_id: find_item_by_id(c, iid) is None,
+            )
+            r.check(f"{key} scratch request deleted", find_item_by_id(coll, item_id) is None, str(coll))
     except ApiError as e:
         print(f"\n[ERROR] {e}")
         exit_code = 2
@@ -930,7 +1087,34 @@ def main() -> int:
         print("\nInterrupted.")
         exit_code = 130
     finally:
-        cleanup(api, r, collection_id, item_id, environment_id)
+        if args.pause_before_revert:
+            # Never let anything here skip the revert below — an EOFError
+            # (stdin isn't a real terminal, e.g. piped/CI) or Ctrl-C must
+            # still fall through to restoring the real workspace and
+            # removing tmp_root, not abort with the app left pointed at a
+            # folder this function is about to delete.
+            try:
+                input(
+                    f"\n    >>> paused with the app pointed at {tmp_root} — go look at it "
+                    "(everything this run created is in there). "
+                    "Press Enter here to restore your real workspace and continue... "
+                )
+            except (EOFError, KeyboardInterrupt):
+                print("\n    (no interactive terminal to pause on — continuing immediately)")
+        # Nested try/finally: rmtree must still happen even if the revert
+        # itself fails (a network hiccup, the app having exited, ...) —
+        # otherwise a failure right here is the one way this run could
+        # leave both the app pointed at tmp_root *and* tmp_root still on
+        # disk.
+        try:
+            r.section("Restoring your real workspace")
+            r.step(f"openWorkspace {{path: {original_root!r}}}")
+            api.action("openWorkspace", {"path": original_root})
+            poll(api.state, lambda s: s.get("workspaceRoot") == original_root)
+        except ApiError as e:
+            print(f"\n[WARN] failed to restore the real workspace ({original_root}): {e}")
+        finally:
+            shutil.rmtree(tmp_root, ignore_errors=True)
 
     return exit_code or r.summary()
 

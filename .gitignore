@@ -3,8 +3,13 @@
 # project source. workspace/.gitignore's *.local.json rule is now
 # redundant (nothing under here is tracked at all) but left in place —
 # still-useful documentation of the secrets-overlay convention even
-# though git no longer looks at it.
-/workspace/
+# though git no longer looks at it. The wildcard also covers ad hoc
+# folders like workspace2/ from manually testing "open a different
+# workspace folder" (Settings > Workspace > Change…).
+/workspace*/
+
+# Python bytecode cache (scripts/test_control_api.py)
+__pycache__/
 
 # Binaries
 /bin/

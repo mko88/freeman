@@ -85,6 +85,11 @@ func (a *App) createCollection(name string) (*domain.Collection, error) {
 		FormatVersion: "1",
 		ID:            id,
 		Name:          name,
+		// Items has no `omitempty` (see domain.Collection) — a nil slice
+		// would round-trip as JSON "null" rather than "[]", which is not
+		// what anyone would want to see (or hand-edit) in a fresh
+		// collection.json.
+		Items: []domain.Item{},
 	}
 	path := filepath.Join(a.ws.Root, "collections", slugify(name, id), "collection.json")
 	if err := store.SaveCollection(path, c); err != nil {

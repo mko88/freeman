@@ -65,7 +65,8 @@
 
   let environmentId = ''
   let environment: domain.Environment | null = null
-  let showEnvEditor = false
+  let showSettings = false
+  let settingsTab: 'workspace' | 'environments' = 'workspace'
 
   let response: httpengine.Response | null = null
   let sending = false
@@ -96,9 +97,9 @@
       method: 'GET',
       path: '/api/ui/state',
       desc:
-        'Current editor state — name/method/url/bodyMode/bodyRaw/binaryFilePath/headers/formFields/tab/' +
-        'selected ids/the open environment/the last response — so a script can read what the UI shows ' +
-        'instead of screenshotting it (desktop only).',
+        'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/headers/' +
+        'formFields/tab/selected ids/the open environment/the last response/showSettings/settingsTab/' +
+        "showHelp — so a script can read what the UI shows instead of screenshotting it (desktop only).",
     },
   ]
 
@@ -107,7 +108,12 @@
   // addRequestHeader/addEnvironmentVariable, not addHeader/addVariable),
   // so the list reads unambiguously on its own.
   const uiActions = [
-    { action: 'toggleEnvironmentEditor', payload: '—', desc: 'Open/close the environment editor window.' },
+    { action: 'toggleSettings', payload: '—', desc: 'Open/close the settings window (workspace folder, environments).' },
+    {
+      action: 'selectSettingsTab',
+      payload: '{ tab }',
+      desc: "Switch the settings window tab. tab is 'workspace' or 'environments'.",
+    },
     { action: 'selectEnvironment', payload: '{ id }', desc: 'Switch the active environment.' },
     { action: 'selectCollection', payload: '{ id }', desc: 'Switch the active collection.' },
     { action: 'selectRequest', payload: '{ id }', desc: 'Select a request in the sidebar.' },
@@ -216,6 +222,7 @@
   // the statement itself, rather than delegated to a helper function.
   $: if ('runtime' in window) {
     const state = {
+      workspaceRoot: workspace?.root ?? '',
       collectionId,
       environmentId,
       selectedItemId,
@@ -229,7 +236,8 @@
       headers: draftHeaders,
       formFields: draftFormFields,
       environment,
-      showEnvironmentEditor: showEnvEditor,
+      showSettings,
+      settingsTab,
       showHelp,
       sending,
       sendError,
@@ -301,9 +309,14 @@
   async function dispatchUIAction(action: string, payload: Record<string, unknown> | null) {
     logEvent(payload && Object.keys(payload).length ? `${action} ${JSON.stringify(payload)}` : action)
     switch (action) {
-      case 'toggleEnvironmentEditor':
-        showEnvEditor = !showEnvEditor
+      case 'toggleSettings':
+        showSettings = !showSettings
         break
+      case 'selectSettingsTab': {
+        const tab = payload?.tab
+        if (tab === 'workspace' || tab === 'environments') settingsTab = tab
+        break
+      }
       case 'selectEnvironment':
         if (payload?.id) await selectEnvironment(String(payload.id))
         break
@@ -311,7 +324,7 @@
         if (payload?.id) await selectCollection(String(payload.id))
         break
       case 'selectRequest': {
-        const item = collection?.items.find((i) => i.id === payload?.id)
+        const item = (collection?.items ?? []).find((i) => i.id === payload?.id)
         if (item) selectRequest(item)
         break
       }
@@ -479,7 +492,7 @@
   async function selectCollection(id: string) {
     collectionId = id
     collection = await GetCollection(id)
-    if (collection.items.length) {
+    if (collection.items?.length) {
       selectRequest(collection.items[0])
     } else {
       newRequest()
@@ -588,7 +601,7 @@
     await DeleteRequest(collectionId, id)
     collection = await GetCollection(collectionId)
     if (selectedItemId === id) {
-      if (collection.items.length) {
+      if (collection.items?.length) {
         selectRequest(collection.items[0])
       } else {
         newRequest()
@@ -712,17 +725,6 @@
           </li>
         {/each}
       </ul>
-
-      <div class="env-picker">
-        <select bind:value={environmentId} on:change={() => selectEnvironment(environmentId)}>
-          {#each workspace.environments as env (env.id)}
-            <option value={env.id}>{env.name}</option>
-          {/each}
-        </select>
-        <button class="icon-btn" title="Edit environment" on:click={() => (showEnvEditor = !showEnvEditor)}
-          >⚙</button
-        >
-      </div>
     </aside>
 
     <main class="editor">
@@ -882,7 +884,10 @@
           Control API: desktop build only
         {/if}
       </span>
-      <button class="icon-btn" title="API help" on:click={() => (showHelp = true)}>?</button>
+      <span class="status-bar-actions">
+        <button class="icon-btn" title="Settings" on:click={() => (showSettings = true)}>⚙</button>
+        <button class="icon-btn" title="API help" on:click={() => (showHelp = true)}>?</button>
+      </span>
     </div>
     <div class="status-log" bind:this={statusLogEl}>
       {#if statusLog.length === 0}
@@ -895,46 +900,73 @@
     </div>
   </footer>
 
-  {#if showEnvEditor && environment}
+  {#if showSettings && workspace}
     <div
       class="modal-backdrop"
       role="presentation"
-      on:click={() => (showEnvEditor = false)}
-      on:keydown={(e) => e.key === 'Escape' && (showEnvEditor = false)}
+      on:click={() => (showSettings = false)}
+      on:keydown={(e) => e.key === 'Escape' && (showSettings = false)}
     >
       <div
-        class="modal env-editor"
+        class="modal settings-modal"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="env-title"
+        aria-labelledby="settings-title"
         tabindex="-1"
         on:click|stopPropagation
-        on:keydown={(e) => e.key === 'Escape' && (showEnvEditor = false)}
+        on:keydown={(e) => e.key === 'Escape' && (showSettings = false)}
       >
         <div class="modal-header">
-          <h2 id="env-title">Environment: {environment.name}</h2>
-          <button class="icon-btn" title="Close" on:click={() => (showEnvEditor = false)}>×</button>
+          <h2 id="settings-title">Settings</h2>
+          <button class="icon-btn" title="Close" on:click={() => (showSettings = false)}>×</button>
         </div>
-        <table class="kv-table">
-          <thead>
-            <tr><th></th><th>Key</th><th>Value</th><th>Secret</th><th></th></tr>
-          </thead>
-          <tbody>
-            {#each environment.variables as v, i}
-              <tr>
-                <td><input type="checkbox" bind:checked={v.enabled} /></td>
-                <td><input type="text" bind:value={v.key} placeholder="key" /></td>
-                <td><input type="text" bind:value={v.value} placeholder="value" /></td>
-                <td><input type="checkbox" bind:checked={v.secret} /></td>
-                <td><button class="icon-btn" on:click={() => removeEnvironmentVariable(i)}>×</button></td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-        <div class="row">
-          <button on:click={() => addEnvironmentVariable()}>Add variable</button>
-          <button class="primary" on:click={saveEnvironment}>Save environment</button>
+
+        <div class="tabs">
+          <button class:active={settingsTab === 'workspace'} on:click={() => (settingsTab = 'workspace')}>Workspace</button>
+          <button class:active={settingsTab === 'environments'} on:click={() => (settingsTab = 'environments')}
+            >Environments</button
+          >
         </div>
+
+        {#if settingsTab === 'workspace'}
+          <p class="prose">Collections and environments are read from this folder.</p>
+          <div class="row">
+            <code class="workspace-path">{workspace.root}</code>
+            <button on:click={openWorkspace}>Change…</button>
+          </div>
+          {#if openError}<p class="error">{openError}</p>{/if}
+        {:else}
+          <div class="row">
+            <select bind:value={environmentId} on:change={() => selectEnvironment(environmentId)}>
+              {#each workspace.environments as env (env.id)}
+                <option value={env.id}>{env.name}</option>
+              {/each}
+            </select>
+          </div>
+
+          {#if environment}
+            <table class="kv-table">
+              <thead>
+                <tr><th></th><th>Key</th><th>Value</th><th>Secret</th><th></th></tr>
+              </thead>
+              <tbody>
+                {#each environment.variables as v, i}
+                  <tr>
+                    <td><input type="checkbox" bind:checked={v.enabled} /></td>
+                    <td><input type="text" bind:value={v.key} placeholder="key" /></td>
+                    <td><input type="text" bind:value={v.value} placeholder="value" /></td>
+                    <td><input type="checkbox" bind:checked={v.secret} /></td>
+                    <td><button class="icon-btn" on:click={() => removeEnvironmentVariable(i)}>×</button></td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+            <div class="row">
+              <button on:click={() => addEnvironmentVariable()}>Add variable</button>
+              <button class="primary" on:click={saveEnvironment}>Save environment</button>
+            </div>
+          {/if}
+        {/if}
       </div>
     </div>
   {/if}
@@ -1073,6 +1105,11 @@
     border-bottom: 1px solid var(--fm-border-subtle);
   }
 
+  .status-bar-actions {
+    display: flex;
+    gap: 0.25rem;
+  }
+
   .status-bar-header code {
     color: var(--fm-text);
   }
@@ -1146,11 +1183,26 @@
     font-weight: 600;
   }
 
-  /* Action row at the bottom of the env-editor modal. */
-  .env-editor .row {
+  /* A modal's action/control row (the settings window's workspace-path +
+     Change…, environment select, and the Environments tab's Add/Save
+     variable buttons). */
+  .modal .row {
     display: flex;
+    align-items: center;
     gap: 0.5rem;
     margin-top: 0.75rem;
+  }
+
+  .workspace-path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .modal .row select {
+    flex: 1;
   }
 
   /* Sentence case, not tracked-out caps — weight and color carry the
@@ -1293,17 +1345,6 @@
     flex-shrink: 0;
   }
 
-  .env-picker {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
-    border-top: 1px solid var(--fm-border-subtle);
-  }
-
-  .env-picker select {
-    flex: 1;
-  }
-
   .editor {
     flex: 1;
     padding: 1rem 1.5rem;
@@ -1340,6 +1381,10 @@
     font-weight: 600;
     color: var(--m);
     border-left: 2px solid var(--m);
+  }
+
+  .settings-modal .tabs {
+    margin-bottom: 0.75rem;
   }
 
   .tabs {
@@ -1399,11 +1444,11 @@
     padding-right: 0;
   }
 
-  /* The env-editor's table has a second narrow (checkbox) column —
+  /* The Environments tab's table has a second narrow (checkbox) column —
      Secret — that isn't first or last, so it needs its own rule or it'd
      claim an even share of the remaining width like Key/Value do. */
-  .env-editor .kv-table th:nth-child(4),
-  .env-editor .kv-table td:nth-child(4) {
+  .settings-modal .kv-table th:nth-child(4),
+  .settings-modal .kv-table td:nth-child(4) {
     width: 4.5rem;
   }
 
