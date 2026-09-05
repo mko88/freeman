@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount } from 'svelte'
   import {
     CurrentWorkspace,
     OpenWorkspace,
@@ -23,6 +23,8 @@
   import type { domain, httpengine, core } from '../wailsjs/go/models'
   import { EventsOn } from '../wailsjs/runtime/runtime'
   import HelpModal from './components/HelpModal.svelte'
+  import RequestList from './components/RequestList.svelte'
+  import StatusBar from './components/StatusBar.svelte'
   import RequestEditor from './components/RequestEditor.svelte'
   import ResponsePane from './components/ResponsePane.svelte'
   import SettingsModal from './components/SettingsModal.svelte'
@@ -167,16 +169,12 @@
   // Regular in-app clicks don't go through this event bus, so they don't
   // appear here; capped so a long-running session doesn't grow forever.
   let statusLog: { time: string; text: string }[] = []
-  let statusLogEl: HTMLElement
   let controlApiAddr = ''
   let showHelp = false
 
   function logEvent(text: string) {
     const time = new Date().toLocaleTimeString()
     statusLog = [...statusLog.slice(-49), { time, text }]
-    tick().then(() => {
-      if (statusLogEl) statusLogEl.scrollTop = statusLogEl.scrollHeight
-    })
   }
 
   // DispatchUIAction's read-side counterpart: mirrors the editor's draft
@@ -1044,23 +1042,14 @@
   </main>
 {:else}
   <div class="layout">
-    <aside class="sidebar" style="width: {sidebarWidth}px">
-      <div class="sidebar-header">
-        <span>{collection?.name ?? ''}</span>
-        <button class="icon-btn" title="New request" on:click={newRequest}>+</button>
-      </div>
-      <ul class="request-list">
-        {#each collection?.items ?? [] as item (item.id)}
-          <li class:active={item.id === selectedItemId} style="--m: {methodColor(item.method || 'GET')}">
-            <button class="request-select" on:click={() => selectRequest(item)}>
-              <span class="method-tag">{item.method || 'GET'}</span>
-              <span class="request-select-name">{item.name}</span>
-            </button>
-            <button class="icon-btn" title="Delete request" on:click={() => confirmDeleteRequest(item)}>×</button>
-          </li>
-        {/each}
-      </ul>
-    </aside>
+    <RequestList
+      {collection}
+      {selectedItemId}
+      width={sidebarWidth}
+      onNew={newRequest}
+      onSelect={selectRequest}
+      onDelete={confirmDeleteRequest}
+    />
 
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div
@@ -1113,33 +1102,13 @@
       on:pointerdown={() => onSplitterPointerDown('statusBar')}
     ></div>
   {/if}
-  <footer class="status-bar" style={showControlApiLog ? `height: ${statusBarHeight}px` : ''}>
-    <div class="status-bar-header">
-      <button
-        class="icon-btn"
-        title={showControlApiLog ? 'Collapse the log' : 'Expand the log'}
-        on:click={toggleControlApiLog}>{showControlApiLog ? '▾' : '▸'}</button
-      >
-      <span>
-        {#if controlApiAddr}
-          Control API: <code>http://{controlApiAddr}</code>
-        {:else}
-          Control API: desktop build only
-        {/if}
-      </span>
-    </div>
-    {#if showControlApiLog}
-    <div class="status-log" bind:this={statusLogEl}>
-      {#if statusLog.length === 0}
-        <div class="status-line muted">No control-API events yet.</div>
-      {:else}
-        {#each statusLog as entry}
-          <div class="status-line"><span class="status-time">{entry.time}</span>{entry.text}</div>
-        {/each}
-      {/if}
-    </div>
-    {/if}
-  </footer>
+  <StatusBar
+    {controlApiAddr}
+    showLog={showControlApiLog}
+    height={statusBarHeight}
+    entries={statusLog}
+    onToggle={toggleControlApiLog}
+  />
 
   {#if showSettings && workspace}
     <SettingsModal
@@ -1275,139 +1244,6 @@
     flex: 1;
     min-height: 0;
     display: flex;
-  }
-
-  /* No fixed height here — set inline from statusBarHeight while the log
-     is expanded (via the splitter above it); collapsed, it's left unset
-     so the footer just shrinks to fit .status-bar-header alone. */
-  .status-bar {
-    flex: none;
-    display: flex;
-    flex-direction: column;
-    border-top: 1px solid var(--fm-border);
-    background: var(--fm-bg-panel);
-    text-align: left;
-  }
-
-  .status-bar-header {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 4px 10px;
-    font-size: 0.75rem;
-    color: var(--fm-text-muted);
-    border-bottom: 1px solid var(--fm-border-subtle);
-  }
-
-  .status-bar-header code {
-    color: var(--fm-text);
-  }
-
-  .status-log {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 4px 10px;
-    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
-    font-size: 0.72rem;
-  }
-
-  .status-line {
-    padding: 1px 0;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  .status-line.muted {
-    color: var(--fm-text-muted);
-  }
-
-  .status-time {
-    color: var(--fm-text-muted);
-    opacity: 0.8;
-    margin-right: 8px;
-  }
-
-  /* No width here — set inline from sidebarWidth (see the splitter next
-     to it). */
-  .sidebar {
-    flex-shrink: 0;
-    background: var(--fm-bg-panel);
-    display: flex;
-    flex-direction: column;
-    text-align: left;
-  }
-
-  .sidebar-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    font-weight: 600;
-    border-bottom: 1px solid var(--fm-border-subtle);
-  }
-
-  .request-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    flex: 1;
-    overflow-y: auto;
-  }
-
-  /* --m (set inline per-row from methodColor()) reads the same hue in
-     both the left accent bar and the method tag text — one method, one
-     color, everywhere it's shown. */
-  .request-list li {
-    display: flex;
-    align-items: center;
-    border-left: 2px solid var(--m, transparent);
-  }
-
-  .request-list li:hover {
-    background: var(--fm-bg-hover);
-  }
-
-  /* .request-select: the row's main click target (selects the request).
-     A sibling icon-button handles delete — kept out of this button since
-     a <button> can't nest another <button>. */
-  .request-list li .request-select {
-    flex: 1;
-    min-width: 0;
-    width: 100%;
-    text-align: left;
-    background: none;
-    border: none;
-    color: inherit;
-    padding: 0.5rem 1rem;
-    cursor: pointer;
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
-
-  .request-list li.active .request-select {
-    background: var(--fm-bg-hover);
-  }
-
-  .request-select-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .request-list li .icon-btn {
-    flex-shrink: 0;
-    margin-right: 0.5rem;
-  }
-
-  .method-tag {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: var(--m, var(--fm-text-muted));
-    width: 3.5rem;
-    flex-shrink: 0;
   }
 
   .editor {
