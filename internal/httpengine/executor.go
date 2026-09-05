@@ -24,7 +24,10 @@ import (
 	"freeman/internal/domain"
 )
 
-var client = &http.Client{Timeout: 30 * time.Second}
+// No Client.Timeout: Execute applies RequestTimeout as a context
+// deadline instead, so the caller's own cancellation still composes with
+// it rather than being shadowed.
+var client = &http.Client{}
 
 // Execute builds an HTTP request from item — substituting {{var}} in the
 // URL, enabled query params, enabled headers, the Auth helper (bearer/
@@ -32,6 +35,12 @@ var client = &http.Client{Timeout: 30 * time.Second}
 // and/or file fields, x-www-form-urlencoded, or a whole file as binary)
 // against vars — and runs it, capturing the response.
 func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Response, error) {
+	if RequestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, RequestTimeout)
+		defer cancel()
+	}
+
 	reqURL, err := buildURL(item, vars)
 	if err != nil {
 		return nil, err
@@ -89,11 +98,12 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, capped, err := readCapped(resp.Body)
 	if err != nil {
 		return nil, err
 	}
-	bodyBytes = decodeContentEncoding(resp.Header, bodyBytes)
+	decoded, decodeCapped := decodeContentEncoding(resp.Header, bodyBytes)
+	bodyBytes = decoded
 	duration := time.Since(start)
 
 	return &Response{
@@ -103,7 +113,22 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 		Body:       string(bodyBytes),
 		Duration:   duration,
 		SizeBytes:  len(bodyBytes),
+		Capped:     capped || decodeCapped,
 	}, nil
+}
+
+// readCapped reads at most MaxResponseBytes from r, reporting whether
+// there was more to read. It asks for one byte past the ceiling so it
+// can tell "exactly at the limit" from "over it" without a second read.
+func readCapped(r io.Reader) ([]byte, bool, error) {
+	data, err := io.ReadAll(io.LimitReader(r, MaxResponseBytes+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(data)) > MaxResponseBytes {
+		return data[:MaxResponseBytes], true, nil
+	}
+	return data, false, nil
 }
 
 // applyAuth turns item.Auth into a request header, overriding any
@@ -139,13 +164,13 @@ func applyAuth(req *http.Request, a *domain.Auth, vars map[string]string) {
 // h so the returned response reflects the decoded bytes, the same way
 // net/http's own gzip handling does. A decode failure returns the body
 // untouched rather than failing a request that already came back.
-func decodeContentEncoding(h http.Header, body []byte) []byte {
+func decodeContentEncoding(h http.Header, body []byte) ([]byte, bool) {
 	var reader io.Reader
 	switch strings.ToLower(strings.TrimSpace(h.Get("Content-Encoding"))) {
 	case "gzip", "x-gzip":
 		gr, err := gzip.NewReader(bytes.NewReader(body))
 		if err != nil {
-			return body
+			return body, false
 		}
 		reader = gr
 	case "br":
@@ -159,16 +184,19 @@ func decodeContentEncoding(h http.Header, body []byte) []byte {
 			reader = flate.NewReader(bytes.NewReader(body))
 		}
 	default:
-		return body
+		return body, false
 	}
 
-	decoded, err := io.ReadAll(reader)
+	// Capped here and not in Execute's read: this is the side that
+	// matters for a compression bomb, where the bytes off the wire were
+	// comfortably under the ceiling and only the decoded stream isn't.
+	decoded, capped, err := readCapped(reader)
 	if err != nil {
-		return body
+		return body, false
 	}
 	h.Del("Content-Encoding")
 	h.Del("Content-Length")
-	return decoded
+	return decoded, capped
 }
 
 // ExtensionFor picks a file extension from a Content-Type header so a
