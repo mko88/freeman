@@ -356,25 +356,6 @@
      values) so a highlighted body reads as part of this UI, not a
      dropped-in editor theme. :global because the spans come from
      {@html}. */
-  .response-body :global(.syntax-key) {
-    color: var(--fm-accent);
-  }
-
-  .response-body :global(.syntax-str) {
-    color: var(--fm-success);
-  }
-
-  .response-body :global(.syntax-num) {
-    color: var(--fm-method-get);
-  }
-
-  .response-body :global(.syntax-bool) {
-    color: var(--fm-method-put);
-  }
-
-  .response-body :global(.syntax-null) {
-    color: var(--fm-text-muted);
-  }
 
   .response-truncated {
     flex: 1;

@@ -9,6 +9,7 @@
   // as a callback, so a click and a control-API action take the same
   // path.
   import { methodColor } from '../lib/format'
+  import { highlightGeneratedCode } from '../lib/highlightScript'
   import { bodyModes, codeFormats, methods } from '../lib/requestDraft'
   import type { CodeFormat, RequestDraft, RequestTab } from '../lib/requestDraft'
 
@@ -239,7 +240,7 @@
     {#if codeError}
       <p class="error">{codeError}</p>
     {:else}
-      <pre class="code-output">{generatedCode}</pre>
+      <pre class="code-output">{@html highlightGeneratedCode(generatedCode, codeFormat)}</pre>
     {/if}
   </div>
 {:else}
