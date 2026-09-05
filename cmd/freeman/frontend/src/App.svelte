@@ -11,6 +11,7 @@
     SaveEnvironment,
     DeleteEnvironment,
     ExecuteRequest,
+    GenerateRequestCode,
     GetCachedResponse,
     ClearResponseCache,
     ClearCachedResponse,
@@ -53,8 +54,15 @@
   // models.ts).
   type BodyMode = 'none' | 'raw' | 'form-data' | 'x-www-form-urlencoded' | 'binary'
   type FormFieldType = 'text' | 'file'
-  type RequestTab = 'params' | 'headers' | 'auth' | 'body'
+  type RequestTab = 'params' | 'headers' | 'auth' | 'body' | 'code'
   type AuthType = 'none' | 'bearer' | 'basic' | 'apikey'
+  type CodeFormat = 'curl' | 'shell' | 'powershell' | 'powershell-script'
+  const codeFormats: { value: CodeFormat; label: string }[] = [
+    { value: 'curl', label: 'curl' },
+    { value: 'shell', label: 'shell script' },
+    { value: 'powershell', label: 'PowerShell' },
+    { value: 'powershell-script', label: 'PowerShell script' },
+  ]
 
   let draftName = 'New Request'
   let draftMethod = 'GET'
@@ -125,6 +133,14 @@
   // onRequestTabClick below) — the Headers/Body table hides, and
   // .response (already flex: 1) just grows into the freed space.
   let requestPaneCollapsed = false
+
+  // The Code tab renders the draft request as a runnable command (see
+  // internal/codegen). codeFormat is sticky like responseView — a view
+  // preference, not per-request state. generatedCode is recomputed by the
+  // backend whenever the tab is open and any input changes.
+  let codeFormat: CodeFormat = 'curl'
+  let generatedCode = ''
+  let codeError = ''
 
   // Sidebar width, the log panel's height, and whether the log panel is
   // collapsed are pure layout comfort — remembered per-browser-profile
@@ -199,6 +215,13 @@
     { method: 'POST', path: '/api/environments', desc: 'Save an environment (creates if id is empty). Body: a domain.Environment.' },
     { method: 'DELETE', path: '/api/environments/{id}', desc: 'Delete an environment (refused for the last one).' },
     { method: 'POST', path: '/api/execute', desc: 'Execute a saved request. Body: {collectionId, itemId, environmentId}.' },
+    {
+      method: 'POST',
+      path: '/api/codegen',
+      desc:
+        'Render a request as a runnable command. Body: {item: domain.Item, environmentId, format}. ' +
+        "format is 'curl', 'shell', 'powershell', or 'powershell-script'. Returns {code}.",
+    },
     { method: 'GET', path: '/api/theme', desc: 'Resolved color palette.' },
     { method: 'GET', path: '/api/headers', desc: 'Common request-header names/values for editor autocomplete (from headers.yaml).' },
     { method: 'POST', path: '/api/ui/action', desc: 'Drive the GUI itself (desktop only, see below). Body: {action, payload}.' },
@@ -206,8 +229,9 @@
       method: 'GET',
       path: '/api/ui/state',
       desc:
-        'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/params/headers/' +
-        'formFields/tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
+        'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/params/headers/auth/' +
+        'formFields/codeFormat/code (the Code tab’s rendered command, when that tab is open)/' +
+        'tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
         '(truncated/bodyFile in place of body when it was too large — bodyFile is its path in the ' +
         'per-request on-disk cache, see clearResponseCache); responseTab (body/headers), ' +
         'responseView (pretty/raw) and responseKind (json/xml/html/image/text, lightly autodetected))/' +
@@ -294,7 +318,19 @@
     {
       action: 'selectRequestTab',
       payload: '{ tab }',
-      desc: "Switch the request editor tab. tab is 'params', 'headers', 'auth' or 'body'.",
+      desc: "Switch the request editor tab. tab is 'params', 'headers', 'auth', 'body' or 'code'.",
+    },
+    {
+      action: 'selectCodeFormat',
+      payload: '{ format }',
+      desc:
+        "Switch the Code tab's output. format is 'curl', 'shell' (curl as a bash script), 'powershell', " +
+        "or 'powershell-script'. Read the rendered command from GET /api/ui/state's code field.",
+    },
+    {
+      action: 'copyRequestCode',
+      payload: '—',
+      desc: "Copy the Code tab's rendered command to the clipboard.",
     },
     {
       action: 'toggleRequestPane',
@@ -433,6 +469,8 @@
       headers: draftHeaders,
       auth: draftAuth,
       formFields: draftFormFields,
+      codeFormat,
+      code: generatedCode,
       environment,
       showSettings,
       settingsTab,
@@ -598,9 +636,19 @@
         break
       case 'selectRequestTab': {
         const tab = payload?.tab
-        if (tab === 'params' || tab === 'headers' || tab === 'auth' || tab === 'body') selectRequestEditorTab(tab)
+        if (tab === 'params' || tab === 'headers' || tab === 'auth' || tab === 'body' || tab === 'code') {
+          selectRequestEditorTab(tab)
+        }
         break
       }
+      case 'selectCodeFormat': {
+        const f = payload?.format
+        if (f === 'curl' || f === 'shell' || f === 'powershell' || f === 'powershell-script') codeFormat = f
+        break
+      }
+      case 'copyRequestCode':
+        await copyRequestCode()
+        break
       case 'toggleRequestPane':
         requestPaneCollapsed = !requestPaneCollapsed
         break
@@ -907,9 +955,11 @@
     if (path) draftBinaryFilePath = path
   }
 
-  async function saveRequest(): Promise<domain.Item> {
+  // The draft editor state as a domain.Item — shared by saveRequest and
+  // the Code tab's generator so both see exactly the same request.
+  function buildDraftItem(): domain.Item {
     const isFormMode = draftBodyMode === 'form-data' || draftBodyMode === 'x-www-form-urlencoded'
-    const item = {
+    return {
       id: selectedItemId ?? '',
       type: 'request',
       name: draftName || 'Untitled Request',
@@ -925,10 +975,41 @@
         binaryFilePath: draftBodyMode === 'binary' ? draftBinaryFilePath : '',
       },
     } as unknown as domain.Item
-    const saved = await SaveRequest(collectionId, item)
+  }
+
+  async function saveRequest(): Promise<domain.Item> {
+    const saved = await SaveRequest(collectionId, buildDraftItem())
     selectedItemId = saved.id
     collection = await GetCollection(collectionId)
     return saved
+  }
+
+  // Recomputed by the backend (internal/codegen) whenever the Code tab is
+  // open and any input changes — see the reactive block below. codeGen
+  // guards against an earlier request's response landing after a later
+  // one (each keystroke fires a fresh call).
+  let codeGen = 0
+  async function regenerateCode() {
+    const seq = ++codeGen
+    try {
+      const out = await GenerateRequestCode(buildDraftItem(), environmentId, codeFormat)
+      if (seq !== codeGen) return
+      generatedCode = out
+      codeError = ''
+    } catch (e) {
+      if (seq !== codeGen) return
+      generatedCode = ''
+      codeError = String(e)
+    }
+  }
+
+  async function copyRequestCode() {
+    if (!generatedCode) return
+    try {
+      await navigator.clipboard.writeText(generatedCode)
+    } catch (e) {
+      logEvent(`copyRequestCode failed: ${e}`)
+    }
   }
 
   // Shared by the sidebar's delete button (after a confirm() prompt) and
@@ -1160,6 +1241,29 @@
             ? 'binary'
             : ''
           : ''
+
+  // Regenerate the Code tab whenever it's open and anything the snippet
+  // depends on changes. codeKey stringifies exactly those inputs so the
+  // reactive re-runs on any of them (Svelte only tracks variables named
+  // in the statement itself, not ones read inside regenerateCode).
+  $: codeKey =
+    activeTab === 'code'
+      ? JSON.stringify([
+          codeFormat,
+          draftName,
+          draftMethod,
+          draftUrl,
+          draftBodyMode,
+          draftBodyRaw,
+          draftBinaryFilePath,
+          draftParams,
+          draftHeaders,
+          draftFormFields,
+          draftAuth,
+          environmentId,
+        ])
+      : ''
+  $: if (codeKey) regenerateCode()
 
   // Standard HTTP status-class semantics, for coloring the status badge.
   function statusTone(code: number): 'success' | 'info' | 'warning' | 'error' {
@@ -1413,6 +1517,10 @@
           Body{#if bodyTabBadge}<span class="tab-count">{bodyTabBadge}</span>{/if}
           {#if activeTab === 'body'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
         </button>
+        <button class:active={activeTab === 'code'} on:click={() => onRequestTabClick('code')}>
+          Code
+          {#if activeTab === 'code'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
+        </button>
       </div>
 
       {#if !requestPaneCollapsed}
@@ -1504,6 +1612,20 @@
               <span>Value</span>
               <input type="text" bind:value={draftAuth.value} placeholder="key or {'{'}{'{'}var{'}'}{'}'}" />
             </label>
+          {/if}
+        </div>
+      {:else if activeTab === 'code'}
+        <div class="code-tab">
+          <div class="code-formats">
+            {#each codeFormats as f}
+              <button class:active={codeFormat === f.value} on:click={() => (codeFormat = f.value)}>{f.label}</button>
+            {/each}
+            <button class="code-copy" on:click={copyRequestCode} disabled={!generatedCode}>Copy</button>
+          </div>
+          {#if codeError}
+            <p class="error">{codeError}</p>
+          {:else}
+            <pre class="code-output">{generatedCode}</pre>
           {/if}
         </div>
       {:else}
@@ -2598,6 +2720,34 @@
   .auth-field > input {
     flex: 1;
     min-width: 0;
+  }
+
+  .code-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 0;
+  }
+
+  .code-formats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .code-formats .code-copy {
+    margin-left: auto;
+  }
+
+  .code-output {
+    margin: 0;
+    max-height: 16rem;
+    overflow: auto;
+    background: var(--fm-bg-response);
+    padding: 0.75rem;
+    font-size: 0.8rem;
+    white-space: pre;
+    word-break: normal;
   }
 
   .response {

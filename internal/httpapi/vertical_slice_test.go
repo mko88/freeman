@@ -216,6 +216,48 @@ func TestEnvironmentDeleteRoute(t *testing.T) {
 	mustDelete(t, srv.URL+"/api/environments/"+defaultID, http.StatusInternalServerError)
 }
 
+// TestCodegenRoute checks POST /api/codegen renders the posted item as a
+// curl command, resolving {{var}} against the given environment.
+func TestCodegenRoute(t *testing.T) {
+	root := t.TempDir()
+	app := core.NewApp()
+	ws, err := app.OpenWorkspace(root)
+	if err != nil {
+		t.Fatalf("OpenWorkspace: %v", err)
+	}
+	envID := ws.Environments[0].ID
+
+	srv := httptest.NewServer(NewHandler(app, nil))
+	defer srv.Close()
+
+	// Put a base URL in the environment so we can prove substitution.
+	var env domain.Environment
+	mustGet(t, srv.URL+"/api/environments/"+envID, &env)
+	env.Variables = append(env.Variables, domain.Variable{Key: "base", Value: "https://api.example.com", Enabled: true})
+	mustPost(t, srv.URL+"/api/environments", env, nil)
+
+	body := codegenRequest{
+		Item: domain.Item{
+			Method:  "GET",
+			URL:     "{{base}}/health",
+			Headers: []domain.Header{{Key: "Accept", Value: "application/json", Enabled: true}},
+		},
+		EnvironmentID: envID,
+		Format:        "curl",
+	}
+	var out struct {
+		Code string `json:"code"`
+	}
+	mustPost(t, srv.URL+"/api/codegen", body, &out)
+
+	if !strings.Contains(out.Code, "curl -X GET 'https://api.example.com/health'") {
+		t.Fatalf("codegen did not substitute the URL var:\n%s", out.Code)
+	}
+	if !strings.Contains(out.Code, "-H 'Accept: application/json'") {
+		t.Fatalf("codegen dropped the header:\n%s", out.Code)
+	}
+}
+
 // TestHeaderCatalogRoute checks GET /api/headers serves the built-in
 // catalog when the workspace has no headers.yaml, and merges one when it
 // does.

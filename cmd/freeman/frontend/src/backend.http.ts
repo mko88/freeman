@@ -66,6 +66,15 @@ export function ExecuteRequest(
   return request('POST', '/api/execute', { collectionId, itemId, environmentId })
 }
 
+export async function GenerateRequestCode(
+  item: domain.Item,
+  environmentId: string,
+  format: string,
+): Promise<string> {
+  const res = await request<{ code: string }>('POST', '/api/codegen', { item, environmentId, format })
+  return res.code
+}
+
 export function GetTheme(): Promise<Record<string, string>> {
   return request('GET', '/api/theme')
 }

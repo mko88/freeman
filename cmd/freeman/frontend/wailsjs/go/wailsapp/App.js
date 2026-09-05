@@ -34,6 +34,10 @@ export function ExecuteRequest(arg1, arg2, arg3) {
   return window['go']['wailsapp']['App']['ExecuteRequest'](arg1, arg2, arg3);
 }
 
+export function GenerateRequestCode(arg1, arg2, arg3) {
+  return window['go']['wailsapp']['App']['GenerateRequestCode'](arg1, arg2, arg3);
+}
+
 export function GetCachedResponse(arg1) {
   return window['go']['wailsapp']['App']['GetCachedResponse'](arg1);
 }

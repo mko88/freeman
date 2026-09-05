@@ -21,6 +21,8 @@ export function DispatchUIAction(arg1:string,arg2:Record<string, any>):Promise<v
 
 export function ExecuteRequest(arg1:string,arg2:string,arg3:string):Promise<httpengine.Response>;
 
+export function GenerateRequestCode(arg1:domain.Item,arg2:string,arg3:string):Promise<string>;
+
 export function GetCachedResponse(arg1:string):Promise<httpengine.Response>;
 
 export function GetCollection(arg1:string):Promise<domain.Collection>;
