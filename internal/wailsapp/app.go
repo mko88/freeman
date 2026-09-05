@@ -211,7 +211,6 @@ func (a *App) OpenResponseCacheInFileExplorer(itemID string) error {
 	return openInFileExplorer(path)
 }
 
-
 // SetControlAPIAddr records where cmd/freeman's control API (see
 // startControlAPI) is actually listening, so ControlAPIAddr can report it
 // to the frontend. Called once from main, before wails.Run.
