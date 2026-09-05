@@ -84,3 +84,27 @@ export function OpenResponseInFileExplorer(_path: string): Promise<void> {
     new Error('OpenResponseInFileExplorer is not available in web mode — there is no local file manager to hand it to'),
   )
 }
+
+// The response cache (see internal/wailsapp/responsecache.go) is
+// desktop-only — it lives in the desktop app's own OS-level app-data
+// directory, which has no equivalent for a server whose "app data" is
+// just whatever's in its container.
+export function GetCachedResponse(_itemId: string): Promise<httpengine.Response> {
+  return Promise.reject(new Error('GetCachedResponse is not available in web mode — the server does not cache responses'))
+}
+
+export function ClearResponseCache(): Promise<void> {
+  return Promise.reject(new Error('ClearResponseCache is not available in web mode — the server does not cache responses'))
+}
+
+export function OpenResponseCacheExternally(_itemId: string): Promise<void> {
+  return Promise.reject(new Error('OpenResponseCacheExternally is not available in web mode — the server does not cache responses'))
+}
+
+export function GetResponseCachePath(_itemId: string): Promise<string> {
+  return Promise.reject(new Error('GetResponseCachePath is not available in web mode — the server does not cache responses'))
+}
+
+export function OpenResponseCacheInFileExplorer(_itemId: string): Promise<void> {
+  return Promise.reject(new Error('OpenResponseCacheInFileExplorer is not available in web mode — the server does not cache responses'))
+}

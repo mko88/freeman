@@ -15,4 +15,9 @@ export {
   GetResponseBody,
   OpenResponseExternally,
   OpenResponseInFileExplorer,
+  GetCachedResponse,
+  ClearResponseCache,
+  OpenResponseCacheExternally,
+  GetResponseCachePath,
+  OpenResponseCacheInFileExplorer,
 } from '../wailsjs/go/wailsapp/App.js'

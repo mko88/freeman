@@ -91,12 +91,15 @@ func (a *App) OpenWorkspace(root string) (*core.WorkspaceInfo, error) {
 // It also deletes the previous call's response-body temp file (see
 // httpengine.Response.Truncated) once it's superseded — GetResponseBody/
 // OpenResponseExternally take the path explicitly rather than reading
-// this back, so this is cleanup bookkeeping only, not a lookup table.
+// this back, so this is cleanup bookkeeping only, not a lookup table —
+// and persists a durable copy of resp for GetCachedResponse (see
+// saveResponseCache), independent of that temp file's own cleanup.
 func (a *App) ExecuteRequest(collectionID, itemID, environmentID string) (*httpengine.Response, error) {
 	resp, err := a.App.ExecuteRequest(a.ctx, collectionID, itemID, environmentID)
 	if err != nil {
 		return nil, err
 	}
+	saveResponseCache(itemID, resp) // best-effort; see its own doc comment
 	a.responseFileMu.Lock()
 	if a.responseFile != "" {
 		os.Remove(a.responseFile) // best-effort — a stale leftover isn't harmful
@@ -104,6 +107,83 @@ func (a *App) ExecuteRequest(collectionID, itemID, environmentID string) (*httpe
 	a.responseFile = resp.BodyFile // "" when the response wasn't truncated
 	a.responseFileMu.Unlock()
 	return resp, nil
+}
+
+// DeleteRequest shadows core.App's to also drop itemID's cached response
+// (see saveResponseCache) — otherwise a stale response could resurface
+// if the same generated ID were ever reused.
+func (a *App) DeleteRequest(collectionID, itemID string) error {
+	if err := a.App.DeleteRequest(collectionID, itemID); err != nil {
+		return err
+	}
+	deleteResponseCache(itemID)
+	return nil
+}
+
+// GetCachedResponse returns the last response itemID's request got (see
+// saveResponseCache), so reselecting a request shows what it last
+// returned instead of a blank pane — even across a relaunch, unlike the
+// in-memory `response` App.svelte otherwise resets to null on every
+// selectRequest. An error (a request never sent, or the cache was
+// cleared) means "nothing cached" — App.svelte's selectRequest treats
+// that the same as before, falling back to a blank response pane, not a
+// surfaced error. Also takes over responseFile's cleanup bookkeeping
+// (see ExecuteRequest) for a large cached response's freshly
+// materialized temp file, the same as a live one.
+func (a *App) GetCachedResponse(itemID string) (*httpengine.Response, error) {
+	resp, err := loadResponseCache(itemID)
+	if err != nil {
+		return nil, err
+	}
+	a.responseFileMu.Lock()
+	if a.responseFile != "" {
+		os.Remove(a.responseFile)
+	}
+	a.responseFile = resp.BodyFile
+	a.responseFileMu.Unlock()
+	return resp, nil
+}
+
+// ClearResponseCache deletes every cached response (see
+// saveResponseCache) — the settings window's "Clear response cache"
+// button. No server equivalent — the headless server doesn't keep this
+// cache at all (see responsecache.go's package-level doc comment).
+func (a *App) ClearResponseCache() error {
+	return clearResponseCache()
+}
+
+// OpenResponseCacheExternally opens itemID's cached response body (see
+// saveResponseCache) in whatever application the OS associates with its
+// file extension — the response pane's "..." menu's equivalent of
+// OpenResponseExternally, available for any response that's ever been
+// sent rather than only one big enough to have been truncated. No server
+// equivalent — a browser can't launch a native application.
+func (a *App) OpenResponseCacheExternally(itemID string) error {
+	path, err := responseCacheBodyPath(itemID)
+	if err != nil {
+		return err
+	}
+	return openExternally(path)
+}
+
+// GetResponseCachePath returns itemID's cached response body's path (see
+// saveResponseCache) — the response pane's "..." menu's "Copy path"
+// reads it via this, then copies it to the clipboard itself.
+func (a *App) GetResponseCachePath(itemID string) (string, error) {
+	return responseCacheBodyPath(itemID)
+}
+
+// OpenResponseCacheInFileExplorer shows itemID's cached response body
+// (see saveResponseCache) in the OS's file manager — the response pane's
+// "..." menu's equivalent of OpenResponseInFileExplorer, available for
+// any response that's ever been sent. No server equivalent — a browser
+// can't launch a native file manager.
+func (a *App) OpenResponseCacheInFileExplorer(itemID string) error {
+	path, err := responseCacheBodyPath(itemID)
+	if err != nil {
+		return err
+	}
+	return openInFileExplorer(path)
 }
 
 // GetResponseBody returns the full body of a truncated response (see

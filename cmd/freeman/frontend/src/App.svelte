@@ -13,6 +13,11 @@
     GetResponseBody,
     OpenResponseExternally,
     OpenResponseInFileExplorer,
+    GetCachedResponse,
+    ClearResponseCache,
+    OpenResponseCacheExternally,
+    GetResponseCachePath,
+    OpenResponseCacheInFileExplorer,
   } from '$backend'
   import type { domain, httpengine, core } from '../wailsjs/go/models'
   import { EventsOn } from '../wailsjs/runtime/runtime'
@@ -81,6 +86,13 @@
   // exactly what response.truncated exists to avoid, whether or not the
   // user has since chosen to view it.
   let expandedResponseBody: string | null = null
+  // The response pane's "..." menu (Open in external editor/Copy path/
+  // Open in File Explorer, keyed by selectedItemId — see
+  // OpenResponseCacheExternally et al.) — available for any response
+  // that's ever been sent, not just a truncated one, since every
+  // response gets cached to disk (see saveResponseCache) regardless of
+  // size.
+  let showResponseActionsMenu = false
   let activeTab: 'headers' | 'body' = 'headers'
   // Collapsed by re-clicking whichever tab is already active (see
   // onRequestTabClick below) — the Headers/Body table hides, and
@@ -176,8 +188,9 @@
         'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/headers/' +
         'formFields/tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
         '(truncated/bodyFile in place of body when it was too large — see /api/execute/body — plus ' +
-        'responseBodyExpanded for whether showResponseBody has since loaded it)/' +
-        'showSettings/settingsTab/showHelp/sidebarWidth/statusBarHeight/showControlApiLog — so a script ' +
+        'responseBodyExpanded for whether showResponseBody has since loaded it; every response is also ' +
+        'cached to disk per request and reloaded on reselect, see clearResponseCache)/' +
+        'showResponseActionsMenu/showSettings/settingsTab/showHelp/sidebarWidth/statusBarHeight/showControlApiLog — so a script ' +
         "can read what the UI shows instead of screenshotting it (desktop only).",
     },
   ]
@@ -223,6 +236,31 @@
       action: 'openResponseInFileExplorer',
       payload: '—',
       desc: "Reveal a truncated response's full-body file in the OS file manager (desktop only).",
+    },
+    {
+      action: 'toggleResponseActionsMenu',
+      payload: '—',
+      desc: 'Open/close the response pane\'s "..." actions menu.',
+    },
+    {
+      action: 'openResponseCacheExternally',
+      payload: '—',
+      desc: 'Open the selected request\'s cached response body in its default external application (any response, not just a truncated one; desktop only).',
+    },
+    {
+      action: 'copyResponseCachePath',
+      payload: '—',
+      desc: "Copy the selected request's cached response body file path to the clipboard.",
+    },
+    {
+      action: 'openResponseCacheInFileExplorer',
+      payload: '—',
+      desc: "Reveal the selected request's cached response body file in the OS file manager (desktop only).",
+    },
+    {
+      action: 'clearResponseCache',
+      payload: '—',
+      desc: 'Delete every cached response (see GET /api/ui/state\'s response field).',
     },
     { action: 'openWorkspace', payload: '{ path }', desc: 'Open a workspace by path (no folder dialog).' },
     { action: 'toggleHelp', payload: '—', desc: 'Open/close this help panel.' },
@@ -355,6 +393,7 @@
       sendError,
       response,
       responseBodyExpanded: expandedResponseBody !== null,
+      showResponseActionsMenu,
       sidebarWidth,
       statusBarHeight,
       showControlApiLog,
@@ -441,7 +480,7 @@
         break
       case 'selectRequest': {
         const item = (collection?.items ?? []).find((i) => i.id === payload?.id)
-        if (item) selectRequest(item)
+        if (item) await selectRequest(item)
         break
       }
       case 'deleteRequest': {
@@ -469,6 +508,21 @@
         break
       case 'openResponseInFileExplorer':
         await openResponseInFileExplorer()
+        break
+      case 'toggleResponseActionsMenu':
+        toggleResponseActionsMenu()
+        break
+      case 'openResponseCacheExternally':
+        await openResponseCacheExternally()
+        break
+      case 'copyResponseCachePath':
+        await copyResponseCachePath()
+        break
+      case 'openResponseCacheInFileExplorer':
+        await openResponseCacheInFileExplorer()
+        break
+      case 'clearResponseCache':
+        await clearResponseCache()
         break
       case 'openWorkspace': {
         const path = payload?.path
@@ -643,13 +697,13 @@
     collectionId = id
     collection = await GetCollection(id)
     if (collection.items?.length) {
-      selectRequest(collection.items[0])
+      await selectRequest(collection.items[0])
     } else {
       newRequest()
     }
   }
 
-  function selectRequest(item: domain.Item) {
+  async function selectRequest(item: domain.Item) {
     selectedItemId = item.id
     draftName = item.name
     draftMethod = item.method || 'GET'
@@ -664,9 +718,17 @@
       ? item.body.formFields.map((f) => ({ type: 'text', filePath: '', ...f }))
       : []
     draftBinaryFilePath = item.body?.binaryFilePath || ''
-    response = null
     sendError = ''
     expandedResponseBody = null
+    // GetCachedResponse rejects with "nothing cached yet" for a request
+    // that's never been sent (the common case) just as often as for a
+    // real failure — either way, falling back to a blank response pane
+    // is the right outcome, not a logged error.
+    try {
+      response = await GetCachedResponse(item.id)
+    } catch {
+      response = null
+    }
   }
 
   function newRequest() {
@@ -754,7 +816,7 @@
     collection = await GetCollection(collectionId)
     if (selectedItemId === id) {
       if (collection.items?.length) {
-        selectRequest(collection.items[0])
+        await selectRequest(collection.items[0])
       } else {
         newRequest()
       }
@@ -819,6 +881,58 @@
       await OpenResponseInFileExplorer(response.bodyFile ?? '')
     } catch (e) {
       logEvent(`openResponseInFileExplorer failed: ${e}`)
+    }
+  }
+
+  function toggleResponseActionsMenu() {
+    showResponseActionsMenu = !showResponseActionsMenu
+  }
+
+  // The "..." menu's own Open in external editor/Copy path/Open in File
+  // Explorer — the OpenResponse*Externally/InFileExplorer functions
+  // above do the same things but only for a truncated response's
+  // ephemeral bodyFile; these key off selectedItemId instead, so they
+  // work for any response that's ever been cached (see
+  // saveResponseCache), truncated or not.
+  async function openResponseCacheExternally() {
+    showResponseActionsMenu = false
+    if (!selectedItemId) return
+    try {
+      await OpenResponseCacheExternally(selectedItemId)
+    } catch (e) {
+      logEvent(`openResponseCacheExternally failed: ${e}`)
+    }
+  }
+
+  async function copyResponseCachePath() {
+    showResponseActionsMenu = false
+    if (!selectedItemId) return
+    try {
+      const path = await GetResponseCachePath(selectedItemId)
+      await navigator.clipboard.writeText(path)
+    } catch (e) {
+      logEvent(`copyResponseCachePath failed: ${e}`)
+    }
+  }
+
+  async function openResponseCacheInFileExplorer() {
+    showResponseActionsMenu = false
+    if (!selectedItemId) return
+    try {
+      await OpenResponseCacheInFileExplorer(selectedItemId)
+    } catch (e) {
+      logEvent(`openResponseCacheInFileExplorer failed: ${e}`)
+    }
+  }
+
+  let responseCacheCleared = false
+  async function clearResponseCache() {
+    try {
+      await ClearResponseCache()
+      responseCacheCleared = true
+      setTimeout(() => (responseCacheCleared = false), 2000)
+    } catch (e) {
+      logEvent(`clearResponseCache failed: ${e}`)
     }
   }
 
@@ -1089,20 +1203,38 @@
         {#if sendError}
           <p class="error">{sendError}</p>
         {:else if response}
-          <div class="response-meta">
-            <div class="response-stat">
-              <span class="response-stat-label">Status</span>
-              <span class="status status-{statusTone(response.statusCode)}">
-                {response.statusCode} {reasonPhrase(response.status)}
-              </span>
+          <div class="response-header">
+            <div class="response-meta">
+              <div class="response-stat">
+                <span class="response-stat-label">Status</span>
+                <span class="status status-{statusTone(response.statusCode)}">
+                  {response.statusCode} {reasonPhrase(response.status)}
+                </span>
+              </div>
+              <div class="response-stat">
+                <span class="response-stat-label">Time</span>
+                <span>{formatDuration(response.durationNs)}</span>
+              </div>
+              <div class="response-stat">
+                <span class="response-stat-label">Size</span>
+                <span>{response.sizeBytes} bytes</span>
+              </div>
             </div>
-            <div class="response-stat">
-              <span class="response-stat-label">Time</span>
-              <span>{formatDuration(response.durationNs)}</span>
-            </div>
-            <div class="response-stat">
-              <span class="response-stat-label">Size</span>
-              <span>{response.sizeBytes} bytes</span>
+            <div class="response-actions-menu">
+              <button class="icon-btn" title="Response actions" on:click={toggleResponseActionsMenu}>⋯</button>
+              {#if showResponseActionsMenu}
+                <!-- svelte-ignore a11y-no-static-element-interactions -->
+                <!-- svelte-ignore a11y-click-events-have-key-events -->
+                <div class="menu-backdrop" on:click={() => (showResponseActionsMenu = false)}></div>
+                <div class="dropdown-menu">
+                  {#if response.truncated}
+                    <button on:click={() => { showResponseBodyAnyway(); showResponseActionsMenu = false }}>Show anyway</button>
+                  {/if}
+                  <button on:click={openResponseCacheExternally}>Open in external editor</button>
+                  <button on:click={copyResponseCachePath}>Copy path</button>
+                  <button on:click={openResponseCacheInFileExplorer}>Open in File Explorer</button>
+                </div>
+              {/if}
             </div>
           </div>
           {#if response.truncated && expandedResponseBody === null}
@@ -1206,6 +1338,12 @@
             <button on:click={openWorkspace}>Change…</button>
           </div>
           {#if openError}<p class="error">{openError}</p>{/if}
+
+          <p class="prose">Every request's last response is cached to disk, so reopening it later shows what it last returned.</p>
+          <div class="row">
+            <button on:click={clearResponseCache}>Clear response cache</button>
+            {#if responseCacheCleared}<span class="muted">Cleared.</span>{/if}
+          </div>
         {:else}
           <div class="row">
             <select bind:value={environmentId} on:change={() => selectEnvironment(environmentId)}>
@@ -1908,11 +2046,54 @@
     padding-top: 0.75rem;
   }
 
+  .response-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
   .response-meta {
     display: flex;
     gap: 1.5rem;
     font-size: 0.85rem;
     margin-bottom: 0.5rem;
+  }
+
+  .response-actions-menu {
+    position: relative;
+  }
+
+  .menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+  }
+
+  .dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    min-width: 12rem;
+    padding: 0.25rem;
+    background: var(--fm-bg-elevated);
+    border: 1px solid var(--fm-border);
+    border-radius: var(--fm-radius);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+
+  .dropdown-menu button {
+    justify-content: flex-start;
+    background: none;
+    border: none;
+    padding: 0.4rem 0.6rem;
+    text-align: left;
+  }
+
+  .dropdown-menu button:hover {
+    background: var(--fm-bg-hover);
   }
 
   .response-stat {

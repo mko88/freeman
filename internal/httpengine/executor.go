@@ -94,7 +94,7 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 		SizeBytes:  len(bodyBytes),
 	}
 	if len(bodyBytes) > LargeResponseThreshold {
-		if path, ferr := writeResponseBodyFile(bodyBytes, resp.Header.Get("Content-Type")); ferr == nil {
+		if path, ferr := WriteResponseBodyFile(bodyBytes, resp.Header.Get("Content-Type")); ferr == nil {
 			result.Truncated = true
 			result.BodyFile = path
 			return result, nil
@@ -106,13 +106,15 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 	return result, nil
 }
 
-// writeResponseBodyFile writes data to a new temp file, named with an
-// extension guessed from contentType (see extensionFor) so opening it in
+// WriteResponseBodyFile writes data to a new temp file, named with an
+// extension guessed from contentType (see ExtensionFor) so opening it in
 // an external editor — see ReadResponseBodyFile's callers — lands on a
 // sensible default application instead of "unknown file type". Returns
-// its full path.
-func writeResponseBodyFile(data []byte, contentType string) (string, error) {
-	f, err := os.CreateTemp("", "freeman-response-*"+extensionFor(contentType))
+// its full path. Exported so wailsapp's response cache (see
+// wailsapp.loadResponseCache) can materialize the same kind of file for
+// a large *reloaded* response, not just a freshly executed one.
+func WriteResponseBodyFile(data []byte, contentType string) (string, error) {
+	f, err := os.CreateTemp("", "freeman-response-*"+ExtensionFor(contentType))
 	if err != nil {
 		return "", err
 	}
@@ -125,7 +127,7 @@ func writeResponseBodyFile(data []byte, contentType string) (string, error) {
 }
 
 // IsResponseBodyFile reports whether path is exactly the directory and
-// naming convention writeResponseBodyFile uses — the check
+// naming convention WriteResponseBodyFile uses — the check
 // ReadResponseBodyFile applies before reading, exported so a caller that
 // only needs to open/serve the file (not read its content into memory,
 // e.g. wailsapp.App.OpenResponseExternally) can apply the same guard
@@ -136,7 +138,7 @@ func IsResponseBodyFile(path string) bool {
 }
 
 // ReadResponseBodyFile reads back a body previously written by
-// writeResponseBodyFile — the desktop app's "show anyway" and the
+// WriteResponseBodyFile — the desktop app's "show anyway" and the
 // headless server's GET /api/execute/body both go through this rather
 // than os.ReadFile directly. It refuses anything outside the exact
 // directory and naming convention Execute itself writes to (see
@@ -150,12 +152,13 @@ func ReadResponseBodyFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
-// extensionFor picks a file extension from a Content-Type header so a
+// ExtensionFor picks a file extension from a Content-Type header so a
 // response body written to disk opens in a sensible default application.
 // mime.ExtensionsByType returns several candidates in an unspecified
 // order (and nothing at all for some of the content types most API
 // responses actually use), so the common cases are matched explicitly.
-func extensionFor(contentType string) string {
+// Exported for the same reason as WriteResponseBodyFile.
+func ExtensionFor(contentType string) string {
 	mediaType, _, _ := mime.ParseMediaType(contentType)
 	switch {
 	case strings.Contains(mediaType, "json"):

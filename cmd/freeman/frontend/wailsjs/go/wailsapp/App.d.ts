@@ -5,6 +5,8 @@ import {httpengine} from '../models';
 import {domain} from '../models';
 import {headercatalog} from '../models';
 
+export function ClearResponseCache():Promise<void>;
+
 export function ControlAPIAddr():Promise<string>;
 
 export function CurrentWorkspace():Promise<core.WorkspaceInfo>;
@@ -15,6 +17,8 @@ export function DispatchUIAction(arg1:string,arg2:Record<string, any>):Promise<v
 
 export function ExecuteRequest(arg1:string,arg2:string,arg3:string):Promise<httpengine.Response>;
 
+export function GetCachedResponse(arg1:string):Promise<httpengine.Response>;
+
 export function GetCollection(arg1:string):Promise<domain.Collection>;
 
 export function GetEnvironment(arg1:string):Promise<domain.Environment>;
@@ -23,11 +27,17 @@ export function GetHeaderCatalog():Promise<Array<headercatalog.Entry>>;
 
 export function GetResponseBody(arg1:string):Promise<string>;
 
+export function GetResponseCachePath(arg1:string):Promise<string>;
+
 export function GetTheme():Promise<Record<string, string>>;
 
 export function ListCollections():Promise<Array<core.CollectionSummary>>;
 
 export function ListEnvironments():Promise<Array<core.EnvironmentSummary>>;
+
+export function OpenResponseCacheExternally(arg1:string):Promise<void>;
+
+export function OpenResponseCacheInFileExplorer(arg1:string):Promise<void>;
 
 export function OpenResponseExternally(arg1:string):Promise<void>;
 
