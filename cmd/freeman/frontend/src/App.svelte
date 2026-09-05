@@ -72,6 +72,65 @@
   let sending = false
   let sendError = ''
   let activeTab: 'headers' | 'body' = 'headers'
+  // Collapsed by re-clicking whichever tab is already active (see
+  // onRequestTabClick below) — the Headers/Body table hides, and
+  // .response (already flex: 1) just grows into the freed space.
+  let requestPaneCollapsed = false
+
+  // Sidebar width, the log panel's height, and whether the log panel is
+  // collapsed are pure layout comfort — remembered per-browser-profile
+  // via localStorage (silently no-op if unavailable, e.g. a locked-down
+  // profile) rather than round-tripped through the workspace like real
+  // request/environment data.
+  const LAYOUT_PREFS_KEY = 'freeman.layoutPrefs'
+  function loadLayoutPrefs(): { sidebarWidth?: number; statusBarHeight?: number; showControlApiLog?: boolean } {
+    try {
+      return JSON.parse(localStorage.getItem(LAYOUT_PREFS_KEY) ?? '{}')
+    } catch {
+      return {}
+    }
+  }
+  function saveLayoutPrefs() {
+    try {
+      localStorage.setItem(LAYOUT_PREFS_KEY, JSON.stringify({ sidebarWidth, statusBarHeight, showControlApiLog }))
+    } catch {
+      // ignore — comfort setting only, not worth surfacing an error for
+    }
+  }
+  const layoutPrefs = loadLayoutPrefs()
+  const SIDEBAR_WIDTH_RANGE = [180, 560] as const
+  const STATUS_BAR_HEIGHT_RANGE = [60, 500] as const
+  let sidebarWidth = clamp(layoutPrefs.sidebarWidth ?? 260, SIDEBAR_WIDTH_RANGE)
+  let statusBarHeight = clamp(layoutPrefs.statusBarHeight ?? 118, STATUS_BAR_HEIGHT_RANGE)
+  let showControlApiLog = layoutPrefs.showControlApiLog ?? true
+  function clamp(value: number, [min, max]: readonly [number, number]): number {
+    return Math.min(max, Math.max(min, value))
+  }
+
+  // Drag-resize for the two splitters (sidebar | editor, and above the
+  // status bar). One pair of window-level pointer listeners handles
+  // whichever splitter is currently being dragged, rather than each
+  // splitter wiring its own — there's only ever one drag in flight.
+  let draggingSplitter: 'sidebar' | 'statusBar' | null = null
+  function onSplitterPointerDown(which: typeof draggingSplitter) {
+    draggingSplitter = which
+  }
+  function onWindowPointerMove(e: PointerEvent) {
+    if (draggingSplitter === 'sidebar') {
+      sidebarWidth = clamp(e.clientX, SIDEBAR_WIDTH_RANGE)
+    } else if (draggingSplitter === 'statusBar') {
+      statusBarHeight = clamp(window.innerHeight - e.clientY, STATUS_BAR_HEIGHT_RANGE)
+    }
+  }
+  function onWindowPointerUp() {
+    if (draggingSplitter) saveLayoutPrefs()
+    draggingSplitter = null
+  }
+
+  function toggleControlApiLog() {
+    showControlApiLog = !showControlApiLog
+    saveLayoutPrefs()
+  }
 
   const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 
@@ -98,8 +157,9 @@
       path: '/api/ui/state',
       desc:
         'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/headers/' +
-        'formFields/tab/selected ids/the open environment/the last response/showSettings/settingsTab/' +
-        "showHelp — so a script can read what the UI shows instead of screenshotting it (desktop only).",
+        'formFields/tab/requestPaneCollapsed/selected ids/the open environment/the last response/' +
+        'showSettings/settingsTab/showHelp/sidebarWidth/statusBarHeight/showControlApiLog — so a script ' +
+        "can read what the UI shows instead of screenshotting it (desktop only).",
     },
   ]
 
@@ -131,6 +191,18 @@
       action: 'selectRequestTab',
       payload: '{ tab }',
       desc: "Switch the request editor tab. tab is 'headers' or 'body'.",
+    },
+    {
+      action: 'toggleRequestPane',
+      payload: '—',
+      desc: 'Collapse/expand the request editor’s Headers/Body content (same as clicking the active tab).',
+    },
+    { action: 'toggleControlApiLog', payload: '—', desc: 'Collapse/expand the control API log at the bottom.' },
+    { action: 'setSidebarWidth', payload: '{ px }', desc: 'Resize the request list (clamped to a sane range).' },
+    {
+      action: 'setStatusBarHeight',
+      payload: '{ px }',
+      desc: 'Resize the control API log panel (clamped to a sane range).',
     },
     {
       action: 'setRequestField',
@@ -227,6 +299,7 @@
       environmentId,
       selectedItemId,
       tab: activeTab,
+      requestPaneCollapsed,
       name: draftName,
       method: draftMethod,
       url: draftUrl,
@@ -242,6 +315,9 @@
       sending,
       sendError,
       response,
+      sidebarWidth,
+      statusBarHeight,
+      showControlApiLog,
     }
     // Encoded here and passed as a string, not the plain object — a
     // Wails-bound method taking an object argument from the frontend
@@ -352,7 +428,29 @@
         break
       case 'selectRequestTab': {
         const tab = payload?.tab
-        if (tab === 'headers' || tab === 'body') activeTab = tab
+        if (tab === 'headers' || tab === 'body') selectRequestEditorTab(tab)
+        break
+      }
+      case 'toggleRequestPane':
+        requestPaneCollapsed = !requestPaneCollapsed
+        break
+      case 'toggleControlApiLog':
+        toggleControlApiLog()
+        break
+      case 'setSidebarWidth': {
+        const px = Number(payload?.px)
+        if (!Number.isNaN(px)) {
+          sidebarWidth = clamp(px, SIDEBAR_WIDTH_RANGE)
+          saveLayoutPrefs()
+        }
+        break
+      }
+      case 'setStatusBarHeight': {
+        const px = Number(payload?.px)
+        if (!Number.isNaN(px)) {
+          statusBarHeight = clamp(px, STATUS_BAR_HEIGHT_RANGE)
+          saveLayoutPrefs()
+        }
         break
       }
       case 'setRequestField': {
@@ -672,6 +770,26 @@
     return status.replace(/^\d+\s*/, '')
   }
 
+  // selectRequestTab (control API) always deterministically switches to
+  // and expands the given tab — a script asking for 'body' shouldn't get
+  // a collapse instead just because 'body' already happened to be
+  // active. The tab buttons' own click handler builds on this: switching
+  // tabs behaves identically, but clicking the tab that's *already*
+  // active collapses instead — a plain UI gesture with its own dedicated
+  // ui:action (toggleRequestPane) for a script to reach the same thing
+  // deterministically, without needing to know which tab is current.
+  function selectRequestEditorTab(tab: 'headers' | 'body') {
+    activeTab = tab
+    requestPaneCollapsed = false
+  }
+  function onRequestTabClick(tab: 'headers' | 'body') {
+    if (activeTab === tab) {
+      requestPaneCollapsed = !requestPaneCollapsed
+    } else {
+      selectRequestEditorTab(tab)
+    }
+  }
+
   // Standard HTTP status-class semantics, for coloring the status badge.
   function statusTone(code: number): 'success' | 'info' | 'warning' | 'error' {
     if (code >= 200 && code < 300) return 'success'
@@ -699,7 +817,9 @@
   }
 </script>
 
-<div class="app-shell">
+<svelte:window on:pointermove={onWindowPointerMove} on:pointerup={onWindowPointerUp} />
+
+<div class="app-shell" class:is-resizing={draggingSplitter !== null}>
 {#if !workspace}
   <main class="welcome">
     <h1>Freeman</h1>
@@ -709,7 +829,7 @@
   </main>
 {:else}
   <div class="layout">
-    <aside class="sidebar">
+    <aside class="sidebar" style="width: {sidebarWidth}px">
       <div class="sidebar-header">
         <span>{collection?.name ?? ''}</span>
         <button class="icon-btn" title="New request" on:click={newRequest}>+</button>
@@ -726,6 +846,16 @@
         {/each}
       </ul>
     </aside>
+
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div
+      class="splitter splitter-vertical"
+      class:active={draggingSplitter === 'sidebar'}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the request list"
+      on:pointerdown={() => onSplitterPointerDown('sidebar')}
+    ></div>
 
     <main class="editor">
       <div class="request-name">
@@ -744,10 +874,17 @@
       </div>
 
       <div class="tabs">
-        <button class:active={activeTab === 'headers'} on:click={() => (activeTab = 'headers')}>Headers</button>
-        <button class:active={activeTab === 'body'} on:click={() => (activeTab = 'body')}>Body</button>
+        <button class:active={activeTab === 'headers'} on:click={() => onRequestTabClick('headers')}>
+          Headers
+          {#if activeTab === 'headers'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
+        </button>
+        <button class:active={activeTab === 'body'} on:click={() => onRequestTabClick('body')}>
+          Body
+          {#if activeTab === 'body'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
+        </button>
       </div>
 
+      {#if !requestPaneCollapsed}
       {#if activeTab === 'headers'}
         <!-- Shared suggestion list of common header names (from the
              backend catalog / headers.yaml). Attached to every key input
@@ -845,6 +982,7 @@
           <p class="muted">No body.</p>
         {/if}
       {/if}
+      {/if}
 
       <section class="response">
         {#if sendError}
@@ -875,8 +1013,24 @@
   </div>
 {/if}
 
-  <footer class="status-bar">
+  {#if showControlApiLog}
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div
+      class="splitter splitter-horizontal"
+      class:active={draggingSplitter === 'statusBar'}
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize the control API log"
+      on:pointerdown={() => onSplitterPointerDown('statusBar')}
+    ></div>
+  {/if}
+  <footer class="status-bar" style={showControlApiLog ? `height: ${statusBarHeight}px` : ''}>
     <div class="status-bar-header">
+      <button
+        class="icon-btn"
+        title={showControlApiLog ? 'Collapse the log' : 'Expand the log'}
+        on:click={toggleControlApiLog}>{showControlApiLog ? '▾' : '▸'}</button
+      >
       <span>
         {#if controlApiAddr}
           Control API: <code>http://{controlApiAddr}</code>
@@ -889,6 +1043,7 @@
         <button class="icon-btn" title="API help" on:click={() => (showHelp = true)}>?</button>
       </span>
     </div>
+    {#if showControlApiLog}
     <div class="status-log" bind:this={statusLogEl}>
       {#if statusLog.length === 0}
         <div class="status-line muted">No control-API events yet.</div>
@@ -898,6 +1053,7 @@
         {/each}
       {/if}
     </div>
+    {/if}
   </footer>
 
   {#if showSettings && workspace}
@@ -1054,6 +1210,54 @@
     height: 100vh;
   }
 
+  /* While a splitter is being dragged: lock the cursor and stop text
+     selection everywhere, not just under the pointer — a fast drag
+     easily outruns the splitter's own hit area otherwise. */
+  .app-shell.is-resizing {
+    cursor: grabbing;
+    user-select: none;
+  }
+
+  /* A hairline at rest (the same border-subtle token every other
+     divider in this app already uses) that picks up the accent color
+     under the pointer — discoverable without announcing itself as a
+     draggable widget the way a thick gray bar would. The pseudo-element
+     widens the actual hit area a few px past what's visible, so grabbing
+     it doesn't require pixel-perfect aim. */
+  .splitter {
+    flex: none;
+    position: relative;
+    background: var(--fm-border-subtle);
+    transition: background-color 0.12s ease;
+  }
+
+  .splitter:hover,
+  .splitter.active {
+    background: var(--fm-accent);
+  }
+
+  .splitter-vertical {
+    width: 1px;
+    cursor: col-resize;
+  }
+
+  .splitter-vertical::before {
+    content: '';
+    position: absolute;
+    inset: 0 -3px;
+  }
+
+  .splitter-horizontal {
+    height: 1px;
+    cursor: row-resize;
+  }
+
+  .splitter-horizontal::before {
+    content: '';
+    position: absolute;
+    inset: -3px 0;
+  }
+
   .welcome {
     flex: 1;
     min-height: 0;
@@ -1084,11 +1288,13 @@
     display: flex;
   }
 
+  /* No fixed height here — set inline from statusBarHeight while the log
+     is expanded (via the splitter above it); collapsed, it's left unset
+     so the footer just shrinks to fit .status-bar-header alone. */
   .status-bar {
     flex: none;
     display: flex;
     flex-direction: column;
-    height: 118px;
     border-top: 1px solid var(--fm-border);
     background: var(--fm-bg-panel);
     text-align: left;
@@ -1265,8 +1471,9 @@
     border-radius: var(--fm-radius);
   }
 
+  /* No width here — set inline from sidebarWidth (see the splitter next
+     to it). */
   .sidebar {
-    width: 260px;
     flex-shrink: 0;
     background: var(--fm-bg-panel);
     display: flex;
@@ -1410,6 +1617,14 @@
   .tabs button.active {
     color: var(--fm-text);
     border-bottom: 2px solid var(--fm-accent);
+  }
+
+  /* Same glyph, same meaning, as the control-API log's own collapse
+     toggle — one collapse language reused rather than two. Shown only
+     on the active tab: it's what clicking that tab again will do. */
+  .tab-chevron {
+    margin-left: 0.3em;
+    color: var(--fm-text-muted);
   }
 
   table {
