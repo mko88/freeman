@@ -54,10 +54,15 @@
   // models.ts).
   type BodyMode = 'none' | 'raw' | 'form-data' | 'x-www-form-urlencoded' | 'binary'
   type FormFieldType = 'text' | 'file'
+  type RequestTab = 'params' | 'headers' | 'body'
 
   let draftName = 'New Request'
   let draftMethod = 'GET'
   let draftUrl = ''
+  // Query params are appended to the URL at execution time (see
+  // internal/httpengine.buildURL) — the Params tab edits them as a list
+  // rather than syncing them into the URL string field.
+  let draftParams: domain.QueryParam[] = []
   let draftHeaders: domain.Header[] = []
   let draftBodyMode: BodyMode = 'none'
   let draftBodyRaw = ''
@@ -94,7 +99,7 @@
   // response gets cached to disk (see saveResponseCache) regardless of
   // size.
   let showResponseActionsMenu = false
-  let activeTab: 'headers' | 'body' = 'headers'
+  let activeTab: RequestTab = 'headers'
   // Collapsed by re-clicking whichever tab is already active (see
   // onRequestTabClick below) — the Headers/Body table hides, and
   // .response (already flex: 1) just grows into the freed space.
@@ -186,7 +191,7 @@
       method: 'GET',
       path: '/api/ui/state',
       desc:
-        'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/headers/' +
+        'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/params/headers/' +
         'formFields/tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
         '(truncated/bodyFile in place of body when it was too large — see /api/execute/body — plus ' +
         'responseBodyExpanded for whether showResponseBody has since loaded it; every response is also ' +
@@ -273,7 +278,7 @@
     {
       action: 'selectRequestTab',
       payload: '{ tab }',
-      desc: "Switch the request editor tab. tab is 'headers' or 'body'.",
+      desc: "Switch the request editor tab. tab is 'params', 'headers' or 'body'.",
     },
     {
       action: 'toggleRequestPane',
@@ -307,6 +312,17 @@
       desc: 'Populate an existing header row by its position.',
     },
     { action: 'removeRequestHeader', payload: '{ index } | { key }', desc: 'Remove a header row by its position or by key.' },
+    {
+      action: 'addRequestParam',
+      payload: '{ key?, value?, enabled? }',
+      desc: 'Add a query-param row, optionally pre-filled (all fields optional; blank if omitted).',
+    },
+    {
+      action: 'setRequestParam',
+      payload: '{ index, key?, value?, enabled? }',
+      desc: 'Populate an existing query-param row by its position.',
+    },
+    { action: 'removeRequestParam', payload: '{ index } | { key }', desc: 'Remove a query-param row by its position or by key.' },
     {
       action: 'addRequestFormField',
       payload: '{ key?, value?, enabled?, type?, filePath? }',
@@ -389,6 +405,7 @@
       bodyMode: draftBodyMode,
       bodyRaw: draftBodyRaw,
       binaryFilePath: draftBinaryFilePath,
+      params: draftParams,
       headers: draftHeaders,
       formFields: draftFormFields,
       environment,
@@ -543,7 +560,7 @@
         break
       case 'selectRequestTab': {
         const tab = payload?.tab
-        if (tab === 'headers' || tab === 'body') selectRequestEditorTab(tab)
+        if (tab === 'params' || tab === 'headers' || tab === 'body') selectRequestEditorTab(tab)
         break
       }
       case 'toggleRequestPane':
@@ -613,6 +630,28 @@
       case 'removeRequestHeader': {
         const index = rowIndex(draftHeaders, payload)
         if (index >= 0) removeRequestHeader(index)
+        break
+      }
+      case 'addRequestParam':
+        addRequestParam({
+          key: typeof payload?.key === 'string' ? payload.key : '',
+          value: typeof payload?.value === 'string' ? payload.value : '',
+          enabled: typeof payload?.enabled === 'boolean' ? payload.enabled : true,
+        })
+        break
+      case 'setRequestParam': {
+        const index = Number(payload?.index)
+        if (Number.isNaN(index)) break
+        const fields: Partial<domain.QueryParam> = {}
+        if (typeof payload?.key === 'string') fields.key = payload.key
+        if (typeof payload?.value === 'string') fields.value = payload.value
+        if (typeof payload?.enabled === 'boolean') fields.enabled = payload.enabled
+        setRequestParam(index, fields)
+        break
+      }
+      case 'removeRequestParam': {
+        const index = rowIndex(draftParams, payload)
+        if (index >= 0) removeRequestParam(index)
         break
       }
       case 'addRequestFormField':
@@ -717,6 +756,7 @@
     draftName = item.name
     draftMethod = item.method || 'GET'
     draftUrl = item.url || ''
+    draftParams = item.params ? item.params.map((p) => ({ ...p })) : []
     draftHeaders = item.headers ? item.headers.map((h) => ({ ...h })) : []
     draftBodyMode = (item.body?.mode as BodyMode) || 'none'
     draftBodyRaw = item.body?.raw || ''
@@ -745,6 +785,7 @@
     draftName = 'New Request'
     draftMethod = 'GET'
     draftUrl = ''
+    draftParams = []
     draftHeaders = []
     draftBodyMode = 'none'
     draftBodyRaw = ''
@@ -765,6 +806,18 @@
 
   function removeRequestHeader(index: number) {
     draftHeaders = draftHeaders.filter((_, i) => i !== index)
+  }
+
+  function addRequestParam(initial?: Partial<domain.QueryParam>) {
+    draftParams = [...draftParams, { key: '', value: '', enabled: true, ...initial }]
+  }
+
+  function setRequestParam(index: number, fields: Partial<domain.QueryParam>) {
+    draftParams = draftParams.map((p, i) => (i === index ? { ...p, ...fields } : p))
+  }
+
+  function removeRequestParam(index: number) {
+    draftParams = draftParams.filter((_, i) => i !== index)
   }
 
   function addRequestFormField(initial?: Partial<domain.FormField>) {
@@ -802,6 +855,7 @@
       name: draftName || 'Untitled Request',
       method: draftMethod,
       url: draftUrl,
+      params: draftParams,
       headers: draftHeaders,
       body: {
         mode: draftBodyMode,
@@ -1017,11 +1071,11 @@
   // active collapses instead — a plain UI gesture with its own dedicated
   // ui:action (toggleRequestPane) for a script to reach the same thing
   // deterministically, without needing to know which tab is current.
-  function selectRequestEditorTab(tab: 'headers' | 'body') {
+  function selectRequestEditorTab(tab: RequestTab) {
     activeTab = tab
     requestPaneCollapsed = false
   }
-  function onRequestTabClick(tab: 'headers' | 'body') {
+  function onRequestTabClick(tab: RequestTab) {
     if (activeTab === tab) {
       requestPaneCollapsed = !requestPaneCollapsed
     } else {
@@ -1113,8 +1167,12 @@
       </div>
 
       <div class="tabs">
+        <button class:active={activeTab === 'params'} on:click={() => onRequestTabClick('params')}>
+          Params{#if draftParams.length}<span class="tab-count">{draftParams.length}</span>{/if}
+          {#if activeTab === 'params'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
+        </button>
         <button class:active={activeTab === 'headers'} on:click={() => onRequestTabClick('headers')}>
-          Headers
+          Headers{#if draftHeaders.length}<span class="tab-count">{draftHeaders.length}</span>{/if}
           {#if activeTab === 'headers'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
         </button>
         <button class:active={activeTab === 'body'} on:click={() => onRequestTabClick('body')}>
@@ -1124,7 +1182,24 @@
       </div>
 
       {#if !requestPaneCollapsed}
-      {#if activeTab === 'headers'}
+      {#if activeTab === 'params'}
+        <table class="kv-table">
+          <thead>
+            <tr><th></th><th>Key</th><th>Value</th><th></th></tr>
+          </thead>
+          <tbody>
+            {#each draftParams as p, i}
+              <tr>
+                <td><input type="checkbox" bind:checked={p.enabled} /></td>
+                <td><input type="text" bind:value={p.key} placeholder="param" /></td>
+                <td><input type="text" bind:value={p.value} placeholder="value" /></td>
+                <td><button class="icon-btn kv-remove-btn" on:click={() => removeRequestParam(i)}>×</button></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        <button on:click={() => addRequestParam()}>Add param</button>
+      {:else if activeTab === 'headers'}
         <!-- Shared suggestion list of common header names (from the
              backend catalog / headers.yaml). Attached to every key input
              via list="fm-header-names". -->
@@ -1906,6 +1981,21 @@
   .tab-chevron {
     margin-left: 0.3em;
     color: var(--fm-text-muted);
+  }
+
+  /* How many rows a tab holds, so the ones you're not looking at still
+     say whether there's anything in them. */
+  .tab-count {
+    margin-left: 0.4em;
+    padding: 0.05em 0.4em;
+    font-size: 0.75em;
+    border-radius: 999px;
+    background: var(--fm-bg-hover);
+    color: var(--fm-text-muted);
+  }
+
+  .tabs button.active .tab-count {
+    color: var(--fm-text);
   }
 
   table {

@@ -87,6 +87,8 @@ FILE_UPLOAD_TEST_NAME = "Python File Upload Test (scratch)"
 DELETE_TEST_NAME = "Python Delete Test (scratch)"
 TEST_HEADER_KEY = "X-Py-Test"
 SCRATCH_HEADER_KEY = "X-Py-Scratch"
+TEST_PARAM_KEY = "pyParam"
+SCRATCH_PARAM_KEY = "pyScratchParam"
 FORM_FIELD_KEY = "item"
 SCRATCH_FIELD_KEY = "scratchField"
 TEST_VAR_KEY = "pyTestBase"
@@ -354,7 +356,7 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str, item_id:
     """Populates the empty scratch request main() already created and
     saved for this test (see REQUEST_TEST_NAMES) — selecting it, not
     creating it, is the first step here."""
-    r.section("Request editor (newRequest / setRequestField / tabs / headers)")
+    r.section("Request editor (newRequest / setRequestField / tabs / params / headers)")
 
     if not item_id:
         r.check("skipped — no empty scratch request for this test", False)
@@ -431,6 +433,20 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str, item_id:
     r.step(f"removeRequestHeader {{key: {SCRATCH_HEADER_KEY!r}}}")
     api.action("removeRequestHeader", {"key": SCRATCH_HEADER_KEY})
 
+    r.step("selectRequestTab 'params'")
+    api.action("selectRequestTab", {"tab": "params"})
+    state = poll(api.state, lambda s: s.get("tab") == "params")
+    r.check("state.tab reflects selectRequestTab 'params'", state.get("tab") == "params", str(state.get("tab")))
+
+    r.step(f"addRequestParam {{key: {TEST_PARAM_KEY!r}, value: 'yes'}}")
+    api.action("addRequestParam", {"key": TEST_PARAM_KEY, "value": "yes"})
+    r.step(f"addRequestParam {{key: {SCRATCH_PARAM_KEY!r}}}  (scratch, removed below)")
+    api.action("addRequestParam", {"key": SCRATCH_PARAM_KEY, "value": "temporary"})
+    r.step("setRequestParam {index: 0, value: 'confirmed'}  (edit the first row by position)")
+    api.action("setRequestParam", {"index": 0, "value": "confirmed"})
+    r.step(f"removeRequestParam {{key: {SCRATCH_PARAM_KEY!r}}}")
+    api.action("removeRequestParam", {"key": SCRATCH_PARAM_KEY})
+
     r.step("saveRequest")
     api.action("saveRequest")
 
@@ -477,6 +493,17 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str, item_id:
         find_header_index(saved_headers, SCRATCH_HEADER_KEY) is None,
         str(saved_headers),
     )
+    saved_params = saved.get("params") or []
+    r.check(
+        f"{TEST_PARAM_KEY} param present, with the setRequestParam-edited value",
+        any(p.get("key") == TEST_PARAM_KEY and p.get("value") == "confirmed" for p in saved_params),
+        str(saved_params),
+    )
+    r.check(
+        f"{SCRATCH_PARAM_KEY} param was removed, not left behind",
+        find_header_index(saved_params, SCRATCH_PARAM_KEY) is None,
+        str(saved_params),
+    )
 
 
 def test_execute(api: ControlAPI, r: Report, collection_id: str, environment_id: str, item_id: str) -> None:
@@ -501,6 +528,8 @@ def test_execute(api: ControlAPI, r: Report, collection_id: str, environment_id:
     api.action("setRequestField", {"field": "bodyRaw", "value": body_raw})
     api.action("selectRequestTab", {"tab": "headers"})
     api.action("addRequestHeader", {"key": "Content-Type", "value": "application/json"})
+    api.action("selectRequestTab", {"tab": "params"})
+    api.action("addRequestParam", {"key": TEST_PARAM_KEY, "value": "fromtab"})
     api.action("saveRequest")
     poll(
         lambda: api.get(f"/api/collections/{collection_id}"),
@@ -528,6 +557,14 @@ def test_execute(api: ControlAPI, r: Report, collection_id: str, environment_id:
             body_text[:200],
         )
         r.check("posted body round-tripped through httpbin", "python-test-script" in body_text, body_text[:200])
+        # httpbin's /post echoes received query params under "args" —
+        # proves the Params tab's rows actually reach the wire, appended
+        # to the URL by internal/httpengine.buildURL.
+        r.check(
+            f"query param {TEST_PARAM_KEY}=fromtab reached httpbin (echoed in args)",
+            f'"{TEST_PARAM_KEY}": "fromtab"' in body_text,
+            body_text[:300],
+        )
 
 
 def test_ui_state_getter(api: ControlAPI, r: Report, collection_id: str, item_id: str) -> None:
@@ -1229,7 +1266,7 @@ def test_layout_comfort(api: ControlAPI, r: Report) -> None:
             api.action("setSidebarWidth", {"px": original_sidebar_width})
         if isinstance(original_status_bar_height, (int, float)):
             api.action("setStatusBarHeight", {"px": original_status_bar_height})
-        if original_tab in ("headers", "body"):
+        if original_tab in ("params", "headers", "body"):
             api.action("selectRequestTab", {"tab": original_tab})  # also forces expanded
         if original_pane_collapsed:
             api.action("toggleRequestPane")  # re-collapse if that's how it was found
