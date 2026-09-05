@@ -5,12 +5,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"freeman/internal/appdata"
 	"freeman/internal/httpengine"
 )
 
-// This file persists one response per request — the last one it got —
-// to <appdata.Dir()>/responses, independent of the ephemeral OS-temp
+// This file persists one response per request — the last one it got — to
+// <workspaceRoot>/.cache/responses, independent of the ephemeral OS-temp
 // file httpengine.Execute itself writes for an oversized response (see
 // httpengine.Response.Truncated's doc comment): that one exists purely
 // to keep a huge body off the Wails IPC bridge for the *current*
@@ -21,33 +20,47 @@ import (
 // exists for every response, not just an oversized one, so the response
 // pane's "..." menu (OpenResponseCacheExternally/GetResponseCachePath/
 // OpenResponseCacheInFileExplorer) always has a real file to act on.
-// Desktop-only, like appdata itself: a headless server has no equivalent
-// notion of "this app's own last response to a request" separate from
-// whatever it just returned over HTTP.
+//
+// It lives under the workspace (not a per-user app-data directory) so
+// each workspace has its own — "Clear response cache" then only clears
+// the open one, and two workspaces can't shadow each other's entries.
+// Only the desktop app wires this in; the headless server doesn't cache
+// responses.
 
-// responsesDir returns <appdata>/responses, creating it if needed. ""
-// if appdata.Dir() itself couldn't resolve one (see its own doc
-// comment) — every function below treats that as "skip this" rather
-// than failing.
-func responsesDir() string {
-	base := appdata.Dir()
-	if base == "" {
+// responsesDir returns <workspaceRoot>/.cache/responses, creating it if
+// needed. "" if no workspace is open — every function below treats that
+// as "skip this" rather than failing. Drops a .gitignore in .cache the
+// first time, so a version-controlled workspace doesn't see this
+// machine-local cache as untracked files (the workspace format is meant
+// to diff cleanly).
+func (a *App) responsesDir() string {
+	root := a.WorkspaceRoot()
+	if root == "" {
 		return ""
 	}
-	dir := filepath.Join(base, "responses")
+	cache := filepath.Join(root, ".cache")
+	dir := filepath.Join(cache, "responses")
 	os.MkdirAll(dir, 0o755)
+	if gitignore := filepath.Join(cache, ".gitignore"); !fileExists(gitignore) {
+		os.WriteFile(gitignore, []byte("*\n"), 0o644)
+	}
 	return dir
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // saveResponseCache persists resp for itemID as two files — <itemID>
 // .meta.json (status/headers/duration/size) and <itemID>.body<ext> (the
 // exact response body, ext guessed from its Content-Type via
-// httpengine.ExtensionFor). Best-effort: a failure (appdata.Dir()
-// unavailable, a full disk) is silently ignored rather than failing a
-// request that already succeeded — the same reasoning httpengine.Execute
-// itself uses for its own temp-file write.
-func saveResponseCache(itemID string, resp *httpengine.Response) {
-	dir := responsesDir()
+// httpengine.ExtensionFor). Best-effort: a failure (no workspace open, a
+// full disk) is silently ignored rather than failing a request that
+// already succeeded — the same reasoning httpengine.Execute itself uses
+// for its own temp-file write.
+func (a *App) saveResponseCache(itemID string, resp *httpengine.Response) {
+	dir := a.responsesDir()
 	if dir == "" {
 		return
 	}
@@ -90,8 +103,8 @@ func saveResponseCache(itemID string, resp *httpengine.Response) {
 
 // responseCacheBodyPath returns itemID's cached body file's path (see
 // saveResponseCache) — an error if nothing is cached for it yet.
-func responseCacheBodyPath(itemID string) (string, error) {
-	dir := responsesDir()
+func (a *App) responseCacheBodyPath(itemID string) (string, error) {
+	dir := a.responsesDir()
 	if dir == "" {
 		return "", os.ErrNotExist
 	}
@@ -115,8 +128,8 @@ func responseCacheBodyPath(itemID string) (string, error) {
 // OpenResponseExternally/OpenResponseInFileExplorer and the response
 // pane's own truncated-body callout work identically whether the
 // response just arrived or was reloaded from disk.
-func loadResponseCache(itemID string) (*httpengine.Response, error) {
-	dir := responsesDir()
+func (a *App) loadResponseCache(itemID string) (*httpengine.Response, error) {
+	dir := a.responsesDir()
 	if dir == "" {
 		return nil, os.ErrNotExist
 	}
@@ -130,7 +143,7 @@ func loadResponseCache(itemID string) (*httpengine.Response, error) {
 		return nil, err
 	}
 
-	bodyPath, err := responseCacheBodyPath(itemID)
+	bodyPath, err := a.responseCacheBodyPath(itemID)
 	if err != nil {
 		return nil, err
 	}
@@ -157,10 +170,10 @@ func loadResponseCache(itemID string) (*httpengine.Response, error) {
 	return &resp, nil
 }
 
-// clearResponseCache deletes every cached response — the settings
-// window's "Clear response cache" button.
-func clearResponseCache() error {
-	dir := responsesDir()
+// clearResponseCache deletes every cached response for the open
+// workspace — the settings window's "Clear response cache" button.
+func (a *App) clearResponseCache() error {
+	dir := a.responsesDir()
 	if dir == "" {
 		return nil
 	}
@@ -179,8 +192,8 @@ func clearResponseCache() error {
 // the cache doesn't keep an orphaned entry around for a request that no
 // longer exists. Best-effort: nothing to delete is not an error worth
 // surfacing.
-func deleteResponseCache(itemID string) {
-	dir := responsesDir()
+func (a *App) deleteResponseCache(itemID string) {
+	dir := a.responsesDir()
 	if dir == "" {
 		return
 	}

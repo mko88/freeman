@@ -1339,7 +1339,10 @@
           </div>
           {#if openError}<p class="error">{openError}</p>{/if}
 
-          <p class="prose">Every request's last response is cached to disk, so reopening it later shows what it last returned.</p>
+          <p class="prose">
+            Every request's last response is cached under this workspace (<code>.cache/responses</code>), so reopening it
+            later shows what it last returned.
+          </p>
           <div class="row">
             <button on:click={clearResponseCache}>Clear response cache</button>
             {#if responseCacheCleared}<span class="muted">Cleared.</span>{/if}

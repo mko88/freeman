@@ -99,7 +99,7 @@ func (a *App) ExecuteRequest(collectionID, itemID, environmentID string) (*httpe
 	if err != nil {
 		return nil, err
 	}
-	saveResponseCache(itemID, resp) // best-effort; see its own doc comment
+	a.saveResponseCache(itemID, resp) // best-effort; see its own doc comment
 	a.responseFileMu.Lock()
 	if a.responseFile != "" {
 		os.Remove(a.responseFile) // best-effort — a stale leftover isn't harmful
@@ -116,7 +116,7 @@ func (a *App) DeleteRequest(collectionID, itemID string) error {
 	if err := a.App.DeleteRequest(collectionID, itemID); err != nil {
 		return err
 	}
-	deleteResponseCache(itemID)
+	a.deleteResponseCache(itemID)
 	return nil
 }
 
@@ -131,7 +131,7 @@ func (a *App) DeleteRequest(collectionID, itemID string) error {
 // (see ExecuteRequest) for a large cached response's freshly
 // materialized temp file, the same as a live one.
 func (a *App) GetCachedResponse(itemID string) (*httpengine.Response, error) {
-	resp, err := loadResponseCache(itemID)
+	resp, err := a.loadResponseCache(itemID)
 	if err != nil {
 		return nil, err
 	}
@@ -144,12 +144,13 @@ func (a *App) GetCachedResponse(itemID string) (*httpengine.Response, error) {
 	return resp, nil
 }
 
-// ClearResponseCache deletes every cached response (see
-// saveResponseCache) — the settings window's "Clear response cache"
-// button. No server equivalent — the headless server doesn't keep this
-// cache at all (see responsecache.go's package-level doc comment).
+// ClearResponseCache deletes every cached response for the open
+// workspace (see saveResponseCache) — the settings window's "Clear
+// response cache" button. No server equivalent — the headless server
+// doesn't keep this cache at all (see responsecache.go's package-level
+// doc comment).
 func (a *App) ClearResponseCache() error {
-	return clearResponseCache()
+	return a.clearResponseCache()
 }
 
 // OpenResponseCacheExternally opens itemID's cached response body (see
@@ -159,7 +160,7 @@ func (a *App) ClearResponseCache() error {
 // sent rather than only one big enough to have been truncated. No server
 // equivalent — a browser can't launch a native application.
 func (a *App) OpenResponseCacheExternally(itemID string) error {
-	path, err := responseCacheBodyPath(itemID)
+	path, err := a.responseCacheBodyPath(itemID)
 	if err != nil {
 		return err
 	}
@@ -170,7 +171,7 @@ func (a *App) OpenResponseCacheExternally(itemID string) error {
 // saveResponseCache) — the response pane's "..." menu's "Copy path"
 // reads it via this, then copies it to the clipboard itself.
 func (a *App) GetResponseCachePath(itemID string) (string, error) {
-	return responseCacheBodyPath(itemID)
+	return a.responseCacheBodyPath(itemID)
 }
 
 // OpenResponseCacheInFileExplorer shows itemID's cached response body
@@ -179,7 +180,7 @@ func (a *App) GetResponseCachePath(itemID string) (string, error) {
 // any response that's ever been sent. No server equivalent — a browser
 // can't launch a native file manager.
 func (a *App) OpenResponseCacheInFileExplorer(itemID string) error {
-	path, err := responseCacheBodyPath(itemID)
+	path, err := a.responseCacheBodyPath(itemID)
 	if err != nil {
 		return err
 	}
