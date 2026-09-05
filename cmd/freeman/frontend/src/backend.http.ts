@@ -109,6 +109,10 @@ export function GetResponseCachePath(_itemId: string): Promise<string> {
   return Promise.reject(new Error('GetResponseCachePath is not available in web mode — the server does not cache responses'))
 }
 
+export function GetResponseCacheDataURI(_itemId: string): Promise<string> {
+  return Promise.reject(new Error('GetResponseCacheDataURI is not available in web mode — the server does not cache responses'))
+}
+
 export function OpenResponseCacheInFileExplorer(_itemId: string): Promise<void> {
   return Promise.reject(new Error('OpenResponseCacheInFileExplorer is not available in web mode — the server does not cache responses'))
 }

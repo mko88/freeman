@@ -20,5 +20,6 @@ export {
   ClearCachedResponse,
   OpenResponseCacheExternally,
   GetResponseCachePath,
+  GetResponseCacheDataURI,
   OpenResponseCacheInFileExplorer,
 } from '../wailsjs/go/wailsapp/App.js'

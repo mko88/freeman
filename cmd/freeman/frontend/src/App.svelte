@@ -18,6 +18,7 @@
     ClearCachedResponse,
     OpenResponseCacheExternally,
     GetResponseCachePath,
+    GetResponseCacheDataURI,
     OpenResponseCacheInFileExplorer,
   } from '$backend'
   import type { domain, httpengine, core } from '../wailsjs/go/models'
@@ -104,6 +105,10 @@
   // preference, not per-response state. See formattedResponse below for
   // the (lightweight) detection of whether pretty is even possible.
   let responseView: 'pretty' | 'raw' = 'pretty'
+  // Data URI for an image response, loaded on demand from the cache file
+  // (see GetResponseCacheDataURI) — the raw bytes in response.body don't
+  // survive the JSON bridge intact. null until loaded / not an image.
+  let responseImageUri: string | null = null
   let activeTab: RequestTab = 'headers'
   // Collapsed by re-clicking whichever tab is already active (see
   // onRequestTabClick below) — the Headers/Body table hides, and
@@ -200,7 +205,7 @@
         'formFields/tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
         '(truncated/bodyFile in place of body when it was too large — see /api/execute/body — plus ' +
         'responseBodyExpanded for whether showResponseBody has since loaded it; responseView (pretty/raw) ' +
-        'and responseKind (json/xml/html/text, lightly autodetected); every response is also ' +
+        'and responseKind (json/xml/html/image/text, lightly autodetected); every response is also ' +
         'cached to disk per request and reloaded on reselect, see clearResponseCache)/' +
         'showResponseActionsMenu/showSettings/settingsTab/showHelp/sidebarWidth/statusBarHeight/showControlApiLog — so a script ' +
         "can read what the UI shows instead of screenshotting it (desktop only).",
@@ -787,6 +792,7 @@
     draftBinaryFilePath = item.body?.binaryFilePath || ''
     sendError = ''
     expandedResponseBody = null
+    responseImageUri = null
     // GetCachedResponse rejects with "nothing cached yet" for a request
     // that's never been sent (the common case) just as often as for a
     // real failure — either way, falling back to a blank response pane
@@ -796,6 +802,7 @@
     } catch {
       response = null
     }
+    await refreshResponseImage()
   }
 
   function newRequest() {
@@ -812,6 +819,7 @@
     response = null
     sendError = ''
     expandedResponseBody = null
+    responseImageUri = null
   }
 
   function addRequestHeader(initial?: Partial<domain.Header>) {
@@ -914,9 +922,11 @@
     sendError = ''
     sending = true
     expandedResponseBody = null
+    responseImageUri = null
     try {
       await saveRequest()
       response = await ExecuteRequest(collectionId, selectedItemId!, environmentId)
+      await refreshResponseImage()
     } catch (e) {
       sendError = String(e)
       response = null
@@ -1138,7 +1148,7 @@
   // just for keeping the formatted path snappy.)
   const RESPONSE_PRETTY_MAX = 256 * 1024
 
-  type ResponseKind = 'json' | 'xml' | 'html' | 'text'
+  type ResponseKind = 'json' | 'xml' | 'html' | 'image' | 'text'
 
   function responseHeader(r: httpengine.Response | null, name: string): string {
     if (!r?.headers) return ''
@@ -1147,9 +1157,10 @@
   }
 
   // Content-Type first, then a one-character sniff of the body — enough
-  // to pick a highlighter, not a full content classifier.
+  // to pick a renderer, not a full content classifier.
   function detectResponseKind(r: httpengine.Response | null): ResponseKind {
     const ct = responseHeader(r, 'Content-Type').toLowerCase()
+    if (ct.startsWith('image/')) return 'image'
     if (ct.includes('json')) return 'json'
     if (ct.includes('html')) return 'html'
     if (ct.includes('xml')) return 'xml'
@@ -1201,6 +1212,21 @@
 
   function setResponseView(view: 'pretty' | 'raw') {
     responseView = view
+  }
+
+  // Called after a send / on reselect: pulls the image bytes out of the
+  // cache as a data URI when the current response is an image, clears it
+  // otherwise.
+  async function refreshResponseImage() {
+    if (!selectedItemId || detectResponseKind(response) !== 'image' || response?.truncated) {
+      responseImageUri = null
+      return
+    }
+    try {
+      responseImageUri = await GetResponseCacheDataURI(selectedItemId)
+    } catch {
+      responseImageUri = null
+    }
   }
 
   // Each HTTP method gets one consistent color everywhere it appears
@@ -1473,6 +1499,12 @@
                 <button on:click={openResponseInFileExplorer}>Open in File Explorer</button>
               </div>
             </div>
+          {:else if formattedResponse.kind === 'image'}
+            {#if responseImageUri}
+              <div class="response-image"><img src={responseImageUri} alt="Response body" /></div>
+            {:else}
+              <p class="muted">Loading image…</p>
+            {/if}
           {:else if formattedResponse.canPretty && responseView === 'pretty'}
             <pre class="response-body">{@html formattedResponse.html}</pre>
           {:else}
@@ -2426,6 +2458,25 @@
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  .response-image {
+    flex: 1;
+    overflow: auto;
+    background: var(--fm-bg-response);
+    padding: 0.75rem;
+  }
+
+  .response-image img {
+    max-width: 100%;
+    /* Checkerboard so a transparent PNG's edges are visible against the
+       dark response ground. */
+    background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%),
+      linear-gradient(-45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.06) 75%),
+      linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.06) 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   }
 
   /* JSON syntax colors — deliberately the same hues the rest of the app

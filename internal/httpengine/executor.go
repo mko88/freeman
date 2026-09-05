@@ -167,6 +167,18 @@ func ExtensionFor(contentType string) string {
 		return ".html"
 	case strings.Contains(mediaType, "xml"):
 		return ".xml"
+	case strings.HasPrefix(mediaType, "image/"):
+		switch mediaType {
+		case "image/jpeg":
+			return ".jpg"
+		case "image/svg+xml":
+			return ".svg"
+		case "image/x-icon", "image/vnd.microsoft.icon":
+			return ".ico"
+		default:
+			// image/png -> .png, image/gif -> .gif, image/webp -> .webp
+			return "." + strings.TrimPrefix(mediaType, "image/")
+		}
 	default:
 		return ".txt"
 	}

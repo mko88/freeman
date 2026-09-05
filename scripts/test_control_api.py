@@ -938,9 +938,11 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     confirms its response survives navigating away and back (newRequest
     stands in for closing and reopening the app — the cache is on disk),
     that the body view autodetects as JSON and setResponseView flips
-    pretty/raw, that the response pane's "..." menu toggles, and that
-    both clearCachedResponse (per request) and clearResponseCache (whole
-    workspace) really delete the entry, not just the in-memory copy.
+    pretty/raw, that an image/png response autodetects as image and its
+    cache file gets a .png extension, that the response pane's "..." menu
+    toggles, and that both clearCachedResponse (per request) and
+    clearResponseCache (whole workspace) really delete the entry, not
+    just the in-memory copy.
 
     Those clears only touch the open workspace's own .cache/responses —
     here that's the disposable temp workspace, so this leaves no trace
@@ -988,6 +990,19 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     api.action("setResponseView", {"view": "pretty"})
     state = poll(api.state, lambda s: s.get("responseView") == "pretty")
     r.check("state.responseView reflects setResponseView 'pretty'", state.get("responseView") == "pretty", str(state.get("responseView")))
+
+    r.step("setRequestField url -> an image endpoint, saveRequest, sendRequest  (watch: the pane should show the image, not raw bytes)")
+    api.action("setRequestField", {"field": "url", "value": f"{{{{{TEST_VAR_KEY}}}}}/image/png"})
+    api.action("saveRequest")
+    api.action("sendRequest")
+    state = poll(
+        api.state,
+        lambda s: (s.get("response") or {}).get("statusCode") == 200 and s.get("responseKind") == "image",
+        timeout=15.0,
+    )
+    r.check("responseKind autodetected as image for an image/png response", state.get("responseKind") == "image", str(state.get("responseKind")))
+    png_path = os.path.join(state.get("workspaceRoot") or "", ".cache", "responses", f"{item_id}.body.png")
+    r.check("the cached body file got a .png extension from its Content-Type", os.path.exists(png_path), png_path)
 
     r.step('toggleResponseActionsMenu  (watch: the response pane\'s "..." menu should open)')
     api.action("toggleResponseActionsMenu")

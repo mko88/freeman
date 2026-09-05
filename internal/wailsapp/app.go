@@ -8,6 +8,7 @@ package wailsapp
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"sync"
@@ -180,6 +181,28 @@ func (a *App) OpenResponseCacheExternally(itemID string) error {
 // reads it via this, then copies it to the clipboard itself.
 func (a *App) GetResponseCachePath(itemID string) (string, error) {
 	return a.responseCacheBodyPath(itemID)
+}
+
+// GetResponseCacheDataURI returns itemID's cached response body as a
+// data: URI (its recorded Content-Type, base64) — for the response pane
+// to render an image response in an <img> rather than as its raw bytes.
+// The webview can't load the cache file by path directly, so the bytes
+// are inlined; only used for responses small enough not to have been
+// truncated in the first place.
+func (a *App) GetResponseCacheDataURI(itemID string) (string, error) {
+	path, err := a.responseCacheBodyPath(itemID)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	ct := a.responseCacheContentType(itemID)
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	return "data:" + ct + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }
 
 // OpenResponseCacheInFileExplorer shows itemID's cached response body

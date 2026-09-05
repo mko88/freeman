@@ -101,6 +101,27 @@ func (a *App) saveResponseCache(itemID string, resp *httpengine.Response) {
 	}
 }
 
+// responseCacheContentType returns the Content-Type recorded in itemID's
+// cached response meta (see saveResponseCache), "" if there's none.
+func (a *App) responseCacheContentType(itemID string) string {
+	dir := a.responsesDir()
+	if dir == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(dir, itemID+".meta.json"))
+	if err != nil {
+		return ""
+	}
+	var r httpengine.Response
+	if json.Unmarshal(data, &r) != nil {
+		return ""
+	}
+	if v := r.Headers["Content-Type"]; len(v) > 0 {
+		return v[0]
+	}
+	return ""
+}
+
 // responseCacheBodyPath returns itemID's cached body file's path (see
 // saveResponseCache) — an error if nothing is cached for it yet.
 func (a *App) responseCacheBodyPath(itemID string) (string, error) {

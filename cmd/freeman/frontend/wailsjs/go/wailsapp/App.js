@@ -50,6 +50,10 @@ export function GetResponseBody(arg1) {
   return window['go']['wailsapp']['App']['GetResponseBody'](arg1);
 }
 
+export function GetResponseCacheDataURI(arg1) {
+  return window['go']['wailsapp']['App']['GetResponseCacheDataURI'](arg1);
+}
+
 export function GetResponseCachePath(arg1) {
   return window['go']['wailsapp']['App']['GetResponseCachePath'](arg1);
 }
