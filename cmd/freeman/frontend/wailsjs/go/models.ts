@@ -332,6 +332,8 @@ export namespace httpengine {
 	    body: string;
 	    durationNs: number;
 	    sizeBytes: number;
+	    truncated?: boolean;
+	    bodyFile?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Response(source);
@@ -345,6 +347,8 @@ export namespace httpengine {
 	        this.body = source["body"];
 	        this.durationNs = source["durationNs"];
 	        this.sizeBytes = source["sizeBytes"];
+	        this.truncated = source["truncated"];
+	        this.bodyFile = source["bodyFile"];
 	    }
 	}
 

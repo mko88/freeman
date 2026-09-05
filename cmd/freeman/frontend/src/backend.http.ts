@@ -65,3 +65,16 @@ export function ExecuteRequest(
 export function GetTheme(): Promise<Record<string, string>> {
   return request('GET', '/api/theme')
 }
+
+export async function GetResponseBody(path: string): Promise<string> {
+  const res = await fetch(`/api/execute/body?path=${encodeURIComponent(path)}`)
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null)
+    throw new Error(payload?.error || `GET /api/execute/body: ${res.status}`)
+  }
+  return res.text()
+}
+
+export function OpenResponseExternally(_path: string): Promise<void> {
+  return Promise.reject(new Error('OpenResponseExternally is not available in web mode — there is no local application to hand it to'))
+}

@@ -16,6 +16,7 @@ import (
 	"freeman/internal/core"
 	"freeman/internal/domain"
 	"freeman/internal/headercatalog"
+	"freeman/internal/httpengine"
 	"freeman/internal/theme"
 )
 
@@ -130,6 +131,20 @@ func NewHandler(app *core.App, static fs.FS) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, resp)
+	})
+
+	// Reads back a response body POST /api/execute left on disk instead
+	// of inlining (see httpengine.Response.Truncated) — the web
+	// frontend's "show anyway", for a response too large to have been
+	// included in the /api/execute reply itself.
+	mux.HandleFunc("GET /api/execute/body", func(w http.ResponseWriter, r *http.Request) {
+		data, err := httpengine.ReadResponseBodyFile(r.URL.Query().Get("path"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Write(data)
 	})
 
 	// Resolved from theme.yaml inside the workspace directory (the one

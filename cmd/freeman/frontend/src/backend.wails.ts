@@ -12,4 +12,6 @@ export {
   SaveEnvironment,
   ExecuteRequest,
   GetTheme,
+  GetResponseBody,
+  OpenResponseExternally,
 } from '../wailsjs/go/wailsapp/App.js'

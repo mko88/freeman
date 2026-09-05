@@ -86,14 +86,87 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 	}
 	duration := time.Since(start)
 
-	return &Response{
+	result := &Response{
 		StatusCode: resp.StatusCode,
 		Status:     resp.Status,
 		Headers:    resp.Header,
-		Body:       string(bodyBytes),
 		Duration:   duration,
 		SizeBytes:  len(bodyBytes),
-	}, nil
+	}
+	if len(bodyBytes) > LargeResponseThreshold {
+		if path, ferr := writeResponseBodyFile(bodyBytes, resp.Header.Get("Content-Type")); ferr == nil {
+			result.Truncated = true
+			result.BodyFile = path
+			return result, nil
+		}
+		// A failed write (e.g. a full disk) isn't a reason to fail a
+		// request that already succeeded — fall through and inline it.
+	}
+	result.Body = string(bodyBytes)
+	return result, nil
+}
+
+// writeResponseBodyFile writes data to a new temp file, named with an
+// extension guessed from contentType (see extensionFor) so opening it in
+// an external editor — see ReadResponseBodyFile's callers — lands on a
+// sensible default application instead of "unknown file type". Returns
+// its full path.
+func writeResponseBodyFile(data []byte, contentType string) (string, error) {
+	f, err := os.CreateTemp("", "freeman-response-*"+extensionFor(contentType))
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+// IsResponseBodyFile reports whether path is exactly the directory and
+// naming convention writeResponseBodyFile uses — the check
+// ReadResponseBodyFile applies before reading, exported so a caller that
+// only needs to open/serve the file (not read its content into memory,
+// e.g. wailsapp.App.OpenResponseExternally) can apply the same guard
+// without a wasted read.
+func IsResponseBodyFile(path string) bool {
+	return filepath.Clean(filepath.Dir(path)) == filepath.Clean(os.TempDir()) &&
+		strings.HasPrefix(filepath.Base(path), "freeman-response-")
+}
+
+// ReadResponseBodyFile reads back a body previously written by
+// writeResponseBodyFile — the desktop app's "show anyway" and the
+// headless server's GET /api/execute/body both go through this rather
+// than os.ReadFile directly. It refuses anything outside the exact
+// directory and naming convention Execute itself writes to (see
+// IsResponseBodyFile), so a path from an HTTP query parameter (the
+// headless server's case) can't turn this into a generic
+// arbitrary-file-read.
+func ReadResponseBodyFile(path string) ([]byte, error) {
+	if !IsResponseBodyFile(path) {
+		return nil, fmt.Errorf("not a response body file: %q", path)
+	}
+	return os.ReadFile(path)
+}
+
+// extensionFor picks a file extension from a Content-Type header so a
+// response body written to disk opens in a sensible default application.
+// mime.ExtensionsByType returns several candidates in an unspecified
+// order (and nothing at all for some of the content types most API
+// responses actually use), so the common cases are matched explicitly.
+func extensionFor(contentType string) string {
+	mediaType, _, _ := mime.ParseMediaType(contentType)
+	switch {
+	case strings.Contains(mediaType, "json"):
+		return ".json"
+	case strings.Contains(mediaType, "html"):
+		return ".html"
+	case strings.Contains(mediaType, "xml"):
+		return ".xml"
+	default:
+		return ".txt"
+	}
 }
 
 // buildBody returns the request body for body's mode, plus the

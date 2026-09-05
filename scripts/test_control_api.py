@@ -56,13 +56,16 @@ from __future__ import annotations
 
 import argparse
 import base64
+import http.server
 import json
 import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
@@ -101,6 +104,7 @@ REQUEST_TEST_NAMES: dict[str, str] = {
     "execute": EXECUTE_TEST_NAME,
     "ui_state_getter": UI_STATE_GETTER_TEST_NAME,
     "file_upload": FILE_UPLOAD_TEST_NAME,
+    "large_response": "Python Large Response Test (scratch)",
     **{m: f"Python {m} Test (scratch)" for m in HTTP_METHODS},
 }
 
@@ -155,6 +159,21 @@ class ControlAPI:
         if status >= 400:
             raise ApiError(f"GET {path} -> {status}: {body}")
         return body
+
+    def raw_get(self, path: str) -> tuple[int, str]:
+        """Like get(), but never attempts to JSON-decode the response —
+        GET /api/execute/body's body is plain text (Content-Type:
+        text/plain) that can itself happen to look like JSON, which
+        _request()'s "try json.loads, fall back to text" would silently
+        turn into a parsed dict instead of the exact original string."""
+        url = f"{self.base_url}{path}"
+        req = urllib.request.Request(url, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                raw, status = resp.read(), resp.status
+        except urllib.error.HTTPError as e:
+            raw, status = e.read(), e.code
+        return status, raw.decode("utf-8", errors="replace")
 
     def post(self, path: str, body: Optional[dict] = None) -> tuple[int, Any]:
         return self._request("POST", path, body)
@@ -773,6 +792,100 @@ def test_file_upload(api: ControlAPI, r: Report, collection_id: str, environment
         )
 
 
+def test_large_response_truncation(
+    api: ControlAPI, r: Report, collection_id: str, environment_id: str, item_id: str
+) -> None:
+    """Points the empty scratch request main() made for this test at a
+    local server (spun up just for this function — nothing public
+    reliably returns a body over httpengine.LargeResponseThreshold on
+    demand) that returns a fixed 1.5 MB body, then drives showResponseBody
+    and openResponseExternally against the real truncated response."""
+    r.section("Large response truncation (show anyway / open externally)")
+
+    if not item_id:
+        r.check("skipped — no empty scratch request for this test", False)
+        return
+
+    big_body = b'{"padding":"' + b"x" * (1_500_000) + b'"}'
+
+    class BigHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - http.server's naming convention
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(big_body)))
+            self.end_headers()
+            self.wfile.write(big_body)
+
+        def log_message(self, format, *args):  # noqa: A002 - stdlib signature
+            pass  # quiet — this script has its own reporting
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), BigHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    body_file = ""  # set once the response comes back — see the finally below
+
+    try:
+        port = server.server_address[1]
+        r.step(f"selectRequest {{id: {item_id}}}, setRequestField url -> a local server returning {len(big_body)} bytes, saveRequest")
+        api.action("selectRequest", {"id": item_id})
+        poll(api.state, lambda s: s.get("selectedItemId") == item_id)
+        api.action("setRequestField", {"field": "method", "value": "GET"})
+        api.action("setRequestField", {"field": "url", "value": f"http://127.0.0.1:{port}/"})
+        api.action("saveRequest")
+
+        r.step("sendRequest  (watch the app: a 'too large to show' callout should appear, not the raw body)")
+        api.action("sendRequest")
+        state = poll(api.state, lambda s: (s.get("response") or {}).get("truncated") is True, timeout=15.0)
+        resp = state.get("response") or {}
+        r.check("response.truncated is true for a body over the threshold", resp.get("truncated") is True, str(resp))
+        r.check("response.body was left empty, not inlined", resp.get("body") == "", f"{len(resp.get('body') or '')} bytes")
+        r.check("response.sizeBytes reflects the real body size", resp.get("sizeBytes") == len(big_body), str(resp.get("sizeBytes")))
+        body_file = resp.get("bodyFile") or ""
+        r.check("response.bodyFile is set", bool(body_file), repr(body_file))
+        r.check("state.responseBodyExpanded starts false", state.get("responseBodyExpanded") is False, str(state.get("responseBodyExpanded")))
+
+        state_json = json.dumps(state)
+        r.check(
+            "GET /api/ui/state itself stays small (the large body isn't mirrored)",
+            len(state_json) < 10_000,
+            f"{len(state_json)} bytes",
+        )
+
+        r.step("showResponseBody  (watch the app: the full body should now render)")
+        api.action("showResponseBody")
+        state = poll(api.state, lambda s: s.get("responseBodyExpanded") is True)
+        r.check("state.responseBodyExpanded reflects showResponseBody", state.get("responseBodyExpanded") is True, str(state.get("responseBodyExpanded")))
+
+        r.step(f"GET /api/execute/body?path={body_file}  (the headless server's equivalent of showResponseBody)")
+        status, body_text = api.raw_get(f"/api/execute/body?path={urllib.parse.quote(body_file)}")
+        r.check("GET /api/execute/body -> 200 with the exact original body", status == 200 and body_text == big_body.decode("utf-8"), f"status={status} len={len(body_text) if isinstance(body_text, str) else 'n/a'}")
+
+        # The real security boundary (a path outside os.TempDir() entirely,
+        # e.g. the workspace's own collection.json) is covered at the Go
+        # level by internal/httpapi.TestExecuteBodyRoute — this is just a
+        # sanity check that the route errors instead of 200-ing on garbage.
+        r.step("GET /api/execute/body with a made-up path  (expect an error, not 200)")
+        rejected_status, _ = api.raw_get(f"/api/execute/body?path={urllib.parse.quote(body_file + '.does-not-exist')}")
+        r.check("a nonexistent path errors rather than serving something", rejected_status == 400, f"status={rejected_status}")
+
+        r.step("openResponseExternally  (watch: the OS should open the body in its default app for .json)")
+        api.action("openResponseExternally")
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        # bodyFile lives directly under the OS temp dir, not under the
+        # disposable workspace main() deletes at the end — without this,
+        # it'd be the one thing this run leaves behind. The app itself
+        # will also delete it once another request executes (see
+        # wailsapp.App.ExecuteRequest), but that's not guaranteed to
+        # happen before this script exits.
+        if body_file:
+            try:
+                os.remove(body_file)
+            except OSError:
+                pass
+
+
 def test_delete_request(api: ControlAPI, r: Report, collection_id: str) -> None:
     """Fully self-contained: creates DELETE_TEST_NAME and deletes it
     again within this function — this is what actually exercises
@@ -1163,6 +1276,7 @@ def main() -> int:
         test_ui_state_getter(api, r, collection_id, item_ids.get("ui_state_getter"))
         test_http_methods(api, r, collection_id, environment_id, item_ids)
         test_file_upload(api, r, collection_id, environment_id, item_ids.get("file_upload"))
+        test_large_response_truncation(api, r, collection_id, environment_id, item_ids.get("large_response"))
         test_delete_request(api, r, collection_id)
         test_settings_window(api, r)
         test_layout_comfort(api, r)

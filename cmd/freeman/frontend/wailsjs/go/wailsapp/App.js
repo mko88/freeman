@@ -34,6 +34,10 @@ export function GetHeaderCatalog() {
   return window['go']['wailsapp']['App']['GetHeaderCatalog']();
 }
 
+export function GetResponseBody(arg1) {
+  return window['go']['wailsapp']['App']['GetResponseBody'](arg1);
+}
+
 export function GetTheme() {
   return window['go']['wailsapp']['App']['GetTheme']();
 }
@@ -44,6 +48,10 @@ export function ListCollections() {
 
 export function ListEnvironments() {
   return window['go']['wailsapp']['App']['ListEnvironments']();
+}
+
+export function OpenResponseExternally(arg1) {
+  return window['go']['wailsapp']['App']['OpenResponseExternally'](arg1);
 }
 
 export function OpenWorkspace(arg1) {

@@ -10,6 +10,8 @@
     GetEnvironment,
     SaveEnvironment,
     ExecuteRequest,
+    GetResponseBody,
+    OpenResponseExternally,
   } from '$backend'
   import type { domain, httpengine, core } from '../wailsjs/go/models'
   import { EventsOn } from '../wailsjs/runtime/runtime'
@@ -71,6 +73,13 @@
   let response: httpengine.Response | null = null
   let sending = false
   let sendError = ''
+  // Set by showResponseBodyAnyway when response.truncated — kept as its
+  // own variable rather than assigned into response.body so it's never
+  // picked up by the reportUIState mirror below (which reads `response`
+  // directly): re-mirroring a multi-megabyte body on every keystroke is
+  // exactly what response.truncated exists to avoid, whether or not the
+  // user has since chosen to view it.
+  let expandedResponseBody: string | null = null
   let activeTab: 'headers' | 'body' = 'headers'
   // Collapsed by re-clicking whichever tab is already active (see
   // onRequestTabClick below) — the Headers/Body table hides, and
@@ -149,6 +158,13 @@
     { method: 'GET', path: '/api/environments/{id}', desc: 'Get an environment and its variables.' },
     { method: 'POST', path: '/api/environments', desc: 'Save an environment. Body: a domain.Environment.' },
     { method: 'POST', path: '/api/execute', desc: 'Execute a saved request. Body: {collectionId, itemId, environmentId}.' },
+    {
+      method: 'GET',
+      path: '/api/execute/body',
+      desc:
+        "Read back a truncated response's full body (see /api/execute's response.truncated/bodyFile). " +
+        'Query: ?path={bodyFile}.',
+    },
     { method: 'GET', path: '/api/theme', desc: 'Resolved color palette.' },
     { method: 'GET', path: '/api/headers', desc: 'Common request-header names/values for editor autocomplete (from headers.yaml).' },
     { method: 'POST', path: '/api/ui/action', desc: 'Drive the GUI itself (desktop only, see below). Body: {action, payload}.' },
@@ -157,7 +173,9 @@
       path: '/api/ui/state',
       desc:
         'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/headers/' +
-        'formFields/tab/requestPaneCollapsed/selected ids/the open environment/the last response/' +
+        'formFields/tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
+        '(truncated/bodyFile in place of body when it was too large — see /api/execute/body — plus ' +
+        'responseBodyExpanded for whether showResponseBody has since loaded it)/' +
         'showSettings/settingsTab/showHelp/sidebarWidth/statusBarHeight/showControlApiLog — so a script ' +
         "can read what the UI shows instead of screenshotting it (desktop only).",
     },
@@ -185,6 +203,16 @@
     { action: 'newRequest', payload: '—', desc: 'Clear the editor for a new, unsaved request.' },
     { action: 'saveRequest', payload: '—', desc: 'Save the request currently in the editor.' },
     { action: 'sendRequest', payload: '—', desc: 'Save, then execute, the request currently in the editor.' },
+    {
+      action: 'showResponseBody',
+      payload: '—',
+      desc: 'Load and show a truncated response\'s full body (see GET /api/ui/state\'s response.truncated).',
+    },
+    {
+      action: 'openResponseExternally',
+      payload: '—',
+      desc: "Open a truncated response's full body in its default external application (desktop only).",
+    },
     { action: 'openWorkspace', payload: '{ path }', desc: 'Open a workspace by path (no folder dialog).' },
     { action: 'toggleHelp', payload: '—', desc: 'Open/close this help panel.' },
     {
@@ -315,6 +343,7 @@
       sending,
       sendError,
       response,
+      responseBodyExpanded: expandedResponseBody !== null,
       sidebarWidth,
       statusBarHeight,
       showControlApiLog,
@@ -417,6 +446,12 @@
         break
       case 'sendRequest':
         await sendRequest()
+        break
+      case 'showResponseBody':
+        await showResponseBodyAnyway()
+        break
+      case 'openResponseExternally':
+        await openResponseExternally()
         break
       case 'openWorkspace': {
         const path = payload?.path
@@ -614,6 +649,7 @@
     draftBinaryFilePath = item.body?.binaryFilePath || ''
     response = null
     sendError = ''
+    expandedResponseBody = null
   }
 
   function newRequest() {
@@ -628,6 +664,7 @@
     draftBinaryFilePath = ''
     response = null
     sendError = ''
+    expandedResponseBody = null
   }
 
   function addRequestHeader(initial?: Partial<domain.Header>) {
@@ -716,6 +753,7 @@
   async function sendRequest() {
     sendError = ''
     sending = true
+    expandedResponseBody = null
     try {
       await saveRequest()
       response = await ExecuteRequest(collectionId, selectedItemId!, environmentId)
@@ -724,6 +762,28 @@
       response = null
     } finally {
       sending = false
+    }
+  }
+
+  // Loads a truncated response's full body on demand (see
+  // response.truncated's doc comment on httpengine.Response) — into
+  // expandedResponseBody, not response.body, so it still isn't picked up
+  // by the reportUIState mirror.
+  async function showResponseBodyAnyway() {
+    if (!response?.truncated) return
+    try {
+      expandedResponseBody = await GetResponseBody(response.bodyFile ?? '')
+    } catch (e) {
+      logEvent(`showResponseBody failed: ${e}`)
+    }
+  }
+
+  async function openResponseExternally() {
+    if (!response?.truncated) return
+    try {
+      await OpenResponseExternally(response.bodyFile ?? '')
+    } catch (e) {
+      logEvent(`openResponseExternally failed: ${e}`)
     }
   }
 
@@ -761,6 +821,12 @@
 
   function formatDuration(ns: number): string {
     return `${Math.round(ns / 1e6)} ms`
+  }
+
+  function formatBytes(n: number): string {
+    if (n < 1024) return `${n} bytes`
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`
   }
 
   // Go's http.Response.Status (httpengine.Response.status) is already
@@ -1004,7 +1070,19 @@
               <span>{response.sizeBytes} bytes</span>
             </div>
           </div>
-          <pre class="response-body">{response.body}</pre>
+          {#if response.truncated && expandedResponseBody === null}
+            <div class="response-truncated">
+              <p>
+                Response body is {formatBytes(response.sizeBytes)} — too large to show automatically.
+              </p>
+              <div class="response-truncated-actions">
+                <button on:click={showResponseBodyAnyway}>Show anyway</button>
+                <button on:click={openResponseExternally}>Open in external editor</button>
+              </div>
+            </div>
+          {:else}
+            <pre class="response-body">{response.truncated ? expandedResponseBody : response.body}</pre>
+          {/if}
         {:else}
           <p class="muted">Send a request to see the response here.</p>
         {/if}
@@ -1786,6 +1864,22 @@
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  .response-truncated {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0.75rem;
+    background: var(--fm-bg-response);
+    padding: 1.5rem;
+  }
+
+  .response-truncated-actions {
+    display: flex;
+    gap: 0.5rem;
   }
 
   .muted {

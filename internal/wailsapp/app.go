@@ -8,6 +8,8 @@ package wailsapp
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"sync"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -27,6 +29,13 @@ type App struct {
 
 	uiStateMu sync.RWMutex
 	uiState   string
+
+	// responseFile is the temp file backing the current response's full
+	// body when httpengine.Response.Truncated is true, "" otherwise. Only
+	// one at a time — see ExecuteRequest, which deletes the previous one
+	// before recording a new one.
+	responseFileMu sync.Mutex
+	responseFile   string
 }
 
 func NewApp() *App {
@@ -79,8 +88,48 @@ func (a *App) OpenWorkspace(root string) (*core.WorkspaceInfo, error) {
 // ExecuteRequest shadows core.App's to supply the Wails startup context
 // core.App.ExecuteRequest now takes explicitly, keeping this method's own
 // signature (no ctx param) unchanged for the existing generated bindings.
+// It also deletes the previous call's response-body temp file (see
+// httpengine.Response.Truncated) once it's superseded — GetResponseBody/
+// OpenResponseExternally take the path explicitly rather than reading
+// this back, so this is cleanup bookkeeping only, not a lookup table.
 func (a *App) ExecuteRequest(collectionID, itemID, environmentID string) (*httpengine.Response, error) {
-	return a.App.ExecuteRequest(a.ctx, collectionID, itemID, environmentID)
+	resp, err := a.App.ExecuteRequest(a.ctx, collectionID, itemID, environmentID)
+	if err != nil {
+		return nil, err
+	}
+	a.responseFileMu.Lock()
+	if a.responseFile != "" {
+		os.Remove(a.responseFile) // best-effort — a stale leftover isn't harmful
+	}
+	a.responseFile = resp.BodyFile // "" when the response wasn't truncated
+	a.responseFileMu.Unlock()
+	return resp, nil
+}
+
+// GetResponseBody returns the full body of a truncated response (see
+// httpengine.Response.Truncated) — the frontend's "show anyway" reads it
+// via this rather than having it mirrored automatically by
+// ReportUIState (see that field's doc comment for why). path must be one
+// ExecuteRequest actually produced — see httpengine.ReadResponseBodyFile,
+// which this is a thin wrapper over, matching the httpapi server's own
+// GET /api/execute/body so both $backend implementations share a shape.
+func (a *App) GetResponseBody(path string) (string, error) {
+	data, err := httpengine.ReadResponseBodyFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// OpenResponseExternally opens a truncated response's full body (see
+// httpengine.Response.Truncated) in whatever application the OS
+// associates with its file extension. No server equivalent — a browser
+// can't launch a native application.
+func (a *App) OpenResponseExternally(path string) error {
+	if !httpengine.IsResponseBodyFile(path) {
+		return fmt.Errorf("not a response body file: %q", path)
+	}
+	return openExternally(path)
 }
 
 // SetControlAPIAddr records where cmd/freeman's control API (see

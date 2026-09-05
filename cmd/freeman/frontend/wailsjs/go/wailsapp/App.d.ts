@@ -21,11 +21,15 @@ export function GetEnvironment(arg1:string):Promise<domain.Environment>;
 
 export function GetHeaderCatalog():Promise<Array<headercatalog.Entry>>;
 
+export function GetResponseBody(arg1:string):Promise<string>;
+
 export function GetTheme():Promise<Record<string, string>>;
 
 export function ListCollections():Promise<Array<core.CollectionSummary>>;
 
 export function ListEnvironments():Promise<Array<core.EnvironmentSummary>>;
+
+export function OpenResponseExternally(arg1:string):Promise<void>;
 
 export function OpenWorkspace(arg1:string):Promise<core.WorkspaceInfo>;
 
