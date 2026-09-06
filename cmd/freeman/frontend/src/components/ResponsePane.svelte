@@ -280,10 +280,22 @@
     gap: 0.35rem;
   }
 
-  /* The "..." menu takes the right end of the options row, the way the
-     body editor's key hint does in its. */
+  /* Right-aligned, unlike the body editor's language row: these sit with
+     the "..." menu rather than under the tabs, so the whole row reads as
+     one group of controls for the panel below.
+--
+     The vertical margins are its own because .response is a flex column
+     with no gap (the editor's rows get 0.75rem from .request-pane), so
+     without them this row sits against the tab row's bottom border. */
+  .response-views {
+    justify-content: flex-end;
+    margin-block: 0.5rem;
+  }
+
+  /* A touch more air before the menu than between the view buttons —
+     it's a different kind of control, not a fourth view. */
   .response-views .response-actions-menu {
-    margin-left: auto;
+    margin-left: 0.35rem;
   }
 
   .response-headers {
