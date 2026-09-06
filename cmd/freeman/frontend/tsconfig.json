@@ -7,9 +7,10 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     // svelte-check has no notion of vite's --mode, so it always resolves
-    // $backend to the Wails variant — fine for type-checking, since
-    // backend.http.ts is required to have the exact same exported
-    // signatures (that's the whole point of the $backend contract).
+    // $backend to the Wails variant — fine for type-checking, because
+    // src/backend.contract.ts asserts that backend.http.ts has the exact
+    // same exported signatures. Without that assertion this resolution
+    // would quietly leave the HTTP implementation unchecked.
     "paths": {
       "$backend": ["src/backend.wails.ts"]
     },
