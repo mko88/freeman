@@ -10,20 +10,23 @@
   import type { httpengine } from '../../wailsjs/go/models'
   import CodeEditor from './CodeEditor.svelte'
   import { formatBytes, formatDuration, reasonPhrase, statusTone } from '../lib/format'
-  import type { ResponseKind } from '../lib/responseFormat'
+  import { hexDump } from '../lib/responseFormat'
+  import type { ResponseKind, ResponseView } from '../lib/responseFormat'
 
   export let response: httpengine.Response | null
   export let sendError: string
-  export let formatted: { kind: ResponseKind; canPretty: boolean; text: string }
-  // Loaded on demand from the response cache — the raw bytes in
-  // response.body don't survive the Wails bridge intact.
-  export let imageUri: string | null
+  export let formatted: { kind: ResponseKind; text: string }
+  // The cached body as a data: URI, loaded on demand — the bytes as
+  // they arrived, which response.body can't carry across the Wails
+  // bridge. Rendered as the picture for an image, and the source the
+  // hex dump was built from.
+  export let dataUri: string | null
 
   // Bound: these are view preferences App.svelte mirrors in
   // GET /api/ui/state and the control API can set, so writes here have
   // to travel back up.
   export let tab: 'body' | 'headers'
-  export let view: 'pretty' | 'raw'
+  export let view: ResponseView
   export let collapsed: boolean
   export let showActionsMenu: boolean
   // Set by the splitter above; ignored while collapsed or filling.
@@ -48,8 +51,13 @@
 
   // detectResponseKind has five values; the editor has three. html is
   // close enough to xml to share a grammar, and image never reaches the
-  // editor at all.
+  // editor as text except in raw/hex, where it isn't a grammar anyway.
+  //
+  // Only the pretty view gets a grammar: raw means the payload as it
+  // arrived and hex means the bytes, and colouring either as if it were
+  // JSON would be inventing structure the view exists to strip away.
   $: editorLanguage = ((): 'json' | 'xml' | 'plain' => {
+    if (view !== 'pretty') return 'plain'
     if (formatted.kind === 'json') return 'json'
     if (formatted.kind === 'xml' || formatted.kind === 'html') return 'xml'
     return 'plain'
@@ -60,6 +68,33 @@
   $: headerRows = Object.entries(response?.headers ?? {})
     .flatMap(([name, values]) => (values ?? []).map((value) => ({ name, value })))
     .sort((a, b) => a.name.localeCompare(b.name) || a.value.localeCompare(b.value))
+
+  // The headers as they'd read on the wire. No status line above them:
+  // Response doesn't carry the protocol version, and writing "HTTP/1.1"
+  // would be inventing one.
+  $: headerText = headerRows.map((h) => `${h.name}: ${h.value}`).join('\n')
+
+  // The bytes of exactly what the raw view above shows. Not a
+  // reconstruction of the CRLF-delimited block from the wire: Response
+  // keeps headers as a parsed map, so those bytes are gone, and putting
+  // them back would be inventing them the way a status line would.
+  $: headerHex = hexDump(new TextEncoder().encode(headerText))
+
+  // All three, always, on both panels — the switch keeps one shape
+  // rather than gaining and losing buttons with the shape of the body,
+  // which is worst exactly when you're comparing a failure against a
+  // success. Pretty falls back to the plain text when there's nothing
+  // to reindent; see formatResponse.
+  //
+  // The one exception is a truncated body, where the panel is the
+  // "too large" callout and its buttons: there's no rendered content
+  // for a view to apply to.
+  $: views = ((): ResponseView[] =>
+    tab === 'body' && response?.truncated ? [] : ['pretty', 'raw', 'hex'])()
+
+  $: activeView = views.includes(view) ? view : 'raw'
+
+  const viewLabels: Record<ResponseView, string> = { pretty: 'Pretty', raw: 'Raw', hex: 'Hex' }
 </script>
 
 <section class="response" class:collapsed class:fill style:height="{height}px">
@@ -80,8 +115,15 @@
         <div class="response-meta">
           <div class="response-stat">
             <span class="response-stat-label">Status</span>
-            <span class="status status-{statusTone(response.statusCode)}">
-              {response.statusCode} {reasonPhrase(response.status)}
+            <!-- The code alone: it's what's actually read at a glance,
+                 and the colour already carries its class. The reason
+                 phrase is a tooltip rather than a second word competing
+                 with the number beside it. -->
+            <span
+              class="status status-{statusTone(response.statusCode)}"
+              title={reasonPhrase(response.status) || undefined}
+            >
+              {response.statusCode}
             </span>
           </div>
           <div class="response-stat">
@@ -111,10 +153,11 @@
             Headers{#if headerRows.length}<span class="tab-count">{headerRows.length}</span>{/if}
           </button>
         </div>
-        {#if !collapsed && tab === 'body' && formatted.canPretty}
+        {#if !collapsed && views.length}
           <div class="response-segmented">
-            <button class:active={view === 'pretty'} on:click={() => (view = 'pretty')}>Pretty</button>
-            <button class:active={view === 'raw'} on:click={() => (view = 'raw')}>Raw</button>
+            {#each views as v}
+              <button class:active={activeView === v} on:click={() => (view = v)}>{viewLabels[v]}</button>
+            {/each}
           </div>
         {/if}
         <div class="response-actions-menu">
@@ -139,8 +182,10 @@
       <!-- Nothing: the meta strip above stays, and its chevron is what
            brings the panel back. -->
     {:else if tab === 'headers'}
-      <div class="response-headers">
-        {#if headerRows.length}
+      {#if !headerRows.length}
+        <p class="muted">No response headers.</p>
+      {:else if activeView === 'pretty'}
+        <div class="response-headers">
           <table class="response-headers-table">
             <tbody>
               {#each headerRows as h}
@@ -148,10 +193,10 @@
               {/each}
             </tbody>
           </table>
-        {:else}
-          <p class="muted">No response headers.</p>
-        {/if}
-      </div>
+        </div>
+      {:else}
+        <CodeEditor readOnly layout="fill" value={activeView === 'hex' ? headerHex : headerText} language="plain" />
+      {/if}
     {:else if response.truncated}
       <div class="response-truncated">
         <p>
@@ -164,13 +209,16 @@
           <button on:click={cache.openInFileExplorer}>Open in File Explorer</button>
         </div>
       </div>
-    {:else if formatted.kind === 'image'}
-      {#if imageUri}
-        <div class="response-image"><img src={imageUri} alt="Response body" /></div>
+    {:else if formatted.kind === 'image' && view === 'pretty'}
+      {#if dataUri}
+        <div class="response-image"><img src={dataUri} alt="Response body" /></div>
       {:else}
         <p class="muted">Loading image…</p>
       {/if}
     {:else}
+      <!-- Everything else is text by the time it gets here: a pretty
+           print, the payload as it arrived, an image's data: URI, or a
+           hex dump. formatResponse decided which. -->
       <CodeEditor readOnly layout="fill" value={formatted.text} language={editorLanguage} />
     {/if}
   {:else}

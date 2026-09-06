@@ -224,8 +224,10 @@ code {
   padding-right: 0.35rem;
 }
 
-/* How many rows a tab holds, so the ones you're not looking at still
-   say whether there's anything in them. */
+/* What a tab holds — a row count, or the option it has selected — so
+   the ones you're not looking at still say what's in them. Always
+   rendered, including at zero: a tab with nothing in it should look
+   different from one you haven't opened, not identical to it. */
 .tab-count {
   margin-left: 0.4em;
   padding: 0.05em 0.4em;

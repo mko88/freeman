@@ -1,10 +1,7 @@
-// How a response body is classified and rendered: the lightweight
-// kind sniffing behind the "Type" badge, the JSON/XML pretty-printers,
-// and the token highlighting the response pane drops in with {@html}.
-//
-// Safe for an untrusted body by construction: every highlighter escapes
-// &, < and > *first* and only then inserts its own <span class="syntax-*">
-// wrappers, so nothing from the response can close a tag or open one.
+// How a response body is classified and reshaped for display: the
+// lightweight kind sniffing behind the "Type" badge, and the JSON/XML
+// pretty-printers. Everything here returns plain text — colouring it is
+// CodeMirror's job, so an untrusted body is never turned into markup.
 import type { httpengine } from '../../wailsjs/go/models'
 
 // Above this the pretty view isn't worth the JSON.parse + regex pass on
@@ -14,6 +11,44 @@ import type { httpengine } from '../../wailsjs/go/models'
 export const RESPONSE_PRETTY_MAX = 256 * 1024
 
 export type ResponseKind = 'json' | 'xml' | 'html' | 'image' | 'text'
+
+// How the body panel is showing what came back. 'pretty' is the
+// reading of it (reindented, coloured, or an <img>), 'raw' the payload
+// as text, 'hex' the bytes.
+export type ResponseView = 'pretty' | 'raw' | 'hex'
+
+// The bytes behind a data: URI. CodeMirror has no hex or binary mode —
+// it's a text editor — so the dump below is built here and handed to it
+// as plain text.
+function bytesFromDataUri(uri: string): Uint8Array | null {
+  const comma = uri.indexOf(',')
+  if (comma < 0) return null
+  try {
+    const binary = atob(uri.slice(comma + 1))
+    const out = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i)
+    return out
+  } catch {
+    return null
+  }
+}
+
+// `hexdump -C` layout: offset, sixteen bytes in two groups of eight,
+// then the printable-ASCII gutter. The app is monospace throughout, so
+// the columns line up without any help.
+export function hexDump(bytes: Uint8Array): string {
+  const lines: string[] = []
+  for (let i = 0; i < bytes.length; i += 16) {
+    const row = bytes.subarray(i, i + 16)
+    const hex = Array.from(row, (b) => b.toString(16).padStart(2, '0'))
+    // padEnd keeps the gutter aligned on the final short row.
+    const left = hex.slice(0, 8).join(' ').padEnd(23)
+    const right = hex.slice(8).join(' ').padEnd(23)
+    const ascii = Array.from(row, (b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.')).join('')
+    lines.push(`${i.toString(16).padStart(8, '0')}  ${left}  ${right}  |${ascii}|`)
+  }
+  return lines.length ? lines.join('\n') : '(empty body)'
+}
 
 export function responseHeader(r: httpengine.Response | null, name: string): string {
   if (!r?.headers) return ''
@@ -62,34 +97,55 @@ export function prettyXml(xml: string): string {
 // truncated), and the text to show — formatted for the pretty view,
 // exactly as received for the raw one. Highlighting is CodeMirror's job
 // now; this only decides what to hand it.
+// All three views are always on offer, so pretty is a best effort
+// rather than a promise: a body that reindents gets reindented, one
+// that only has a grammar gets coloured, and one with neither reads the
+// same as raw. That's the cost of a switch that keeps its shape,
+// and it's cheaper than a control that comes and goes.
 export function formatResponse(
   r: httpengine.Response | null,
-  view: 'pretty' | 'raw',
-): { kind: ResponseKind; canPretty: boolean; text: string } {
+  view: ResponseView,
+  dataUri: string | null = null,
+): { kind: ResponseKind; text: string } {
   const body = r?.body ?? ''
   const kind = detectResponseKind(r)
   const inRange = !!r && !r.truncated && body.length <= RESPONSE_PRETTY_MAX
 
+  // Both the hex view and an image's payload need the bytes as they
+  // arrived, and response.body can't carry them: Wails marshals Body as
+  // JSON, and JSON replaces every byte that isn't valid UTF-8 with
+  // U+FFFD, so response.body for a PNG is a wall of replacement
+  // characters. The data URI is read back from the response cache file,
+  // so it's byte-faithful.
+  if (view === 'hex') {
+    const bytes = dataUri ? bytesFromDataUri(dataUri) : null
+    return { kind, text: bytes ? hexDump(bytes) : 'Reading the cached response…' }
+  }
+
+  if (kind === 'image') {
+    return { kind, text: dataUri ?? '' }
+  }
+
   if (inRange && kind === 'json') {
     try {
       const parsed = JSON.parse(body)
-      return { kind, canPretty: true, text: view === 'pretty' ? JSON.stringify(parsed, null, 2) : body }
+      return { kind, text: view === 'pretty' ? JSON.stringify(parsed, null, 2) : body }
     } catch {
-      // Declared as JSON but isn't — show it as it came rather than
-      // claiming a pretty view that would fail.
-      return { kind: 'text', canPretty: false, text: body }
+      // Declared as JSON but isn't — a 500 serving an HTML error page
+      // under a JSON content type is the usual way this happens. Report
+      // it as text so it isn't coloured against a grammar it doesn't
+      // follow.
+      return { kind: 'text', text: body }
     }
   }
 
   if (inRange && kind === 'xml') {
     const doc = new DOMParser().parseFromString(body, 'application/xml')
-    if (doc.getElementsByTagName('parsererror').length > 0) {
-      return { kind: 'text', canPretty: false, text: body }
-    }
-    return { kind, canPretty: true, text: view === 'pretty' ? prettyXml(body) : body }
+    if (doc.getElementsByTagName('parsererror').length > 0) return { kind: 'text', text: body }
+    return { kind, text: view === 'pretty' ? prettyXml(body) : body }
   }
 
-  return { kind, canPretty: false, text: body }
+  return { kind, text: body }
 }
 
 // --- request bodies ---------------------------------------------------------

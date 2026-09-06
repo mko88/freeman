@@ -253,6 +253,13 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     api.action("setResponseView", {"view": "pretty"})
     poll(api.state, lambda s: s.get("responseView") == "pretty")
 
+    r.step("setResponseView {view: 'hex'}  (watch: the body should become a hexdump — offsets, bytes, ASCII gutter)")
+    api.action("setResponseView", {"view": "hex"})
+    state = poll(api.state, lambda s: s.get("responseView") == "hex")
+    r.check("state.responseView reflects setResponseView 'hex'", state.get("responseView") == "hex", str(state.get("responseView")))
+    api.action("setResponseView", {"view": "pretty"})
+    poll(api.state, lambda s: s.get("responseView") == "pretty")
+
     r.step("setResponseTab {tab: 'headers'}  (watch: the pane should show the response headers, not the body)")
     api.action("setResponseTab", {"tab": "headers"})
     state = poll(api.state, lambda s: s.get("responseTab") == "headers")
@@ -262,6 +269,16 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
         bool((state.get("response") or {}).get("headers")),
         str(list(((state.get("response") or {}).get("headers") or {}).keys())),
     )
+    r.step("setResponseView {view: 'raw'} on the headers panel  (watch: the table becomes Name: value lines)")
+    api.action("setResponseView", {"view": "raw"})
+    state = poll(api.state, lambda s: s.get("responseView") == "raw")
+    r.check("the headers panel takes the raw view too", state.get("responseView") == "raw", str(state.get("responseView")))
+    r.step("setResponseView {view: 'hex'} on the headers panel  (watch: those lines become a hexdump)")
+    api.action("setResponseView", {"view": "hex"})
+    state = poll(api.state, lambda s: s.get("responseView") == "hex")
+    r.check("the headers panel takes the hex view too", state.get("responseView") == "hex", str(state.get("responseView")))
+    api.action("setResponseView", {"view": "pretty"})
+    poll(api.state, lambda s: s.get("responseView") == "pretty")
     api.action("setResponseTab", {"tab": "body"})
     state = poll(api.state, lambda s: s.get("responseTab") == "body")
     r.check("state.responseTab reflects setResponseTab 'body'", state.get("responseTab") == "body", str(state.get("responseTab")))
