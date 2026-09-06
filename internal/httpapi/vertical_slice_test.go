@@ -243,14 +243,14 @@ func TestCodegenRoute(t *testing.T) {
 			Headers: []domain.Header{{Key: "Accept", Value: "application/json", Enabled: true}},
 		},
 		EnvironmentID: envID,
-		Format:        "curl",
+		Format:        "bash",
 	}
 	var out struct {
 		Code string `json:"code"`
 	}
 	mustPost(t, srv.URL+"/api/codegen", body, &out)
 
-	if !strings.Contains(out.Code, "curl -X GET 'https://api.example.com/health'") {
+	if !strings.Contains(out.Code, "url='https://api.example.com/health'") {
 		t.Fatalf("codegen did not substitute the URL var:\n%s", out.Code)
 	}
 	if !strings.Contains(out.Code, "-H 'Accept: application/json'") {

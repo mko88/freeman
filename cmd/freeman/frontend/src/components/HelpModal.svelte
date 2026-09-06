@@ -26,8 +26,8 @@
       method: 'POST',
       path: '/api/codegen',
       desc:
-        'Render a request as a runnable command. Body: {item: domain.Item, environmentId, format}. ' +
-        "format is 'curl', 'shell', 'powershell', or 'powershell-script'. Returns {code}.",
+        'Render a request as a runnable script. Body: {item: domain.Item, environmentId, format}. ' +
+        "format is 'bash' or 'powershell'. Returns {code}.",
     },
     { method: 'GET', path: '/api/theme', desc: 'Resolved color palette.' },
     { method: 'GET', path: '/api/headers', desc: 'Common request-header names/values for editor autocomplete (from headers.yaml).' },
@@ -136,8 +136,8 @@
       action: 'selectCodeFormat',
       payload: '{ format }',
       desc:
-        "Switch the Code tab's output. format is 'curl', 'shell' (curl as a bash script), 'powershell', " +
-        "or 'powershell-script'. Read the rendered command from GET /api/ui/state's code field.",
+        "Switch the Code tab's output. format is 'bash' (a curl script) or 'powershell' " +
+        "(an Invoke-RestMethod script). Read the rendered script from GET /api/ui/state's code field.",
     },
     {
       action: 'selectBodyLanguage',

@@ -37,20 +37,20 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
     r.check("state.tab reflects selectRequestTab 'code'", state.get("tab") == "code", str(state.get("tab")))
 
     # {{pyTestBase}} is https://httpbin.org (set by test_environment_editor).
+    # Both formats pull the parts out as variables, so the command at the
+    # bottom of each reads as a list of names. See internal/codegen.
     checks = {
-        "curl": ["curl -X POST 'https://httpbin.org/post'", "-H 'X-Trace: abc'", "-H 'Authorization: Bearer t0ken'"],
-        # The script forms pull the parts out as variables; the
-        # one-liners keep everything inline. See internal/codegen.
-        "shell": [
+        "bash": [
             "#!/usr/bin/env bash\nset -euo pipefail",
             "url='https://httpbin.org/post'",
+            "-H 'X-Trace: abc'",
             "-H 'Authorization: Bearer t0ken'",
             'curl -X POST "$url" \\\n  "${headers[@]}"',
         ],
-        "powershell": ["Invoke-RestMethod -Method POST -Uri 'https://httpbin.org/post'", "'Authorization' = 'Bearer t0ken'"],
-        "powershell-script": [
+        "powershell": [
             "$uri = 'https://httpbin.org/post'",
             "$headers = @{",
+            "'Authorization' = 'Bearer t0ken'",
             "Invoke-RestMethod `\n    -Method POST `\n    -Uri $uri `\n    -Headers $headers",
         ],
     }
@@ -77,11 +77,11 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
         {
             "item": {"method": "GET", "url": f"{{{{{TEST_VAR_KEY}}}}}/get", "headers": []},
             "environmentId": environment_id,
-            "format": "curl",
+            "format": "bash",
         },
     )
     r.check(
-        "POST /api/codegen returns a curl string with the var substituted",
-        status == 200 and isinstance(body, dict) and body.get("code", "").startswith("curl -X GET 'https://httpbin.org/get'"),
+        "POST /api/codegen returns a bash script with the var substituted",
+        status == 200 and isinstance(body, dict) and "url='https://httpbin.org/get'" in body.get("code", ""),
         f"status={status} body={body}",
     )

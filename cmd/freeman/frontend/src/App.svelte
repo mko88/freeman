@@ -103,7 +103,7 @@
   // internal/codegen). codeFormat is sticky like responseView — a view
   // preference, not per-request state. generatedCode is recomputed by the
   // backend whenever the tab is open and any input changes.
-  let codeFormat: CodeFormat = 'curl'
+  let codeFormat: CodeFormat = 'bash'
   let generatedCode = ''
   let codeError = ''
 
@@ -415,7 +415,7 @@
       }
       case 'selectCodeFormat': {
         const f = payload?.format
-        if (f === 'curl' || f === 'shell' || f === 'powershell' || f === 'powershell-script') codeFormat = f
+        if (f === 'bash' || f === 'powershell') codeFormat = f
         break
       }
       case 'selectBodyLanguage': {
