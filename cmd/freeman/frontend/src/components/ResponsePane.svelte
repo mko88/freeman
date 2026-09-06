@@ -9,7 +9,7 @@
   // component has no business knowing, so they come in as callbacks.
   import type { httpengine } from '../../wailsjs/go/models'
   import CodeEditor from './CodeEditor.svelte'
-  import { formatBytes, formatDuration, reasonPhrase, statusTone } from '../lib/format'
+  import { durationMillis, exactBytes, formatBytes, formatDuration, reasonPhrase, statusTone } from '../lib/format'
   import { hexDump } from '../lib/responseFormat'
   import type { ResponseKind, ResponseView } from '../lib/responseFormat'
 
@@ -117,37 +117,27 @@
         Headers<span class="tab-count">{headerRows.length}</span>
       </button>
 
+      <!-- No labels: each value says what it is by its own shape — a
+           bare number coloured by class, a duration with a unit, a size
+           with a unit, a type name. The labels were repeating that in
+           words. Where a value is rounded for reading, the exact figure
+           is a tooltip. -->
       <div class="response-meta">
-        <span class="response-stat">
-          <span class="response-stat-label">Status</span>
-          <!-- The code alone: it's what's read at a glance, and the
-               colour already carries its class. The reason phrase is a
-               tooltip rather than a second word competing with it. -->
-          <span
-            class="status status-{statusTone(response.statusCode)}"
-            title={reasonPhrase(response.status) || undefined}
-          >
-            {response.statusCode}
-          </span>
+        <span class="response-stat status status-{statusTone(response.statusCode)}" title={reasonPhrase(response.status) || undefined}>
+          {response.statusCode}
         </span>
-        <span class="response-stat">
-          <span class="response-stat-label">Time</span>
-          <span>{formatDuration(response.durationNs)}</span>
+        <span class="response-stat" title={durationMillis(response.durationNs)}>
+          {formatDuration(response.durationNs)}
         </span>
-        <span class="response-stat">
-          <span class="response-stat-label">Size</span>
-          <span
-            title={response.capped
-              ? 'The response exceeded the size Freeman will hold in memory, so it was cut off at this point.'
-              : undefined}
-          >
-            {response.sizeBytes} bytes{#if response.capped}<span class="size-capped">capped</span>{/if}
-          </span>
+        <span
+          class="response-stat"
+          title={response.capped
+            ? `${exactBytes(response.sizeBytes)} — the response exceeded the size Freeman will hold in memory, so it was cut off at this point.`
+            : exactBytes(response.sizeBytes)}
+        >
+          {formatBytes(response.sizeBytes)}{#if response.capped}<span class="size-capped">capped</span>{/if}
         </span>
-        <span class="response-stat">
-          <span class="response-stat-label">Type</span>
-          <span>{formatted.kind.toUpperCase()}</span>
-        </span>
+        <span class="response-stat">{formatted.kind.toUpperCase()}</span>
       </div>
     </div>
 
@@ -259,11 +249,18 @@
   /* Rides the right end of the tab row: these describe the response as a
      whole, not whichever panel is open, so they sit apart from the tabs
      rather than among them. Allowed to shrink and clip on a narrow
-     window — the tabs are what must stay clickable. */
+     window — the tabs are what must stay clickable.
+--
+     The explicit height is what makes the hairlines between the stats
+     line up: they're borders on stretched children, so they're only
+     equal if the row they stretch to is. Shorter than the tab row, so
+     the rules read as separators inside the group rather than reaching
+     for its edges. */
   .response-meta {
     display: flex;
-    align-items: baseline;
-    gap: 1.25rem;
+    align-items: stretch;
+    align-self: center;
+    height: 1.4rem;
     margin-left: auto;
     padding-left: 1rem;
     min-width: 0;
@@ -272,12 +269,21 @@
     font-size: 0.85rem;
   }
 
-  /* Label and value on one baseline. Stacked, they made the strip two
-     lines tall; a tab row has one. */
   .response-stat {
     display: flex;
-    align-items: baseline;
-    gap: 0.35rem;
+    align-items: center;
+    padding: 0 0.75rem;
+  }
+
+  /* A hairline, not a middle dot: the same 1px divider the tab row, the
+     splitter and the status bar already use, so the app separates things
+     one way. */
+  .response-stat + .response-stat {
+    border-left: 1px solid var(--fm-border-subtle);
+  }
+
+  .response-stat:last-child {
+    padding-right: 0;
   }
 
   /* Right-aligned, unlike the body editor's language row: these sit with
@@ -369,12 +375,6 @@
 
   .dropdown-menu button:hover {
     background: var(--fm-bg-hover);
-  }
-
-  .response-stat-label {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: var(--fm-text-muted);
   }
 
   /* Marks a body that hit httpengine.MaxResponseBytes — the number next
