@@ -89,6 +89,20 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str, item_id:
     r.step("setRequestField bodyRaw = <json>")
     api.action("setRequestField", {"field": "bodyRaw", "value": body_raw})
 
+    # How the raw editor colours what's typed. A view preference, so the
+    # only thing to verify is that state mirrors it — the highlighting
+    # itself is markup, which this suite can't see. Left on 'auto' at the
+    # end so nothing downstream inherits a pinned language.
+    for language in ("json", "xml", "plain", "auto"):
+        r.step(f"selectBodyLanguage {{language: {language!r}}}")
+        api.action("selectBodyLanguage", {"language": language})
+        state = poll(api.state, lambda s, l=language: s.get("bodyLanguage") == l)
+        r.check(
+            f"state.bodyLanguage reflects selectBodyLanguage {language!r}",
+            state.get("bodyLanguage") == language,
+            str(state.get("bodyLanguage")),
+        )
+
     r.step("selectRequestTab 'headers'")
     api.action("selectRequestTab", {"tab": "headers"})
 

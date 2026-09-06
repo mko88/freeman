@@ -30,6 +30,7 @@
   import SettingsModal from './components/SettingsModal.svelte'
   import { formatBytes, formatDuration, methodColor, reasonPhrase, statusTone } from './lib/format'
   import { detectResponseKind, formatResponse } from './lib/responseFormat'
+  import type { BodyLanguage } from './lib/responseFormat'
   import { bodyModes, codeFormats, emptyAuth, emptyDraft, methods } from './lib/requestDraft'
   import type { AuthType, BodyMode, CodeFormat, FormFieldType, RequestDraft, RequestTab } from './lib/requestDraft'
 
@@ -97,6 +98,11 @@
   let codeFormat: CodeFormat = 'curl'
   let generatedCode = ''
   let codeError = ''
+
+  // How the raw-body editor colours what's being typed. Sticky like
+  // codeFormat and responseView — a view preference, not part of the
+  // request. 'auto' reads the Content-Type row and the first character.
+  let bodyLanguage: BodyLanguage = 'auto'
 
   // Sidebar width, the log panel's height, and whether the log panel is
   // collapsed are pure layout comfort — remembered per-browser-profile
@@ -210,6 +216,7 @@
       ...draft,
       codeFormat,
       code: generatedCode,
+      bodyLanguage,
       environment,
       showSettings,
       settingsTab,
@@ -383,6 +390,11 @@
       case 'selectCodeFormat': {
         const f = payload?.format
         if (f === 'curl' || f === 'shell' || f === 'powershell' || f === 'powershell-script') codeFormat = f
+        break
+      }
+      case 'selectBodyLanguage': {
+        const l = payload?.language
+        if (l === 'auto' || l === 'json' || l === 'xml' || l === 'plain') bodyLanguage = l
         break
       }
       case 'copyRequestCode':
@@ -1067,6 +1079,7 @@
         bind:activeTab
         bind:requestPaneCollapsed
         bind:codeFormat
+        bind:bodyLanguage
         {generatedCode}
         {codeError}
         {headerCatalog}

@@ -10,6 +10,8 @@
   // path.
   import { methodColor } from '../lib/format'
   import { highlightGeneratedCode } from '../lib/highlightScript'
+  import { highlightBody, resolveBodyLanguage } from '../lib/responseFormat'
+  import type { BodyLanguage } from '../lib/responseFormat'
   import { bodyModes, codeFormats, methods } from '../lib/requestDraft'
   import type { CodeFormat, RequestDraft, RequestTab } from '../lib/requestDraft'
 
@@ -23,6 +25,7 @@
   export let activeTab: RequestTab
   export let requestPaneCollapsed: boolean
   export let codeFormat: CodeFormat
+  export let bodyLanguage: BodyLanguage
   export let generatedCode: string
   export let codeError: string
   export let headerCatalog: HeaderCatalogEntry[]
@@ -70,6 +73,31 @@
     }
   }
 
+  const bodyLanguages: { value: BodyLanguage; label: string }[] = [
+    { value: 'auto', label: 'Auto' },
+    { value: 'json', label: 'JSON' },
+    { value: 'xml', label: 'XML' },
+    { value: 'plain', label: 'Plain' },
+  ]
+
+  // Auto reads the request's own Content-Type row before falling back to
+  // the body's first character — a body that starts as `{` is JSON well
+  // before it's valid JSON.
+  $: bodyContentType =
+    draft.headers.find((h) => h.enabled && h.key.trim().toLowerCase() === 'content-type')?.value ?? ''
+  $: resolvedBodyLanguage = resolveBodyLanguage(bodyLanguage, draft.bodyRaw, bodyContentType)
+
+  // The backdrop scrolls with the textarea over it; without this the
+  // highlighting stays put while the text moves.
+  let bodyBackdropEl: HTMLElement | undefined
+  function syncBodyScroll(e: Event) {
+    const el = e.currentTarget as HTMLTextAreaElement
+    if (bodyBackdropEl) {
+      bodyBackdropEl.scrollTop = el.scrollTop
+      bodyBackdropEl.scrollLeft = el.scrollLeft
+    }
+  }
+
   // Tab badges — count of rows with a key filled in (a blank row the
   // user just added isn't a param/header/field yet), blank at zero.
   const filledCount = (rows: { key: string }[]) => rows.filter((row) => row.key.trim()).length
@@ -104,9 +132,15 @@
   <select class="method-select" bind:value={draft.method} style="--m: {methodColor(draft.method)}">
     {#each methods as m}<option value={m}>{m}</option>{/each}
   </select>
+  <!-- Enter sends, the way a browser's address bar goes. No new
+       ui:action for it: this is a second route to onSend, which the
+       control API already reaches as `sendRequest`. -->
   <input
     type="text"
     bind:value={draft.url}
+    on:keydown={(e) => {
+      if (e.key === 'Enter' && !sending) onSend()
+    }}
     placeholder="{'{'}{'{'}schema{'}'}{'}'}://{'{'}{'{'}base{'}'}{'}'}/api/{'{'}{'{'}version{'}'}{'}'}/health"
   />
   <button on:click={onSave}>Save</button>
@@ -254,7 +288,34 @@
   </div>
 
   {#if draft.bodyMode === 'raw'}
-    <textarea class="body-editor" bind:value={draft.bodyRaw} placeholder="Raw request body"></textarea>
+    <div class="body-languages">
+      {#each bodyLanguages as l}
+        <button class:active={bodyLanguage === l.value} on:click={() => (bodyLanguage = l.value)}>{l.label}</button>
+      {/each}
+      {#if bodyLanguage === 'auto'}
+        <span class="body-language-detected">detected: {resolvedBodyLanguage}</span>
+      {/if}
+    </div>
+
+    <!-- A textarea can't render styled text, so the highlighted copy
+         sits behind a transparent one. Both must agree on every metric
+         that affects where a glyph lands (font, size, line-height,
+         padding, wrapping) or the caret drifts away from the text it's
+         supposed to be in — see .body-raw's CSS, which sets them once
+         for both. -->
+    <div class="body-raw">
+      <pre class="body-raw-backdrop" aria-hidden="true" bind:this={bodyBackdropEl}>{@html highlightBody(
+          draft.bodyRaw,
+          resolvedBodyLanguage,
+        )}</pre>
+      <textarea
+        class="body-raw-input"
+        bind:value={draft.bodyRaw}
+        on:scroll={syncBodyScroll}
+        spellcheck="false"
+        placeholder="Raw request body"
+      ></textarea>
+    </div>
   {:else if draft.bodyMode === 'form-data' || draft.bodyMode === 'x-www-form-urlencoded'}
     <table class="kv-table">
       <thead>
@@ -333,11 +394,95 @@
     border-left: 2px solid var(--m);
   }
 
-  .body-editor {
-    width: 100%;
+  .body-languages {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .body-languages button {
+    padding: 0.15rem 0.5rem;
+    font-size: 0.8rem;
+    color: var(--fm-text-muted);
+  }
+
+  .body-languages button.active {
+    color: var(--fm-text);
+    border-color: var(--fm-accent);
+    background: color-mix(in srgb, var(--fm-accent) 14%, transparent);
+  }
+
+  .body-languages button.active:hover {
+    background: color-mix(in srgb, var(--fm-accent) 22%, transparent);
+  }
+
+  .body-language-detected {
+    font-size: 0.72rem;
+    color: var(--fm-text-muted);
+  }
+
+  /* The wrapper carries the border, the background and the resize
+     handle, so the two stacked children can be identical and
+     borderless. Resizing the textarea itself would leave the backdrop
+     behind at the old size. */
+  .body-raw {
+    position: relative;
+    height: 180px;
     min-height: 140px;
-    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
     resize: vertical;
+    overflow: hidden;
+    background: var(--fm-bg-elevated);
+    border: 1px solid var(--fm-border);
+    border-radius: var(--fm-radius);
+  }
+
+  /* Every property here decides where a glyph lands. The two elements
+     must agree on all of them, or the caret separates from the text —
+     which is why they're set together rather than on each child. */
+  .body-raw-backdrop,
+  .body-raw-input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 0.4rem 0.5rem;
+    border: none;
+    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    tab-size: 2;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    overflow: auto;
+  }
+
+  .body-raw-backdrop {
+    pointer-events: none;
+    color: var(--fm-text);
+    background: none;
+  }
+
+  /* Transparent text over the backdrop, but a visible caret — the
+     textarea still owns selection, undo and every other native editing
+     behaviour, which is the whole reason for stacking rather than using
+     a contenteditable. */
+  .body-raw-input {
+    background: transparent;
+    color: transparent;
+    caret-color: var(--fm-text);
+    resize: none;
+  }
+
+  .body-raw-input::placeholder {
+    color: var(--fm-text-muted);
+  }
+
+  .body-raw-input:focus-visible {
+    outline: none;
+  }
+
+  .body-raw:focus-within {
+    border-color: var(--fm-accent);
   }
 
   .body-mode-picker {

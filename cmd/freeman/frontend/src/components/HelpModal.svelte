@@ -38,6 +38,7 @@
       desc:
         'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/params/headers/auth/' +
         'formFields/codeFormat/code (the Code tab’s rendered command, when that tab is open)/' +
+        'bodyLanguage (how the raw body editor is highlighted)/' +
         'tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
         '(truncated/bodyFile in place of body when it was too large — bodyFile is its path in the ' +
         'per-request on-disk cache, see clearResponseCache; capped when the response outgrew the ' +
@@ -130,6 +131,14 @@
       desc:
         "Switch the Code tab's output. format is 'curl', 'shell' (curl as a bash script), 'powershell', " +
         "or 'powershell-script'. Read the rendered command from GET /api/ui/state's code field.",
+    },
+    {
+      action: 'selectBodyLanguage',
+      payload: '{ language }',
+      desc:
+        "Set how the Body tab's raw editor is syntax-highlighted. language is 'auto', 'json', 'xml', or " +
+        "'plain'; 'auto' reads the request's Content-Type header, then the body's first character. A view " +
+        'preference only — it changes nothing about what gets sent.',
     },
     {
       action: 'copyRequestCode',
