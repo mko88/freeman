@@ -115,8 +115,15 @@
         <div class="response-meta">
           <div class="response-stat">
             <span class="response-stat-label">Status</span>
-            <span class="status status-{statusTone(response.statusCode)}">
-              {response.statusCode} {reasonPhrase(response.status)}
+            <!-- The code alone: it's what's actually read at a glance,
+                 and the colour already carries its class. The reason
+                 phrase is a tooltip rather than a second word competing
+                 with the number beside it. -->
+            <span
+              class="status status-{statusTone(response.statusCode)}"
+              title={reasonPhrase(response.status) || undefined}
+            >
+              {response.statusCode}
             </span>
           </div>
           <div class="response-stat">
