@@ -59,18 +59,12 @@
     return headerCatalog.find((e) => e.name.toLowerCase() === norm)?.values ?? []
   }
 
-  // Clicking the active tab collapses the pane; clicking another switches
-  // to it. The control API gets selectRequestTab instead, which always
-  // switches and expands — a script asking for 'body' shouldn't get a
-  // collapse just because 'body' happened to be active. Both land on the
-  // same two bound props.
+  // Picking a tab shows it — collapsing is the disclosure toggle's job
+  // alone, not a second meaning overloaded onto these buttons. Same
+  // split as the response pane's.
   function onRequestTabClick(tab: RequestTab) {
-    if (activeTab === tab) {
-      requestPaneCollapsed = !requestPaneCollapsed
-    } else {
-      activeTab = tab
-      requestPaneCollapsed = false
-    }
+    activeTab = tab
+    requestPaneCollapsed = false
   }
 
   const bodyLanguages: { value: BodyLanguage; label: string }[] = [
@@ -147,26 +141,25 @@
 </div>
 
 <div class="tabs">
+  <button
+    class="tabs-disclosure"
+    title={requestPaneCollapsed ? 'Expand the request editor' : 'Collapse the request editor'}
+    aria-expanded={!requestPaneCollapsed}
+    on:click={() => (requestPaneCollapsed = !requestPaneCollapsed)}>{requestPaneCollapsed ? '▸' : '▾'}</button
+  >
   <button class:active={activeTab === 'params'} on:click={() => onRequestTabClick('params')}>
     Params{#if paramsTabBadge}<span class="tab-count">{paramsTabBadge}</span>{/if}
-    {#if activeTab === 'params'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
   </button>
   <button class:active={activeTab === 'headers'} on:click={() => onRequestTabClick('headers')}>
     Headers{#if headersTabBadge}<span class="tab-count">{headersTabBadge}</span>{/if}
-    {#if activeTab === 'headers'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
   </button>
   <button class:active={activeTab === 'auth'} on:click={() => onRequestTabClick('auth')}>
     Auth{#if authTabBadge}<span class="tab-count">{authTabBadge}</span>{/if}
-    {#if activeTab === 'auth'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
   </button>
   <button class:active={activeTab === 'body'} on:click={() => onRequestTabClick('body')}>
     Body{#if bodyTabBadge}<span class="tab-count">{bodyTabBadge}</span>{/if}
-    {#if activeTab === 'body'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
   </button>
-  <button class:active={activeTab === 'code'} on:click={() => onRequestTabClick('code')}>
-    Code
-    {#if activeTab === 'code'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
-  </button>
+  <button class:active={activeTab === 'code'} on:click={() => onRequestTabClick('code')}>Code</button>
 </div>
 
 {#if !requestPaneCollapsed}

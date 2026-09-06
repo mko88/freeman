@@ -26,8 +26,11 @@
   export let view: 'pretty' | 'raw'
   export let collapsed: boolean
   export let showActionsMenu: boolean
-  // Set by the splitter above; ignored while collapsed.
+  // Set by the splitter above; ignored while collapsed or filling.
   export let height: number
+  // Take the whole editor pane rather than the dragged height — set when
+  // the request editor above is collapsed, so its freed space goes here.
+  export let fill = false
 
   // Picking a panel shows it — collapsing is the disclosure toggle's job
   // alone, not a second meaning overloaded onto these buttons.
@@ -59,7 +62,7 @@
     .sort((a, b) => a.name.localeCompare(b.name) || a.value.localeCompare(b.value))
 </script>
 
-<section class="response" class:collapsed style:height="{height}px">
+<section class="response" class:collapsed class:fill style:height="{height}px">
   {#if sendError}
     <p class="error">{sendError}</p>
   {:else if response}
@@ -191,6 +194,16 @@
      the dragged height so the request editor takes that space. */
   .response.collapsed {
     flex: none;
+    height: auto !important;
+    border-top: 1px solid var(--fm-border-subtle);
+    padding-top: 0.75rem;
+  }
+
+  /* The request editor above is collapsed, so the dragged height no
+     longer applies — this takes what's left instead. Same hairline as
+     the collapsed case, for the same reason: no splitter to divide. */
+  .response.fill {
+    flex: 1 1 auto;
     height: auto !important;
     border-top: 1px solid var(--fm-border-subtle);
     padding-top: 0.75rem;

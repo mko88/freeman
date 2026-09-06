@@ -152,7 +152,9 @@
     {
       action: 'toggleRequestPane',
       payload: '—',
-      desc: 'Collapse/expand the request editor’s Headers/Body content (same as clicking the active tab).',
+      desc:
+        'Collapse/expand the request editor’s tab content, leaving its name/URL/tab rows ' +
+        '(same as the ▾ toggle at the head of the tab row). The response takes the freed space.',
     },
     {
       action: 'toggleResponsePane',

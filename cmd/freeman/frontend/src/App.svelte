@@ -1112,7 +1112,7 @@
     ></div>
 
     <main class="editor" bind:this={editorEl}>
-      <div class="request-pane">
+      <div class="request-pane" class:collapsed={requestPaneCollapsed}>
         <RequestEditor
           bind:draft
           bind:activeTab
@@ -1134,9 +1134,10 @@
            gets the whole pane rather than sharing it with a response the
            reader isn't looking at. -->
       {#if activeTab !== 'code'}
-        <!-- No splitter when the response is collapsed: there's nothing
-             left to size, and .request-pane takes the freed height. -->
-        {#if !responsePaneCollapsed}
+        <!-- The splitter only means something while both halves are
+             showing. Collapse either one and the other takes the whole
+             pane, so there's no boundary left to drag. -->
+        {#if !responsePaneCollapsed && !requestPaneCollapsed}
           <!-- svelte-ignore a11y-no-static-element-interactions -->
           <div
             class="splitter splitter-horizontal"
@@ -1149,6 +1150,7 @@
         {/if}
         <ResponsePane
           height={responseHeight}
+          fill={requestPaneCollapsed && !responsePaneCollapsed}
           {response}
           {sendError}
           formatted={formattedResponse}
@@ -1344,5 +1346,14 @@
     flex-direction: column;
     gap: 0.75rem;
     overflow-y: auto;
+  }
+
+  /* Collapsed it's only the name, URL and tab rows, so it shrinks to
+     them and the response takes everything below (see ResponsePane's
+     .fill) — the mirror of what collapsing the response does. */
+  .request-pane.collapsed {
+    flex: none;
+    min-height: 0;
+    overflow: visible;
   }
 </style>

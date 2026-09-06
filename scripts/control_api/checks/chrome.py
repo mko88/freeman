@@ -93,7 +93,7 @@ def test_layout_comfort(api: ControlAPI, r: Report) -> None:
         api.action("selectRequestTab", {"tab": "body"})
         state = poll(api.state, lambda s: s.get("tab") == "body")
         r.check(
-            "selectRequestTab on the same tab doesn't collapse it — only toggleRequestPane/clicking does",
+            "selectRequestTab on the same tab doesn't collapse it — only toggleRequestPane / the tab row's toggle does",
             state.get("requestPaneCollapsed") is False,
             str(state.get("requestPaneCollapsed")),
         )
