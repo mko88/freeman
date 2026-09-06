@@ -89,30 +89,21 @@
 
   $: codeLanguage = languageOf(codeFormat)
 
-  // Tab badges — count of rows with a key filled in (a blank row the
-  // user just added isn't a param/header/field yet), blank at zero.
+  // Tab badges. Every tab that holds state always shows it, including
+  // when that state is empty: a silent tab and a tab holding nothing
+  // used to look identical, so "no params" was indistinguishable from
+  // "haven't looked". Counting only rows with a key filled in, since a
+  // blank row the user just added isn't a param or header yet.
   const filledCount = (rows: { key: string }[]) => rows.filter((row) => row.key.trim()).length
   $: paramsTabBadge = filledCount(draft.params)
   $: headersTabBadge = filledCount(draft.headers)
-  // The Auth badge is the type name (never a count) — or blank for 'none'.
-  $: authTabBadge = draft.auth.type === 'none' ? '' : draft.auth.type === 'apikey' ? 'API key' : draft.auth.type
-  // A body isn't a list, so its badge shows the field count for the form
-  // modes and the mode name for raw/binary — again only once there's
-  // actually something there.
-  $: bodyTabBadge =
-    draft.bodyMode === 'form-data' || draft.bodyMode === 'x-www-form-urlencoded'
-      ? filledCount(draft.formFields)
-        ? String(filledCount(draft.formFields))
-        : ''
-      : draft.bodyMode === 'raw'
-        ? draft.bodyRaw.trim()
-          ? 'raw'
-          : ''
-        : draft.bodyMode === 'binary'
-          ? draft.binaryFilePath
-            ? 'binary'
-            : ''
-          : ''
+  // Auth and Body are a choice rather than a list, so their badge is the
+  // option selected — the same word the tab's own control shows.
+  $: authTabBadge = draft.auth.type === 'apikey' ? 'API key' : draft.auth.type
+  // Spelled out, x-www-form-urlencoded is wider than the rest of the tab
+  // row put together; shortened it still can't be confused with the
+  // other form mode next to it.
+  $: bodyTabBadge = draft.bodyMode === 'x-www-form-urlencoded' ? 'urlencoded' : draft.bodyMode
 </script>
 
 <div class="request-name">
@@ -148,16 +139,16 @@
     on:click={() => (requestPaneCollapsed = !requestPaneCollapsed)}>{requestPaneCollapsed ? '▸' : '▾'}</button
   >
   <button class:active={activeTab === 'params'} on:click={() => onRequestTabClick('params')}>
-    Params{#if paramsTabBadge}<span class="tab-count">{paramsTabBadge}</span>{/if}
+    Params<span class="tab-count">{paramsTabBadge}</span>
   </button>
   <button class:active={activeTab === 'headers'} on:click={() => onRequestTabClick('headers')}>
-    Headers{#if headersTabBadge}<span class="tab-count">{headersTabBadge}</span>{/if}
+    Headers<span class="tab-count">{headersTabBadge}</span>
   </button>
   <button class:active={activeTab === 'auth'} on:click={() => onRequestTabClick('auth')}>
-    Auth{#if authTabBadge}<span class="tab-count">{authTabBadge}</span>{/if}
+    Auth<span class="tab-count">{authTabBadge}</span>
   </button>
   <button class:active={activeTab === 'body'} on:click={() => onRequestTabClick('body')}>
-    Body{#if bodyTabBadge}<span class="tab-count">{bodyTabBadge}</span>{/if}
+    Body<span class="tab-count">{bodyTabBadge}</span>
   </button>
   <button class:active={activeTab === 'code'} on:click={() => onRequestTabClick('code')}>Code</button>
 </div>
