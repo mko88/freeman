@@ -48,6 +48,80 @@ def test_workspace_navigation(api: ControlAPI, r: Report, workspace: dict) -> tu
     return collection_id, environment_id
 
 
+SCRATCH_COLLECTION = "zz-control-api-scratch"
+SCRATCH_COLLECTION_RENAMED = "zz-control-api-scratch-renamed"
+
+
+def test_collection_management(api: ControlAPI, r: Report, original_collection_id: str) -> None:
+    """Creating, renaming and deleting a collection from the top bar's
+    switcher — the whole lifecycle, on a scratch collection that's gone
+    again by the end. Also the two switcher menus' open state."""
+    r.section("Collections (newCollection / renameCollection / deleteCollection)")
+
+    created_id = ""
+    try:
+        r.step(f"newCollection {{name: {SCRATCH_COLLECTION!r}}}  (watch: the top bar should switch to it)")
+        api.action("newCollection", {"name": SCRATCH_COLLECTION})
+        state = poll(api.state, lambda s: s.get("collectionName") == SCRATCH_COLLECTION)
+        created_id = state.get("collectionId") or ""
+        r.check(
+            "newCollection creates it and switches to it",
+            state.get("collectionName") == SCRATCH_COLLECTION and bool(created_id),
+            f"collectionId={created_id} collectionName={state.get('collectionName')!r}",
+        )
+        names = [c["name"] for c in state.get("collections") or []]
+        r.check("the new collection is in state.collections", SCRATCH_COLLECTION in names, str(names))
+        # Read back over HTTP rather than from the state mirror, which
+        # carries the summaries but not the collection's own items. Items
+        # must be [] and not null — the same round-trip bug
+        # TestNewCollectionHasEmptyNotNilItems guards in Go.
+        fetched = api.get(f"/api/collections/{created_id}")
+        r.check(
+            "the created collection round-trips with an empty item list, not null",
+            fetched.get("items") == [],
+            f"items={fetched.get('items')!r}",
+        )
+
+        r.step(f"renameCollection {{name: {SCRATCH_COLLECTION_RENAMED!r}}}")
+        api.action("renameCollection", {"name": SCRATCH_COLLECTION_RENAMED})
+        state = poll(api.state, lambda s: s.get("collectionName") == SCRATCH_COLLECTION_RENAMED)
+        r.check(
+            "renameCollection renames the open collection",
+            state.get("collectionName") == SCRATCH_COLLECTION_RENAMED,
+            str(state.get("collectionName")),
+        )
+        names = [c["name"] for c in state.get("collections") or []]
+        r.check("the switcher's list shows the new name", SCRATCH_COLLECTION_RENAMED in names, str(names))
+
+        r.step("toggleCollectionMenu  (watch: the top bar's collection menu should open)")
+        api.action("toggleCollectionMenu")
+        state = poll(api.state, lambda s: s.get("showCollectionMenu") is True)
+        r.check("state.showCollectionMenu reflects toggleCollectionMenu", state.get("showCollectionMenu") is True, str(state.get("showCollectionMenu")))
+        api.action("toggleCollectionMenu")
+        poll(api.state, lambda s: s.get("showCollectionMenu") is False)
+
+        r.step("toggleEnvironmentMenu  (watch: the environment menu beside it)")
+        api.action("toggleEnvironmentMenu")
+        state = poll(api.state, lambda s: s.get("showEnvironmentMenu") is True)
+        r.check("state.showEnvironmentMenu reflects toggleEnvironmentMenu", state.get("showEnvironmentMenu") is True, str(state.get("showEnvironmentMenu")))
+        api.action("toggleEnvironmentMenu")
+        poll(api.state, lambda s: s.get("showEnvironmentMenu") is False)
+
+        r.step(f"deleteCollection {{id: {created_id}}}  (watch: the top bar should fall back to another)")
+        api.action("deleteCollection", {"id": created_id})
+        state = poll(api.state, lambda s: created_id not in [c["id"] for c in s.get("collections") or []])
+        names = [c["name"] for c in state.get("collections") or []]
+        r.check("deleteCollection removes it", SCRATCH_COLLECTION_RENAMED not in names, str(names))
+        r.check("a collection is still open afterwards", bool(state.get("collectionId")), str(state.get("collectionId")))
+        created_id = ""
+    finally:
+        # Whatever failed above, the workspace goes back to what it was.
+        if created_id:
+            api.action("deleteCollection", {"id": created_id})
+        r.step(f"selectCollection {{id: {original_collection_id}}}  (back to the one this test found open)")
+        api.action("selectCollection", {"id": original_collection_id})
+
+
 def test_settings_window(api: ControlAPI, r: Report) -> None:
     """The settings window: a Workspace tab (current folder + Change…,
     which just re-runs openWorkspace) and an Environments tab (covered by

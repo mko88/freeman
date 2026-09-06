@@ -5,6 +5,9 @@
     OpenWorkspace,
     SelectWorkspaceFolder,
     GetCollection,
+    CreateCollection,
+    RenameCollection,
+    DeleteCollection,
     SaveRequest,
     DeleteRequest,
     GetEnvironment,
@@ -28,6 +31,8 @@
   import RequestEditor from './components/RequestEditor.svelte'
   import ResponsePane from './components/ResponsePane.svelte'
   import SettingsModal from './components/SettingsModal.svelte'
+  import Switcher from './components/Switcher.svelte'
+  import NameDialog from './components/NameDialog.svelte'
   import { formatBytes, formatDuration, methodColor, reasonPhrase, statusTone } from './lib/format'
   import { detectResponseKind, formatResponse } from './lib/responseFormat'
   import type { BodyLanguage, ResponseView } from './lib/responseFormat'
@@ -56,6 +61,17 @@
   let collectionId = ''
   let collection: domain.Collection | null = null
   let selectedItemId: string | null = null
+
+  // The two top-bar switchers' open state, and the one dialog they share
+  // for "what should this be called?". null when no dialog is up.
+  let showCollectionMenu = false
+  let showEnvironmentMenu = false
+  let nameDialog: {
+    title: string
+    confirmLabel: string
+    value: string
+    onConfirm: (name: string) => void
+  } | null = null
 
   let environmentId = ''
   let environment: domain.Environment | null = null
@@ -229,6 +245,10 @@
   $: if ('runtime' in window) {
     const state = {
       workspaceRoot: workspace?.root ?? '',
+      collections: workspace?.collections ?? [],
+      collectionName: collection?.name ?? '',
+      showCollectionMenu,
+      showEnvironmentMenu,
       collectionId,
       environmentId,
       selectedItemId,
@@ -350,6 +370,25 @@
       }
       case 'selectCollection':
         if (payload?.id) await selectCollection(String(payload.id))
+        break
+      case 'newCollection': {
+        const name = String(payload?.name ?? '').trim()
+        if (name) await newCollection(name)
+        break
+      }
+      case 'renameCollection': {
+        const name = String(payload?.name ?? '').trim()
+        if (name) await renameCollection(name, payload?.id ? String(payload.id) : collectionId)
+        break
+      }
+      case 'deleteCollection':
+        await deleteCollection(payload?.id ? String(payload.id) : collectionId)
+        break
+      case 'toggleCollectionMenu':
+        showCollectionMenu = !showCollectionMenu
+        break
+      case 'toggleEnvironmentMenu':
+        showEnvironmentMenu = !showEnvironmentMenu
         break
       case 'selectRequest': {
         const item = (collection?.items ?? []).find((i) => i.id === payload?.id)
@@ -644,6 +683,107 @@
     }
   }
 
+  // --- collections -----------------------------------------------------
+  //
+  // The three that change the workspace's shape rather than its contents.
+  // Each refreshes the workspace afterwards, since the switcher's list
+  // comes from it.
+
+  async function newCollection(name: string) {
+    const created = await CreateCollection(name)
+    await refreshWorkspace()
+    await selectCollection(created.id)
+  }
+
+  async function renameCollection(name: string, id = collectionId) {
+    await RenameCollection(id, name)
+    await refreshWorkspace()
+    if (id === collectionId) collection = await GetCollection(id)
+  }
+
+  // Deleting the open collection leaves nothing selected, so it moves to
+  // whichever is left rather than showing an empty sidebar for a
+  // collection that no longer exists.
+  async function deleteCollection(id = collectionId) {
+    await DeleteCollection(id)
+    const ws = await refreshWorkspace()
+    if (id === collectionId && ws.collections.length) {
+      await selectCollection(ws.collections[0].id)
+    }
+  }
+
+  async function refreshWorkspace(): Promise<core.WorkspaceInfo> {
+    workspace = await CurrentWorkspace()
+    return workspace
+  }
+
+  // The menu items open the dialog; the dialog's confirm calls the same
+  // function a ui:action would, so both paths land in one place.
+  function promptNewCollection() {
+    nameDialog = {
+      title: 'New collection',
+      confirmLabel: 'Create',
+      value: '',
+      onConfirm: (name) => runDialog(() => newCollection(name)),
+    }
+  }
+
+  function promptRenameCollection() {
+    nameDialog = {
+      title: 'Rename collection',
+      confirmLabel: 'Save',
+      value: collection?.name ?? '',
+      onConfirm: (name) => runDialog(() => renameCollection(name)),
+    }
+  }
+
+  function promptNewEnvironment() {
+    nameDialog = {
+      title: 'New environment',
+      confirmLabel: 'Create',
+      value: '',
+      onConfirm: (name) => runDialog(() => newEnvironment(name)),
+    }
+  }
+
+  function promptRenameEnvironment() {
+    nameDialog = {
+      title: 'Rename environment',
+      confirmLabel: 'Save',
+      value: environment?.name ?? '',
+      onConfirm: (name) => runDialog(() => renameEnvironment(name)),
+    }
+  }
+
+  // Renaming goes through the editor's own two steps — set the field,
+  // then save — so the dialog and the Settings name box can't diverge.
+  async function renameEnvironment(name: string) {
+    setEnvironmentField('name', name)
+    await saveEnvironment()
+  }
+
+  // Closes the dialog first so a backend error surfaces against the app
+  // rather than behind a modal that's still up.
+  async function runDialog(action: () => Promise<void>) {
+    nameDialog = null
+    try {
+      await action()
+    } catch (e) {
+      openError = String(e)
+    }
+  }
+
+  // Deleting asks first, the way deleting a request does — it takes every
+  // request in it with it.
+  function confirmDeleteCollection() {
+    const name = collection?.name ?? 'this collection'
+    const count = collection?.items?.length ?? 0
+    const detail = count ? ` and its ${count} request${count === 1 ? '' : 's'}` : ''
+    if (confirm(`Delete "${name}"${detail}? This can't be undone from the app.`)) {
+      void runDialog(() => deleteCollection())
+    }
+  }
+
   async function selectRequest(item: domain.Item) {
     selectedItemId = item.id
     draft = {
@@ -927,8 +1067,8 @@
     environment = await GetEnvironment(id)
   }
 
-  async function newEnvironment() {
-    const draft = { formatVersion: '1', id: '', name: 'New environment', variables: [] }
+  async function newEnvironment(name = 'New environment') {
+    const draft = { formatVersion: '1', id: '', name, variables: [] }
     const saved = await SaveEnvironment(draft as unknown as domain.Environment)
     if (workspace) workspace.environments = [...workspace.environments, { id: saved.id, name: saved.name }]
     await selectEnvironment(saved.id)
@@ -1087,6 +1227,35 @@
 <div class="app-shell" class:is-resizing={draggingSplitter !== null}>
   <header class="top-bar">
     <span class="top-bar-title">Freeman</span>
+    <!-- What you're working in and what you're resolving {{vars}}
+         against — the two workspace-level choices. They belong here
+         rather than in Settings: a collection is what fills the sidebar
+         all day, and reaching either through a preferences window meant
+         opening a dialog to change what you're looking at. -->
+    {#if workspace}
+      <Switcher
+        label="Collection"
+        items={workspace.collections}
+        selectedId={collectionId}
+        emptyName="No collection"
+        bind:open={showCollectionMenu}
+        onSelect={(id) => void runDialog(() => selectCollection(id))}
+        onNew={promptNewCollection}
+        onRename={promptRenameCollection}
+        onDelete={confirmDeleteCollection}
+      />
+      <Switcher
+        label="Environment"
+        items={workspace.environments}
+        selectedId={environmentId}
+        emptyName="No environment"
+        bind:open={showEnvironmentMenu}
+        onSelect={(id) => void runDialog(() => selectEnvironment(id))}
+        onNew={promptNewEnvironment}
+        onRename={promptRenameEnvironment}
+        onDelete={confirmDeleteEnvironment}
+      />
+    {/if}
     <span class="top-bar-actions">
       {#if workspace}
         <button class="icon-btn top-bar-btn" title="Settings" on:click={() => (showSettings = true)}>⚙</button>
@@ -1094,6 +1263,16 @@
       <button class="icon-btn top-bar-btn" title="Control API help" on:click={() => (showHelp = true)}>?</button>
     </span>
   </header>
+
+{#if nameDialog}
+  <NameDialog
+    title={nameDialog.title}
+    confirmLabel={nameDialog.confirmLabel}
+    value={nameDialog.value}
+    onConfirm={nameDialog.onConfirm}
+    onCancel={() => (nameDialog = null)}
+  />
+{/if}
 {#if !workspace}
   <main class="welcome">
     <h1>Freeman</h1>

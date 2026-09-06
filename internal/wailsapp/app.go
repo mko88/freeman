@@ -16,6 +16,7 @@ import (
 
 	"freeman/internal/appdata"
 	"freeman/internal/core"
+	"freeman/internal/domain"
 	"freeman/internal/httpengine"
 )
 
@@ -119,6 +120,38 @@ func (a *App) DeleteRequest(collectionID, itemID string) error {
 	}
 	a.deleteResponseCache(itemID)
 	return nil
+}
+
+// DeleteCollection shadows core.App's to also drop the cached responses
+// of every request it held. The cache is keyed by item ID alone, with no
+// record of which collection an item belonged to, so once the collection
+// file is gone nothing else could ever identify those entries.
+//
+// The collection is read before it's deleted, since afterwards there's
+// nothing left to enumerate.
+func (a *App) DeleteCollection(id string) error {
+	c, err := a.App.GetCollection(id)
+	if err != nil {
+		return err
+	}
+	if err := a.App.DeleteCollection(id); err != nil {
+		return err
+	}
+	a.forEachRequest(c.Items, func(itemID string) { a.deleteResponseCache(itemID) })
+	return nil
+}
+
+// forEachRequest walks a collection's tree, which nests: folders carry
+// their own Items (see domain.Item).
+func (a *App) forEachRequest(items []domain.Item, fn func(itemID string)) {
+	for _, item := range items {
+		if len(item.Items) > 0 {
+			a.forEachRequest(item.Items, fn)
+		}
+		if item.Type == domain.ItemTypeRequest {
+			fn(item.ID)
+		}
+	}
 }
 
 // GetCachedResponse returns the last response itemID's request got (see

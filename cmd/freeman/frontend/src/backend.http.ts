@@ -35,6 +35,18 @@ export function GetCollection(id: string): Promise<domain.Collection> {
   return request('GET', `/api/collections/${encodeURIComponent(id)}`)
 }
 
+export function CreateCollection(name: string): Promise<domain.Collection> {
+  return request('POST', '/api/collections', { name })
+}
+
+export function RenameCollection(id: string, name: string): Promise<domain.Collection> {
+  return request('PATCH', `/api/collections/${encodeURIComponent(id)}`, { name })
+}
+
+export function DeleteCollection(id: string): Promise<void> {
+  return request('DELETE', `/api/collections/${encodeURIComponent(id)}`)
+}
+
 export function SaveRequest(collectionId: string, item: domain.Item): Promise<domain.Item> {
   return request('POST', `/api/collections/${encodeURIComponent(collectionId)}/requests`, item)
 }

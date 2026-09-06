@@ -440,6 +440,60 @@ button.primary:disabled:hover {
   border-color: transparent;
 }
 
+/* ---------------------------------------------------------------------------
+   Dropdown menus: the response pane's "..." actions and the top bar's
+   collection/environment switchers. Global because more than one
+   component opens one — scoped to whichever component happened to
+   define it first, the second one gets the markup and none of the
+   styling, which is a menu that renders as a row of loose buttons.
+
+   The backdrop is a full-screen click target under the menu, so clicking
+   anywhere else closes it without every component wiring up a document
+   listener of its own.
+   --------------------------------------------------------------------------- */
+
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+  overflow: hidden;
+  /* Opaque fill so the menu doesn't read as part of whatever it floats
+     over: the base colour with the elevated overlay painted on top of
+     it, a touch lighter than the page. */
+  background-color: var(--fm-bg);
+  background-image: linear-gradient(var(--fm-bg-elevated), var(--fm-bg-elevated));
+  border: 1px solid var(--fm-border);
+  border-radius: var(--fm-radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.dropdown-menu button {
+  justify-content: flex-start;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.dropdown-menu button + button {
+  border-top: 1px solid var(--fm-border-subtle);
+}
+
+.dropdown-menu button:hover {
+  background: var(--fm-bg-hover);
+}
+
 /* The collapse toggle for a pane — the request editor's tab row, the
    response's status strip, and the control-API log all use it. One
    class rather than each borrowing the styling of whatever row it sits

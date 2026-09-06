@@ -14,8 +14,16 @@ export function ControlAPIAddr() {
   return window['go']['wailsapp']['App']['ControlAPIAddr']();
 }
 
+export function CreateCollection(arg1) {
+  return window['go']['wailsapp']['App']['CreateCollection'](arg1);
+}
+
 export function CurrentWorkspace() {
   return window['go']['wailsapp']['App']['CurrentWorkspace']();
+}
+
+export function DeleteCollection(arg1) {
+  return window['go']['wailsapp']['App']['DeleteCollection'](arg1);
 }
 
 export function DeleteEnvironment(arg1) {
@@ -84,6 +92,10 @@ export function OpenResponseCacheInFileExplorer(arg1) {
 
 export function OpenWorkspace(arg1) {
   return window['go']['wailsapp']['App']['OpenWorkspace'](arg1);
+}
+
+export function RenameCollection(arg1, arg2) {
+  return window['go']['wailsapp']['App']['RenameCollection'](arg1, arg2);
 }
 
 export function ReportUIState(arg1) {

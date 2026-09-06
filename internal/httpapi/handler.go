@@ -26,6 +26,12 @@ type executeRequest struct {
 	EnvironmentID string `json:"environmentId"`
 }
 
+// namedRequest is the body for the routes whose whole payload is a
+// display name — creating a collection, renaming one.
+type namedRequest struct {
+	Name string `json:"name"`
+}
+
 // codegenRequest is POST /api/codegen's body shape: the request to render
 // (passed inline so unsaved editor edits can be previewed), the
 // environment to resolve {{var}} against, and the output format (see
@@ -75,6 +81,42 @@ func NewHandler(app *core.App, static fs.FS) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, c)
+	})
+
+	mux.HandleFunc("POST /api/collections", func(w http.ResponseWriter, r *http.Request) {
+		var body namedRequest
+		if err := decodeJSON(r, &body); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		c, err := app.CreateCollection(body.Name)
+		if err != nil {
+			writeCoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, c)
+	})
+
+	mux.HandleFunc("PATCH /api/collections/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var body namedRequest
+		if err := decodeJSON(r, &body); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		c, err := app.RenameCollection(r.PathValue("id"), body.Name)
+		if err != nil {
+			writeCoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, c)
+	})
+
+	mux.HandleFunc("DELETE /api/collections/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if err := app.DeleteCollection(r.PathValue("id")); err != nil {
+			writeCoreError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	mux.HandleFunc("POST /api/collections/{id}/requests", func(w http.ResponseWriter, r *http.Request) {

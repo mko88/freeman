@@ -100,6 +100,7 @@ from control_api.checks.responses import (
     test_ui_state_getter,
 )
 from control_api.checks.workspace import (
+    test_collection_management,
     test_read_only_routes,
     test_settings_window,
     test_workspace_navigation,
@@ -224,6 +225,7 @@ def main() -> int:
         test_response_cache(api, r, collection_id, environment_id, item_ids.get("response_cache"))
         test_code_tab(api, r, collection_id, environment_id, item_ids.get("code_tab"))
         test_delete_request(api, r, collection_id)
+        test_collection_management(api, r, collection_id)
         test_settings_window(api, r)
         test_layout_comfort(api, r)
         test_help_modal(api, r)
