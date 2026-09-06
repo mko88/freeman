@@ -1,6 +1,8 @@
-// Package codegen renders a saved domain.Item as a runnable command in an
-// external tool — a curl invocation or a PowerShell Invoke-RestMethod
-// call, each as a one-liner or a small script. It mirrors what
+// Package codegen renders a saved domain.Item as a small runnable
+// script — a bash one around curl, or a PowerShell one around
+// Invoke-RestMethod. Each pulls the URL, headers and body out as
+// variables, so a body stays readable and every part is editable on its
+// own. It mirrors what
 // internal/httpengine.Execute does (same {{var}} substitution, same
 // query-param/header/auth/body handling) so the generated command sends
 // the same request the app's own "Send" would.
@@ -22,10 +24,8 @@ import (
 type Format string
 
 const (
-	FormatCurl             Format = "curl"
-	FormatShell            Format = "shell"
-	FormatPowerShell       Format = "powershell"
-	FormatPowerShellScript Format = "powershell-script"
+	FormatBash       Format = "bash"
+	FormatPowerShell Format = "powershell"
 )
 
 // Generate renders item, with vars substituted, in the given format.
@@ -35,14 +35,10 @@ func Generate(item domain.Item, vars map[string]string, format Format) (string, 
 		return "", err
 	}
 	switch format {
-	case FormatCurl:
-		return renderCurl(r), nil
-	case FormatShell:
-		return renderShellScript(r), nil
+	case FormatBash:
+		return renderBash(r), nil
 	case FormatPowerShell:
 		return renderPowerShell(r), nil
-	case FormatPowerShellScript:
-		return renderPowerShellScript(r), nil
 	default:
 		return "", fmt.Errorf("unknown code format %q", format)
 	}
@@ -266,61 +262,16 @@ func suppressContentType(r request) bool {
 	return r.body.kind == bodyRaw && r.header("Content-Type") == ""
 }
 
-// renderCurl is the one-liner: everything inline, quoted for sh.
-func renderCurl(r request) string {
-	groups := [][]string{{"curl", "-X", r.method, shQuote(r.url)}}
-	groups = append(groups, curlHeaderArgs(r)...)
-	groups = append(groups, curlBodyArgs(r.body)...)
-
-	parts := make([]string, len(groups))
-	for i, g := range groups {
-		parts[i] = strings.Join(g, " ")
-	}
-	return strings.Join(parts, " ")
-}
-
-// curlBodyArgs renders the body as inline curl argument groups.
-func curlBodyArgs(b reqBody) [][]string {
-	switch b.kind {
-	case bodyRaw:
-		return [][]string{{"--data-raw", shQuote(b.raw)}}
-	case bodyURLEncoded:
-		out := make([][]string, 0, len(b.pairs))
-		for _, p := range b.pairs {
-			out = append(out, []string{"--data-urlencode", shQuote(p.name + "=" + p.value)})
-		}
-		return out
-	case bodyForm:
-		out := make([][]string, 0, len(b.pairs)+len(b.files))
-		for _, p := range b.pairs {
-			out = append(out, []string{"-F", shQuote(p.name + "=" + p.value)})
-		}
-		for _, f := range b.files {
-			out = append(out, []string{"-F", shQuote(f.name + "=@" + f.value)})
-		}
-		return out
-	case bodyBinary:
-		return [][]string{{"--data-binary", shQuote("@" + b.filePath)}}
-	}
-	return nil
-}
-
-// renderShellScript is the same request as something you'd keep in a
-// file: the URL, the headers and the body come out as variables first,
-// so each is editable on its own instead of buried in one long command.
+// renderBash writes the request as something you'd keep in a file: the
+// URL, the headers and the body come out as variables first, so each is
+// editable on its own instead of buried in one long command.
 //
-// A raw body goes in a quoted heredoc, which means it needs no escaping
-// at all. The one-liner has to turn every apostrophe into
+// A raw body goes in a quoted heredoc, so it needs no escaping at all —
+// it appears exactly as typed, however many quotes it contains. That's
+// most of the point: a JSON document is meant to stay readable here.
 //
-//	'\''
-//
-// to survive sh quoting, and a JSON document full of those is neither
-// readable nor editable — which is most of the point of the script form.
-//
-// The example is indented so gofmt reads it as a code block and leaves
-// it alone: a bare pair of apostrophes in ordinary doc-comment prose
-// gets rewritten to a closing quotation mark.
-func renderShellScript(r request) string {
+// bash rather than POSIX sh: the header and field lists are arrays.
+func renderBash(r request) string {
 	var b strings.Builder
 	b.WriteString("#!/usr/bin/env bash\n")
 	b.WriteString("set -euo pipefail\n\n")
@@ -403,7 +354,7 @@ func shQuote(s string) string {
 
 // --- PowerShell ------------------------------------------------------------
 
-// psRequest is what both PowerShell renderers work from: Content-Type is
+// psRequest is what the PowerShell renderer works from: Content-Type is
 // pulled out of the headers because Invoke-RestMethod rejects it
 // appearing both there and as -ContentType.
 type psRequest struct {
@@ -434,35 +385,12 @@ func urlEncodedBody(pairs []kv) string {
 	return values.Encode()
 }
 
-// renderPowerShell is the one-liner: hashtables and body inline.
-func renderPowerShell(r request) string {
-	ps := splitPowerShell(r)
-	params := []string{"-Method " + r.method, "-Uri " + psQuote(r.url)}
-	if len(ps.headers) > 0 {
-		params = append(params, "-Headers "+psHashtable(ps.headers, nil))
-	}
-	switch r.body.kind {
-	case bodyRaw:
-		params = append(params, "-Body "+psQuote(r.body.raw))
-	case bodyURLEncoded:
-		params = append(params, "-Body "+psQuote(urlEncodedBody(r.body.pairs)))
-	case bodyForm:
-		params = append(params, "-Form "+psHashtable(r.body.pairs, r.body.files))
-	case bodyBinary:
-		params = append(params, "-InFile "+psQuote(r.body.filePath))
-	}
-	if ps.contentType != "" {
-		params = append(params, "-ContentType "+psQuote(ps.contentType))
-	}
-	return "Invoke-RestMethod " + strings.Join(params, " ")
-}
-
-// renderPowerShellScript pulls every part out as a variable — $uri,
-// $headers, and $body/$form/$file — so the Invoke-RestMethod call at the
-// bottom reads as a list of names. A raw body becomes a single-quoted
+// renderPowerShell pulls every part out as a variable — $uri, $headers,
+// and $body/$form/$file — so the Invoke-RestMethod call at the bottom
+// reads as a list of names. A raw body becomes a single-quoted
 // here-string, which is literal: no doubling of every ' the way an
 // inline PowerShell string needs.
-func renderPowerShellScript(r request) string {
+func renderPowerShell(r request) string {
 	ps := splitPowerShell(r)
 	var b strings.Builder
 
@@ -523,20 +451,6 @@ func psBodyLiteral(body string) string {
 		}
 	}
 	return "@'\n" + body + "\n'@"
-}
-
-// psHashtable renders a PowerShell hashtable literal on one line. files,
-// when given, are appended as Get-Item entries — the -Form shape for
-// file fields.
-func psHashtable(pairs []kv, files []kv) string {
-	parts := make([]string, 0, len(pairs)+len(files))
-	for _, p := range pairs {
-		parts = append(parts, psQuote(p.name)+" = "+psQuote(p.value))
-	}
-	for _, f := range files {
-		parts = append(parts, psQuote(f.name)+" = Get-Item "+psQuote(f.value))
-	}
-	return "@{ " + strings.Join(parts, "; ") + " }"
 }
 
 // psQuote wraps s in a single-quoted PowerShell string, doubling any '.

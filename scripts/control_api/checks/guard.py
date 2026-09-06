@@ -63,12 +63,12 @@ def test_api_guard(api: ControlAPI, r: Report) -> None:
     status, body = api.raw(
         "POST",
         "/api/codegen",
-        {"item": {"method": "GET", "url": "https://example.com"}, "environmentId": "", "format": "curl"},
+        {"item": {"method": "GET", "url": "https://example.com"}, "environmentId": "", "format": "bash"},
         content_type="application/json; charset=utf-8",
     )
     r.check(
         "a charset parameter on the content type is still accepted",
-        status == 200 and isinstance(body, dict) and body.get("code", "").startswith("curl "),
+        status == 200 and isinstance(body, dict) and body.get("code", "").startswith("#!/usr/bin/env bash"),
         f"status={status} body={body}",
     )
 

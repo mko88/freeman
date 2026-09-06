@@ -215,15 +215,6 @@ code {
   border-bottom: 2px solid var(--fm-accent);
 }
 
-/* Collapses the pane the tabs belong to. Same glyph and same leading
-   position as the response strip's toggle and the control-API log's —
-   one collapse language across the app. Narrower than a tab because
-   it's a control on the row, not one of the choices in it. */
-.tabs-disclosure {
-  padding-left: 0.35rem;
-  padding-right: 0.35rem;
-}
-
 /* What a tab holds — a row count, or the option it has selected — so
    the ones you're not looking at still say what's in them. Always
    rendered, including at zero: a tab with nothing in it should look
@@ -411,6 +402,43 @@ button.primary:disabled:hover {
 }
 
 .icon-btn:hover {
+  background: var(--fm-bg-hover);
+  border-color: transparent;
+}
+
+/* The collapse toggle for a pane — the request editor's tab row, the
+   response's status strip, and the control-API log all use it. One
+   class rather than each borrowing the styling of whatever row it sits
+   in, which is how they drifted apart: the tab row painted its one
+   muted and the status strip left its one at full text colour.
+--
+   The fixed min-width with the glyph centred is what lines the editor's
+   two up with each other: the tab row and the status strip start at the
+   same left edge, so a centred glyph in a fixed-width box lands at the
+   same x in both, whatever padding the rest of each row uses. (The log's
+   sits in its own strip at the window edge and doesn't share a column
+   with them.)
+--
+   `button.disclosure` rather than `.disclosure` so it outranks
+   `.tabs button`, which would otherwise win on specificity and restore
+   the tab row's own padding and colour. It has to stay below that rule
+   for the tie on :hover to break this way too. */
+button.disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  padding: 0.3rem 0;
+  background: none;
+  border: none;
+  border-radius: var(--fm-radius);
+  color: var(--fm-text-muted);
+  line-height: 1;
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+
+button.disclosure:hover {
+  color: var(--fm-text);
   background: var(--fm-bg-hover);
   border-color: transparent;
 }

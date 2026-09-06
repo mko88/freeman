@@ -13,12 +13,10 @@ export type BodyMode = 'none' | 'raw' | 'form-data' | 'x-www-form-urlencoded' | 
 export type FormFieldType = 'text' | 'file'
 export type RequestTab = 'params' | 'headers' | 'auth' | 'body' | 'code'
 export type AuthType = 'none' | 'bearer' | 'basic' | 'apikey'
-export type CodeFormat = 'curl' | 'shell' | 'powershell' | 'powershell-script'
+export type CodeFormat = 'bash' | 'powershell'
 export const codeFormats: { value: CodeFormat; label: string }[] = [
-  { value: 'curl', label: 'curl' },
-  { value: 'shell', label: 'shell script' },
+  { value: 'bash', label: 'bash' },
   { value: 'powershell', label: 'PowerShell' },
-  { value: 'powershell-script', label: 'PowerShell script' },
 ]
 
 export const bodyModes: { value: BodyMode; label: string }[] = [

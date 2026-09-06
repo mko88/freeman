@@ -82,12 +82,11 @@
   $: resolvedBodyLanguage = resolveBodyLanguage(bodyLanguage, draft.bodyRaw, bodyContentType)
 
   // No sniffing needed for the Code tab — the format that generated the
-  // snippet says what language it is.
-  function languageOf(format: CodeFormat): 'shell' | 'powershell' {
-    return format === 'powershell' || format === 'powershell-script' ? 'powershell' : 'shell'
-  }
+  // snippet says what language it is. CodeEditor calls bash 'shell',
+  // after the grammar it loads for it, which covers sh and bash alike.
+  const codeLanguages = { bash: 'shell', powershell: 'powershell' } as const
 
-  $: codeLanguage = languageOf(codeFormat)
+  $: codeLanguage = codeLanguages[codeFormat]
 
   // Tab badges. Every tab that holds state always shows it, including
   // when that state is empty: a silent tab and a tab holding nothing
@@ -133,7 +132,7 @@
 
 <div class="tabs">
   <button
-    class="tabs-disclosure"
+    class="disclosure"
     title={requestPaneCollapsed ? 'Expand the request editor' : 'Collapse the request editor'}
     aria-expanded={!requestPaneCollapsed}
     on:click={() => (requestPaneCollapsed = !requestPaneCollapsed)}>{requestPaneCollapsed ? '▸' : '▾'}</button

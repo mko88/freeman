@@ -27,8 +27,11 @@
 
 <footer class="status-bar" style={showLog ? `height: ${height}px` : ''}>
   <div class="status-bar-header">
-    <button class="icon-btn" title={showLog ? 'Collapse the log' : 'Expand the log'} on:click={onToggle}
-      >{showLog ? '▾' : '▸'}</button
+    <button
+      class="disclosure"
+      title={showLog ? 'Collapse the log' : 'Expand the log'}
+      aria-expanded={showLog}
+      on:click={onToggle}>{showLog ? '▾' : '▸'}</button
     >
     <span>
       {#if controlApiAddr}

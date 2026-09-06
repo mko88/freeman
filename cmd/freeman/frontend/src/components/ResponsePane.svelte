@@ -107,7 +107,7 @@
              control API log's own toggle at the foot of the window —
              the app has one collapse language, not two. -->
         <button
-          class="icon-btn"
+          class="disclosure"
           title={collapsed ? 'Expand the response' : 'Collapse the response'}
           aria-expanded={!collapsed}
           on:click={() => (collapsed = !collapsed)}>{collapsed ? '▸' : '▾'}</button

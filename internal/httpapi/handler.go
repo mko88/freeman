@@ -29,7 +29,7 @@ type executeRequest struct {
 // codegenRequest is POST /api/codegen's body shape: the request to render
 // (passed inline so unsaved editor edits can be previewed), the
 // environment to resolve {{var}} against, and the output format (see
-// internal/codegen: curl, shell, powershell, powershell-script).
+// internal/codegen: bash or powershell).
 type codegenRequest struct {
 	Item          domain.Item `json:"item"`
 	EnvironmentID string      `json:"environmentId"`
