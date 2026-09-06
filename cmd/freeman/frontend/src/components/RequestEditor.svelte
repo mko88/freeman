@@ -8,8 +8,10 @@
   // Everything that reaches the backend stays in App.svelte and arrives
   // as a callback, so a click and a control-API action take the same
   // path.
+  import CodeEditor from './CodeEditor.svelte'
   import { methodColor } from '../lib/format'
-  import { highlightGeneratedCode } from '../lib/highlightScript'
+  import { resolveBodyLanguage } from '../lib/responseFormat'
+  import type { BodyLanguage } from '../lib/responseFormat'
   import { bodyModes, codeFormats, methods } from '../lib/requestDraft'
   import type { CodeFormat, RequestDraft, RequestTab } from '../lib/requestDraft'
 
@@ -23,6 +25,7 @@
   export let activeTab: RequestTab
   export let requestPaneCollapsed: boolean
   export let codeFormat: CodeFormat
+  export let bodyLanguage: BodyLanguage
   export let generatedCode: string
   export let codeError: string
   export let headerCatalog: HeaderCatalogEntry[]
@@ -56,19 +59,35 @@
     return headerCatalog.find((e) => e.name.toLowerCase() === norm)?.values ?? []
   }
 
-  // Clicking the active tab collapses the pane; clicking another switches
-  // to it. The control API gets selectRequestTab instead, which always
-  // switches and expands — a script asking for 'body' shouldn't get a
-  // collapse just because 'body' happened to be active. Both land on the
-  // same two bound props.
+  // Picking a tab shows it — collapsing is the disclosure toggle's job
+  // alone, not a second meaning overloaded onto these buttons. Same
+  // split as the response pane's.
   function onRequestTabClick(tab: RequestTab) {
-    if (activeTab === tab) {
-      requestPaneCollapsed = !requestPaneCollapsed
-    } else {
-      activeTab = tab
-      requestPaneCollapsed = false
-    }
+    activeTab = tab
+    requestPaneCollapsed = false
   }
+
+  const bodyLanguages: { value: BodyLanguage; label: string }[] = [
+    { value: 'auto', label: 'Auto' },
+    { value: 'json', label: 'JSON' },
+    { value: 'xml', label: 'XML' },
+    { value: 'plain', label: 'Plain' },
+  ]
+
+  // Auto reads the request's own Content-Type row before falling back to
+  // the body's first character — a body that starts as `{` is JSON well
+  // before it's valid JSON.
+  $: bodyContentType =
+    draft.headers.find((h) => h.enabled && h.key.trim().toLowerCase() === 'content-type')?.value ?? ''
+  $: resolvedBodyLanguage = resolveBodyLanguage(bodyLanguage, draft.bodyRaw, bodyContentType)
+
+  // No sniffing needed for the Code tab — the format that generated the
+  // snippet says what language it is.
+  function languageOf(format: CodeFormat): 'shell' | 'powershell' {
+    return format === 'powershell' || format === 'powershell-script' ? 'powershell' : 'shell'
+  }
+
+  $: codeLanguage = languageOf(codeFormat)
 
   // Tab badges — count of rows with a key filled in (a blank row the
   // user just added isn't a param/header/field yet), blank at zero.
@@ -104,9 +123,15 @@
   <select class="method-select" bind:value={draft.method} style="--m: {methodColor(draft.method)}">
     {#each methods as m}<option value={m}>{m}</option>{/each}
   </select>
+  <!-- Enter sends, the way a browser's address bar goes. No new
+       ui:action for it: this is a second route to onSend, which the
+       control API already reaches as `sendRequest`. -->
   <input
     type="text"
     bind:value={draft.url}
+    on:keydown={(e) => {
+      if (e.key === 'Enter' && !sending) onSend()
+    }}
     placeholder="{'{'}{'{'}schema{'}'}{'}'}://{'{'}{'{'}base{'}'}{'}'}/api/{'{'}{'{'}version{'}'}{'}'}/health"
   />
   <button on:click={onSave}>Save</button>
@@ -116,26 +141,25 @@
 </div>
 
 <div class="tabs">
+  <button
+    class="tabs-disclosure"
+    title={requestPaneCollapsed ? 'Expand the request editor' : 'Collapse the request editor'}
+    aria-expanded={!requestPaneCollapsed}
+    on:click={() => (requestPaneCollapsed = !requestPaneCollapsed)}>{requestPaneCollapsed ? '▸' : '▾'}</button
+  >
   <button class:active={activeTab === 'params'} on:click={() => onRequestTabClick('params')}>
     Params{#if paramsTabBadge}<span class="tab-count">{paramsTabBadge}</span>{/if}
-    {#if activeTab === 'params'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
   </button>
   <button class:active={activeTab === 'headers'} on:click={() => onRequestTabClick('headers')}>
     Headers{#if headersTabBadge}<span class="tab-count">{headersTabBadge}</span>{/if}
-    {#if activeTab === 'headers'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
   </button>
   <button class:active={activeTab === 'auth'} on:click={() => onRequestTabClick('auth')}>
     Auth{#if authTabBadge}<span class="tab-count">{authTabBadge}</span>{/if}
-    {#if activeTab === 'auth'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
   </button>
   <button class:active={activeTab === 'body'} on:click={() => onRequestTabClick('body')}>
     Body{#if bodyTabBadge}<span class="tab-count">{bodyTabBadge}</span>{/if}
-    {#if activeTab === 'body'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
   </button>
-  <button class:active={activeTab === 'code'} on:click={() => onRequestTabClick('code')}>
-    Code
-    {#if activeTab === 'code'}<span class="tab-chevron">{requestPaneCollapsed ? '▸' : '▾'}</span>{/if}
-  </button>
+  <button class:active={activeTab === 'code'} on:click={() => onRequestTabClick('code')}>Code</button>
 </div>
 
 {#if !requestPaneCollapsed}
@@ -240,7 +264,7 @@
     {#if codeError}
       <p class="error">{codeError}</p>
     {:else}
-      <pre class="code-output">{@html highlightGeneratedCode(generatedCode, codeFormat)}</pre>
+      <CodeEditor readOnly wrap={false} layout="fill" value={generatedCode} language={codeLanguage} />
     {/if}
   </div>
 {:else}
@@ -254,7 +278,17 @@
   </div>
 
   {#if draft.bodyMode === 'raw'}
-    <textarea class="body-editor" bind:value={draft.bodyRaw} placeholder="Raw request body"></textarea>
+    <div class="body-languages">
+      {#each bodyLanguages as l}
+        <button class:active={bodyLanguage === l.value} on:click={() => (bodyLanguage = l.value)}>{l.label}</button>
+      {/each}
+      {#if bodyLanguage === 'auto'}
+        <span class="body-language-detected">detected: {resolvedBodyLanguage}</span>
+      {/if}
+      <span class="body-keys">Tab indents · Esc then Tab leaves</span>
+    </div>
+
+    <CodeEditor bind:value={draft.bodyRaw} language={resolvedBodyLanguage} placeholder="Raw request body" />
   {:else if draft.bodyMode === 'form-data' || draft.bodyMode === 'x-www-form-urlencoded'}
     <table class="kv-table">
       <thead>
@@ -333,11 +367,40 @@
     border-left: 2px solid var(--m);
   }
 
-  .body-editor {
-    width: 100%;
-    min-height: 140px;
-    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
-    resize: vertical;
+  .body-languages {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .body-languages button {
+    padding: 0.15rem 0.5rem;
+    font-size: 0.8rem;
+    color: var(--fm-text-muted);
+  }
+
+  .body-languages button.active {
+    color: var(--fm-text);
+    border-color: var(--fm-accent);
+    background: color-mix(in srgb, var(--fm-accent) 14%, transparent);
+  }
+
+  .body-languages button.active:hover {
+    background: color-mix(in srgb, var(--fm-accent) 22%, transparent);
+  }
+
+  .body-language-detected {
+    font-size: 0.72rem;
+    color: var(--fm-text-muted);
+  }
+
+  /* Tab-indents-instead-of-moving-focus isn't guessable, and neither is
+     the way back out. */
+  .body-keys {
+    margin-left: auto;
+    font-size: 0.72rem;
+    color: var(--fm-text-muted);
   }
 
   .body-mode-picker {
@@ -416,7 +479,11 @@
     min-width: 0;
   }
 
+  /* Takes the whole editor pane: App.svelte hides the response while
+     this tab is open, so there's nothing below to share the height
+     with. */
   .code-tab {
+    flex: 1;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -450,14 +517,4 @@
     margin-left: auto;
   }
 
-  .code-output {
-    margin: 0;
-    max-height: 16rem;
-    overflow: auto;
-    background: var(--fm-bg-response);
-    padding: 0.75rem;
-    font-size: 0.8rem;
-    white-space: pre;
-    word-break: normal;
-  }
 </style>

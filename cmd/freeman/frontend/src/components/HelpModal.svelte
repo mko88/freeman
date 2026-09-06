@@ -38,6 +38,7 @@
       desc:
         'Current editor state — workspaceRoot/name/method/url/bodyMode/bodyRaw/binaryFilePath/params/headers/auth/' +
         'formFields/codeFormat/code (the Code tab’s rendered command, when that tab is open)/' +
+        'bodyLanguage (how the raw body editor is highlighted)/' +
         'tab/requestPaneCollapsed/selected ids/the open environment/the last response ' +
         '(truncated/bodyFile in place of body when it was too large — bodyFile is its path in the ' +
         'per-request on-disk cache, see clearResponseCache; capped when the response outgrew the ' +
@@ -85,7 +86,9 @@
     {
       action: 'setResponseTab',
       payload: '{ tab }',
-      desc: "Switch the response panel. tab is 'body' or 'headers' (the response's headers).",
+      desc:
+        "Switch the response panel. tab is 'body' or 'headers' (the response's headers). " +
+        'Always expands the pane if it was collapsed.',
     },
     {
       action: 'setResponseView',
@@ -122,7 +125,9 @@
     {
       action: 'selectRequestTab',
       payload: '{ tab }',
-      desc: "Switch the request editor tab. tab is 'params', 'headers', 'auth', 'body' or 'code'.",
+      desc:
+        "Switch the request editor tab. tab is 'params', 'headers', 'auth', 'body' or 'code'. " +
+        "'code' hides the response pane; the response itself is unaffected and still readable through /api/ui/state.",
     },
     {
       action: 'selectCodeFormat',
@@ -132,6 +137,14 @@
         "or 'powershell-script'. Read the rendered command from GET /api/ui/state's code field.",
     },
     {
+      action: 'selectBodyLanguage',
+      payload: '{ language }',
+      desc:
+        "Set how the Body tab's raw editor is syntax-highlighted. language is 'auto', 'json', 'xml', or " +
+        "'plain'; 'auto' reads the request's Content-Type header, then the body's first character. A view " +
+        'preference only — it changes nothing about what gets sent.',
+    },
+    {
       action: 'copyRequestCode',
       payload: '—',
       desc: "Copy the Code tab's rendered command to the clipboard.",
@@ -139,10 +152,22 @@
     {
       action: 'toggleRequestPane',
       payload: '—',
-      desc: 'Collapse/expand the request editor’s Headers/Body content (same as clicking the active tab).',
+      desc:
+        'Collapse/expand the request editor’s tab content, leaving its name/URL/tab rows ' +
+        '(same as the ▾ toggle at the head of the tab row). The response takes the freed space.',
+    },
+    {
+      action: 'toggleResponsePane',
+      payload: '—',
+      desc: 'Collapse/expand the response body/headers, leaving its status strip (same as the ▾ toggle on that strip).',
     },
     { action: 'toggleControlApiLog', payload: '—', desc: 'Collapse/expand the control API log at the bottom.' },
     { action: 'setSidebarWidth', payload: '{ px }', desc: 'Resize the request list (clamped to a sane range).' },
+    {
+      action: 'setResponseHeight',
+      payload: '{ px }',
+      desc: 'Set the response pane’s height, i.e. the request/response splitter (clamped to a sane range).',
+    },
     {
       action: 'setStatusBarHeight',
       payload: '{ px }',

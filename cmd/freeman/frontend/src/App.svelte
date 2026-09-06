@@ -30,6 +30,7 @@
   import SettingsModal from './components/SettingsModal.svelte'
   import { formatBytes, formatDuration, methodColor, reasonPhrase, statusTone } from './lib/format'
   import { detectResponseKind, formatResponse } from './lib/responseFormat'
+  import type { BodyLanguage } from './lib/responseFormat'
   import { bodyModes, codeFormats, emptyAuth, emptyDraft, methods } from './lib/requestDraft'
   import type { AuthType, BodyMode, CodeFormat, FormFieldType, RequestDraft, RequestTab } from './lib/requestDraft'
 
@@ -90,6 +91,10 @@
   // .response (already flex: 1) just grows into the freed space.
   let requestPaneCollapsed = false
 
+  // The same gesture on the response's own Body/Headers switch: the meta
+  // strip stays, so there's always something to click to get it back.
+  let responsePaneCollapsed = false
+
   // The Code tab renders the draft request as a runnable command (see
   // internal/codegen). codeFormat is sticky like responseView — a view
   // preference, not per-request state. generatedCode is recomputed by the
@@ -98,13 +103,23 @@
   let generatedCode = ''
   let codeError = ''
 
+  // How the raw-body editor colours what's being typed. Sticky like
+  // codeFormat and responseView — a view preference, not part of the
+  // request. 'auto' reads the Content-Type row and the first character.
+  let bodyLanguage: BodyLanguage = 'auto'
+
   // Sidebar width, the log panel's height, and whether the log panel is
   // collapsed are pure layout comfort — remembered per-browser-profile
   // via localStorage (silently no-op if unavailable, e.g. a locked-down
   // profile) rather than round-tripped through the workspace like real
   // request/environment data.
   const LAYOUT_PREFS_KEY = 'freeman.layoutPrefs'
-  function loadLayoutPrefs(): { sidebarWidth?: number; statusBarHeight?: number; showControlApiLog?: boolean } {
+  function loadLayoutPrefs(): {
+    sidebarWidth?: number
+    statusBarHeight?: number
+    responseHeight?: number
+    showControlApiLog?: boolean
+  } {
     try {
       return JSON.parse(localStorage.getItem(LAYOUT_PREFS_KEY) ?? '{}')
     } catch {
@@ -113,7 +128,10 @@
   }
   function saveLayoutPrefs() {
     try {
-      localStorage.setItem(LAYOUT_PREFS_KEY, JSON.stringify({ sidebarWidth, statusBarHeight, showControlApiLog }))
+      localStorage.setItem(
+        LAYOUT_PREFS_KEY,
+        JSON.stringify({ sidebarWidth, statusBarHeight, responseHeight, showControlApiLog }),
+      )
     } catch {
       // ignore — comfort setting only, not worth surfacing an error for
     }
@@ -121,8 +139,10 @@
   const layoutPrefs = loadLayoutPrefs()
   const SIDEBAR_WIDTH_RANGE = [180, 560] as const
   const STATUS_BAR_HEIGHT_RANGE = [60, 500] as const
+  const RESPONSE_HEIGHT_RANGE = [120, 1200] as const
   let sidebarWidth = clamp(layoutPrefs.sidebarWidth ?? 260, SIDEBAR_WIDTH_RANGE)
   let statusBarHeight = clamp(layoutPrefs.statusBarHeight ?? 118, STATUS_BAR_HEIGHT_RANGE)
+  let responseHeight = clamp(layoutPrefs.responseHeight ?? 360, RESPONSE_HEIGHT_RANGE)
   let showControlApiLog = layoutPrefs.showControlApiLog ?? true
   function clamp(value: number, [min, max]: readonly [number, number]): number {
     return Math.min(max, Math.max(min, value))
@@ -132,7 +152,11 @@
   // status bar). One pair of window-level pointer listeners handles
   // whichever splitter is currently being dragged, rather than each
   // splitter wiring its own — there's only ever one drag in flight.
-  let draggingSplitter: 'sidebar' | 'statusBar' | null = null
+  let draggingSplitter: 'sidebar' | 'statusBar' | 'response' | null = null
+  // The editor column, needed to turn a pointer position into a response
+  // height: the response's bottom edge is this element's bottom, not the
+  // window's — the status bar sits below it.
+  let editorEl: HTMLElement | undefined
   function onSplitterPointerDown(which: typeof draggingSplitter) {
     draggingSplitter = which
   }
@@ -141,6 +165,8 @@
       sidebarWidth = clamp(e.clientX, SIDEBAR_WIDTH_RANGE)
     } else if (draggingSplitter === 'statusBar') {
       statusBarHeight = clamp(window.innerHeight - e.clientY, STATUS_BAR_HEIGHT_RANGE)
+    } else if (draggingSplitter === 'response' && editorEl) {
+      responseHeight = clamp(editorEl.getBoundingClientRect().bottom - e.clientY, RESPONSE_HEIGHT_RANGE)
     }
   }
   function onWindowPointerUp() {
@@ -210,6 +236,7 @@
       ...draft,
       codeFormat,
       code: generatedCode,
+      bodyLanguage,
       environment,
       showSettings,
       settingsTab,
@@ -219,10 +246,12 @@
       response,
       responseTab,
       responseView,
+      responsePaneCollapsed,
       responseKind: formattedResponse.kind,
       showResponseActionsMenu,
       sidebarWidth,
       statusBarHeight,
+      responseHeight,
       showControlApiLog,
     }
     // Encoded here and passed as a string, not the plain object — a
@@ -385,11 +414,19 @@
         if (f === 'curl' || f === 'shell' || f === 'powershell' || f === 'powershell-script') codeFormat = f
         break
       }
+      case 'selectBodyLanguage': {
+        const l = payload?.language
+        if (l === 'auto' || l === 'json' || l === 'xml' || l === 'plain') bodyLanguage = l
+        break
+      }
       case 'copyRequestCode':
         await copyRequestCode()
         break
       case 'toggleRequestPane':
         requestPaneCollapsed = !requestPaneCollapsed
+        break
+      case 'toggleResponsePane':
+        responsePaneCollapsed = !responsePaneCollapsed
         break
       case 'toggleControlApiLog':
         toggleControlApiLog()
@@ -406,6 +443,14 @@
         const px = Number(payload?.px)
         if (!Number.isNaN(px)) {
           statusBarHeight = clamp(px, STATUS_BAR_HEIGHT_RANGE)
+          saveLayoutPrefs()
+        }
+        break
+      }
+      case 'setResponseHeight': {
+        const px = Number(payload?.px)
+        if (!Number.isNaN(px)) {
+          responseHeight = clamp(px, RESPONSE_HEIGHT_RANGE)
           saveLayoutPrefs()
         }
         break
@@ -1001,8 +1046,13 @@
     responseView = view
   }
 
+  // Always switches and expands, for the same reason
+  // selectRequestEditorTab does — a script asking for 'headers'
+  // shouldn't get a collapse just because 'headers' was already showing.
+  // toggleResponsePane is the deterministic way to reach the collapse.
   function setResponseTab(tab: 'body' | 'headers') {
     responseTab = tab
+    responsePaneCollapsed = false
   }
 
   // Called after a send / on reselect: pulls the image bytes out of the
@@ -1061,32 +1111,57 @@
       on:pointerdown={() => onSplitterPointerDown('sidebar')}
     ></div>
 
-    <main class="editor">
-      <RequestEditor
-        bind:draft
-        bind:activeTab
-        bind:requestPaneCollapsed
-        bind:codeFormat
-        {generatedCode}
-        {codeError}
-        {headerCatalog}
-        {sending}
-        onSave={saveRequest}
-        onSend={sendRequest}
-        onCopyCode={copyRequestCode}
-        rows={requestRowActions}
-      />
+    <main class="editor" bind:this={editorEl}>
+      <div class="request-pane" class:collapsed={requestPaneCollapsed}>
+        <RequestEditor
+          bind:draft
+          bind:activeTab
+          bind:requestPaneCollapsed
+          bind:codeFormat
+          bind:bodyLanguage
+          {generatedCode}
+          {codeError}
+          {headerCatalog}
+          {sending}
+          onSave={saveRequest}
+          onSend={sendRequest}
+          onCopyCode={copyRequestCode}
+          rows={requestRowActions}
+        />
+      </div>
 
-      <ResponsePane
-        {response}
-        {sendError}
-        formatted={formattedResponse}
-        imageUri={responseImageUri}
-        bind:tab={responseTab}
-        bind:view={responseView}
-        bind:showActionsMenu={showResponseActionsMenu}
-        cache={responseCacheActions}
-      />
+      <!-- The Code tab is about the command, not the last reply — so it
+           gets the whole pane rather than sharing it with a response the
+           reader isn't looking at. -->
+      {#if activeTab !== 'code'}
+        <!-- The splitter only means something while both halves are
+             showing. Collapse either one and the other takes the whole
+             pane, so there's no boundary left to drag. -->
+        {#if !responsePaneCollapsed && !requestPaneCollapsed}
+          <!-- svelte-ignore a11y-no-static-element-interactions -->
+          <div
+            class="splitter splitter-horizontal"
+            class:active={draggingSplitter === 'response'}
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize the response pane"
+            on:pointerdown={() => onSplitterPointerDown('response')}
+          ></div>
+        {/if}
+        <ResponsePane
+          height={responseHeight}
+          fill={requestPaneCollapsed && !responsePaneCollapsed}
+          {response}
+          {sendError}
+          formatted={formattedResponse}
+          imageUri={responseImageUri}
+          bind:tab={responseTab}
+          bind:view={responseView}
+          bind:collapsed={responsePaneCollapsed}
+          bind:showActionsMenu={showResponseActionsMenu}
+          cache={responseCacheActions}
+        />
+      {/if}
     </main>
   </div>
 {/if}
@@ -1246,13 +1321,39 @@
     display: flex;
   }
 
+  /* A split pane: the request editor on top, the response below it, and
+     a draggable hairline between. The column itself doesn't scroll —
+     each half scrolls its own content, so dragging the splitter moves a
+     real boundary rather than sliding one long page. */
   .editor {
     flex: 1;
     padding: 1rem 1.5rem;
-    overflow-y: auto;
+    overflow: hidden;
     text-align: left;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+  }
+
+  /* flex-basis 0 so this takes the height the response isn't using —
+     including all of it when the response is collapsed or the Code tab
+     has hidden it. min-height keeps a dragged splitter from squeezing
+     the editor away entirely. */
+  .request-pane {
+    flex: 1 1 0;
+    min-height: 8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    overflow-y: auto;
+  }
+
+  /* Collapsed it's only the name, URL and tab rows, so it shrinks to
+     them and the response takes everything below (see ResponsePane's
+     .fill) — the mirror of what collapsing the response does. */
+  .request-pane.collapsed {
+    flex: none;
+    min-height: 0;
+    overflow: visible;
   }
 </style>

@@ -8,12 +8,13 @@
   // menu act on files keyed by the selected request's id, which this
   // component has no business knowing, so they come in as callbacks.
   import type { httpengine } from '../../wailsjs/go/models'
+  import CodeEditor from './CodeEditor.svelte'
   import { formatBytes, formatDuration, reasonPhrase, statusTone } from '../lib/format'
   import type { ResponseKind } from '../lib/responseFormat'
 
   export let response: httpengine.Response | null
   export let sendError: string
-  export let formatted: { kind: ResponseKind; canPretty: boolean; html: string }
+  export let formatted: { kind: ResponseKind; canPretty: boolean; text: string }
   // Loaded on demand from the response cache — the raw bytes in
   // response.body don't survive the Wails bridge intact.
   export let imageUri: string | null
@@ -23,7 +24,20 @@
   // to travel back up.
   export let tab: 'body' | 'headers'
   export let view: 'pretty' | 'raw'
+  export let collapsed: boolean
   export let showActionsMenu: boolean
+  // Set by the splitter above; ignored while collapsed or filling.
+  export let height: number
+  // Take the whole editor pane rather than the dragged height — set when
+  // the request editor above is collapsed, so its freed space goes here.
+  export let fill = false
+
+  // Picking a panel shows it — collapsing is the disclosure toggle's job
+  // alone, not a second meaning overloaded onto these buttons.
+  function onResponseTabClick(next: 'body' | 'headers') {
+    tab = next
+    collapsed = false
+  }
 
   export let cache: {
     openExternally: () => void
@@ -32,6 +46,15 @@
     clearCached: () => void
   }
 
+  // detectResponseKind has five values; the editor has three. html is
+  // close enough to xml to share a grammar, and image never reaches the
+  // editor at all.
+  $: editorLanguage = ((): 'json' | 'xml' | 'plain' => {
+    if (formatted.kind === 'json') return 'json'
+    if (formatted.kind === 'xml' || formatted.kind === 'html') return 'xml'
+    return 'plain'
+  })()
+
   // The response's headers, flattened (one row per value) and sorted,
   // for the Headers panel.
   $: headerRows = Object.entries(response?.headers ?? {})
@@ -39,45 +62,56 @@
     .sort((a, b) => a.name.localeCompare(b.name) || a.value.localeCompare(b.value))
 </script>
 
-<section class="response">
+<section class="response" class:collapsed class:fill style:height="{height}px">
   {#if sendError}
     <p class="error">{sendError}</p>
   {:else if response}
     <div class="response-header">
-      <div class="response-meta">
-        <div class="response-stat">
-          <span class="response-stat-label">Status</span>
-          <span class="status status-{statusTone(response.statusCode)}">
-            {response.statusCode} {reasonPhrase(response.status)}
-          </span>
-        </div>
-        <div class="response-stat">
-          <span class="response-stat-label">Time</span>
-          <span>{formatDuration(response.durationNs)}</span>
-        </div>
-        <div class="response-stat">
-          <span class="response-stat-label">Size</span>
-          <span
-            title={response.capped
-              ? 'The response exceeded the size Freeman will hold in memory, so it was cut off at this point.'
-              : undefined}
-          >
-            {response.sizeBytes} bytes{#if response.capped}<span class="size-capped">capped</span>{/if}
-          </span>
-        </div>
-        <div class="response-stat">
-          <span class="response-stat-label">Type</span>
-          <span>{formatted.kind.toUpperCase()}</span>
+      <div class="response-lead">
+        <!-- Same glyphs, same leading position, same wording as the
+             control API log's own toggle at the foot of the window —
+             the app has one collapse language, not two. -->
+        <button
+          class="icon-btn"
+          title={collapsed ? 'Expand the response' : 'Collapse the response'}
+          aria-expanded={!collapsed}
+          on:click={() => (collapsed = !collapsed)}>{collapsed ? '▸' : '▾'}</button
+        >
+        <div class="response-meta">
+          <div class="response-stat">
+            <span class="response-stat-label">Status</span>
+            <span class="status status-{statusTone(response.statusCode)}">
+              {response.statusCode} {reasonPhrase(response.status)}
+            </span>
+          </div>
+          <div class="response-stat">
+            <span class="response-stat-label">Time</span>
+            <span>{formatDuration(response.durationNs)}</span>
+          </div>
+          <div class="response-stat">
+            <span class="response-stat-label">Size</span>
+            <span
+              title={response.capped
+                ? 'The response exceeded the size Freeman will hold in memory, so it was cut off at this point.'
+                : undefined}
+            >
+              {response.sizeBytes} bytes{#if response.capped}<span class="size-capped">capped</span>{/if}
+            </span>
+          </div>
+          <div class="response-stat">
+            <span class="response-stat-label">Type</span>
+            <span>{formatted.kind.toUpperCase()}</span>
+          </div>
         </div>
       </div>
       <div class="response-header-actions">
         <div class="response-segmented">
-          <button class:active={tab === 'body'} on:click={() => (tab = 'body')}>Body</button>
-          <button class:active={tab === 'headers'} on:click={() => (tab = 'headers')}>
+          <button class:active={tab === 'body'} on:click={() => onResponseTabClick('body')}>Body</button>
+          <button class:active={tab === 'headers'} on:click={() => onResponseTabClick('headers')}>
             Headers{#if headerRows.length}<span class="tab-count">{headerRows.length}</span>{/if}
           </button>
         </div>
-        {#if tab === 'body' && formatted.canPretty}
+        {#if !collapsed && tab === 'body' && formatted.canPretty}
           <div class="response-segmented">
             <button class:active={view === 'pretty'} on:click={() => (view = 'pretty')}>Pretty</button>
             <button class:active={view === 'raw'} on:click={() => (view = 'raw')}>Raw</button>
@@ -101,7 +135,10 @@
         </div>
       </div>
     </div>
-    {#if tab === 'headers'}
+    {#if collapsed}
+      <!-- Nothing: the meta strip above stays, and its chevron is what
+           brings the panel back. -->
+    {:else if tab === 'headers'}
       <div class="response-headers">
         {#if headerRows.length}
           <table class="response-headers-table">
@@ -133,10 +170,8 @@
       {:else}
         <p class="muted">Loading image…</p>
       {/if}
-    {:else if formatted.canPretty && view === 'pretty'}
-      <pre class="response-body">{@html formatted.html}</pre>
     {:else}
-      <pre class="response-body">{response.body}</pre>
+      <CodeEditor readOnly layout="fill" value={formatted.text} language={editorLanguage} />
     {/if}
   {:else}
     <p class="muted">Send a request to see the response here.</p>
@@ -144,26 +179,62 @@
 </section>
 
 <style>
+  /* Height comes from the splitter, as an inline style. shrink 1 (rather
+     than a hard height) means a window too short for both halves takes
+     it out of the response instead of overflowing the column. */
   .response {
-    flex: 1;
+    flex: 0 1 auto;
     display: flex;
     flex-direction: column;
     min-height: 0;
+  }
+
+  /* Collapsed it's just the meta strip: no splitter above it any more,
+     so it brings back the hairline the splitter was providing, and drops
+     the dragged height so the request editor takes that space. */
+  .response.collapsed {
+    flex: none;
+    height: auto !important;
     border-top: 1px solid var(--fm-border-subtle);
     padding-top: 0.75rem;
   }
 
+  /* The request editor above is collapsed, so the dragged height no
+     longer applies — this takes what's left instead. Same hairline as
+     the collapsed case, for the same reason: no splitter to divide. */
+  .response.fill {
+    flex: 1 1 auto;
+    height: auto !important;
+    border-top: 1px solid var(--fm-border-subtle);
+    padding-top: 0.75rem;
+  }
+
+  /* The spacing below the strip lives here rather than on .response-meta,
+     so the disclosure button beside it can centre against the stats
+     instead of being pushed up by their margin. */
   .response-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
+    margin-bottom: 0.5rem;
+  }
+
+  /* Collapsed, the strip is the whole pane — nothing below to space off. */
+  .response.collapsed .response-header {
+    margin-bottom: 0;
+  }
+
+  .response-lead {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
   }
 
   .response-meta {
     display: flex;
     gap: 1.5rem;
     font-size: 0.85rem;
-    margin-bottom: 0.5rem;
   }
 
   .response-header-actions {
@@ -322,16 +393,6 @@
     color: var(--fm-error);
   }
 
-  .response-body {
-    flex: 1;
-    overflow: auto;
-    background: var(--fm-bg-response);
-    padding: 0.75rem;
-    margin: 0;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
   .response-image {
     flex: 1;
     overflow: auto;
@@ -350,12 +411,6 @@
     background-size: 16px 16px;
     background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   }
-
-  /* JSON syntax colors — deliberately the same hues the rest of the app
-     already uses (the accent for keys, the method/status palette for
-     values) so a highlighted body reads as part of this UI, not a
-     dropped-in editor theme. :global because the spans come from
-     {@html}. */
 
   .response-truncated {
     flex: 1;

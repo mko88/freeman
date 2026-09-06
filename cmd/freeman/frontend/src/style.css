@@ -215,12 +215,13 @@ code {
   border-bottom: 2px solid var(--fm-accent);
 }
 
-/* Same glyph, same meaning, as the control-API log's own collapse
-   toggle — one collapse language reused rather than two. Shown only
-   on the active tab: it's what clicking that tab again will do. */
-.tab-chevron {
-  margin-left: 0.3em;
-  color: var(--fm-text-muted);
+/* Collapses the pane the tabs belong to. Same glyph and same leading
+   position as the response strip's toggle and the control-API log's —
+   one collapse language across the app. Narrower than a tab because
+   it's a control on the row, not one of the choices in it. */
+.tabs-disclosure {
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
 }
 
 /* How many rows a tab holds, so the ones you're not looking at still
@@ -410,43 +411,5 @@ button.primary:disabled:hover {
 .icon-btn:hover {
   background: var(--fm-bg-hover);
   border-color: transparent;
-}
-
-/* ---------------------------------------------------------------------------
-   Syntax highlighting tokens.
-
-   One palette for everything highlighted anywhere: response bodies
-   (JSON/XML, see lib/responseFormat.ts) and the Code tab's generated
-   commands (sh/PowerShell, see lib/highlightScript.ts). Two components
-   render into these, so they can't be scoped to either.
-
-   The names on each line are aliases for one colour, not five more
-   colours — the same reasoning as the per-method hues in
-   internal/theme: one palette read consistently, rather than a second
-   unrelated one for every new thing that needs colouring.
-   --------------------------------------------------------------------------- */
-
-.syntax-key,
-.syntax-cmd {
-    color: var(--fm-accent);
-}
-
-.syntax-str {
-    color: var(--fm-success);
-}
-
-.syntax-num,
-.syntax-flag {
-    color: var(--fm-method-get);
-}
-
-.syntax-bool,
-.syntax-var {
-    color: var(--fm-method-put);
-}
-
-.syntax-null,
-.syntax-comment {
-    color: var(--fm-text-muted);
 }
 
