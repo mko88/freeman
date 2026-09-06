@@ -132,7 +132,7 @@
 
 <div class="tabs">
   <button
-    class="tabs-disclosure"
+    class="disclosure"
     title={requestPaneCollapsed ? 'Expand the request editor' : 'Collapse the request editor'}
     aria-expanded={!requestPaneCollapsed}
     on:click={() => (requestPaneCollapsed = !requestPaneCollapsed)}>{requestPaneCollapsed ? '▸' : '▾'}</button
