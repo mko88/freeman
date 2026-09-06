@@ -30,7 +30,7 @@
   import SettingsModal from './components/SettingsModal.svelte'
   import { formatBytes, formatDuration, methodColor, reasonPhrase, statusTone } from './lib/format'
   import { detectResponseKind, formatResponse } from './lib/responseFormat'
-  import type { BodyLanguage } from './lib/responseFormat'
+  import type { BodyLanguage, ResponseView } from './lib/responseFormat'
   import { bodyModes, codeFormats, emptyAuth, emptyDraft, methods } from './lib/requestDraft'
   import type { AuthType, BodyMode, CodeFormat, FormFieldType, RequestDraft, RequestTab } from './lib/requestDraft'
 
@@ -72,21 +72,23 @@
   // response gets cached to disk (see saveResponseCache) regardless of
   // size.
   let showResponseActionsMenu = false
-  // 'pretty' reindents a JSON/XML response body and colours it; 'raw'
-  // shows exactly what came back, uncoloured as well as unformatted —
-  // it's the view you switch to when you want to see the bytes, not a
-  // reading of them. Sticky across requests — a view preference, not
-  // per-response state. See formattedResponse below for the
-  // (lightweight) detection of whether pretty is even possible.
-  let responseView: 'pretty' | 'raw' = 'pretty'
+  // 'pretty' reindents a JSON/XML body and colours it (or renders an
+  // image); 'raw' shows exactly what came back, uncoloured as well as
+  // unformatted; 'hex' dumps the bytes. Sticky across requests — a view
+  // preference, not per-response state. See formattedResponse below for
+  // the (lightweight) detection of whether pretty is even possible.
+  let responseView: ResponseView = 'pretty'
   // Which of the response's two panels is showing — the body, or its
   // headers (the response's meta info the meta stats don't cover).
   // Sticky across requests, same as responseView.
   let responseTab: 'body' | 'headers' = 'body'
-  // Data URI for an image response, loaded on demand from the cache file
-  // (see GetResponseCacheDataURI) — the raw bytes in response.body don't
-  // survive the JSON bridge intact. null until loaded / not an image.
-  let responseImageUri: string | null = null
+  // The cached response body as a data: URI (see
+  // GetResponseCacheDataURI) — the bytes as they arrived, which
+  // response.body can't carry across the JSON bridge. Wanted by the
+  // image view, which renders it, and the hex view, which dumps it.
+  // Loaded on demand rather than held for every response: it's a base64
+  // copy of the whole body. null until loaded / when nothing needs it.
+  let responseDataUri: string | null = null
   let activeTab: RequestTab = 'headers'
   // Collapsed by the disclosure toggle at the head of the tab row: the
   // tab content hides, the name/URL/tab rows stay, and the response
@@ -373,7 +375,7 @@
         break
       case 'setResponseView': {
         const view = payload?.view
-        if (view === 'pretty' || view === 'raw') setResponseView(view)
+        if (view === 'pretty' || view === 'raw' || view === 'hex') setResponseView(view)
         break
       }
       case 'setResponseTab': {
@@ -664,7 +666,7 @@
       binaryFilePath: item.body?.binaryFilePath || '',
     }
     sendError = ''
-    responseImageUri = null
+    responseDataUri = null
     // GetCachedResponse rejects with "nothing cached yet" for a request
     // that's never been sent (the common case) just as often as for a
     // real failure — either way, falling back to a blank response pane
@@ -674,7 +676,7 @@
     } catch {
       response = null
     }
-    await refreshResponseImage()
+    await refreshResponseData()
   }
 
   function newRequest() {
@@ -682,7 +684,7 @@
     draft = emptyDraft()
     response = null
     sendError = ''
-    responseImageUri = null
+    responseDataUri = null
   }
 
   function addRequestHeader(initial?: Partial<domain.Header>) {
@@ -833,11 +835,11 @@
   async function sendRequest() {
     sendError = ''
     sending = true
-    responseImageUri = null
+    responseDataUri = null
     try {
       await saveRequest()
       response = await ExecuteRequest(collectionId, selectedItemId!, environmentId)
-      await refreshResponseImage()
+      await refreshResponseData()
     } catch (e) {
       sendError = String(e)
       response = null
@@ -1042,9 +1044,9 @@
   // The response pane's derived view model: what kind of body came
   // back, whether a pretty view is even possible, and the highlighted
   // HTML when it's the pretty view's turn to render.
-  $: formattedResponse = formatResponse(response, responseView, responseImageUri)
+  $: formattedResponse = formatResponse(response, responseView, responseDataUri)
 
-  function setResponseView(view: 'pretty' | 'raw') {
+  function setResponseView(view: ResponseView) {
     responseView = view
   }
 
@@ -1057,20 +1059,27 @@
     responsePaneCollapsed = false
   }
 
-  // Called after a send / on reselect: pulls the image bytes out of the
-  // cache as a data URI when the current response is an image, clears it
-  // otherwise.
-  async function refreshResponseImage() {
-    if (!selectedItemId || detectResponseKind(response) !== 'image' || response?.truncated) {
-      responseImageUri = null
+  // Called after a send / on reselect, and whenever the view changes:
+  // pulls the cached body out as a data URI when something on screen
+  // needs the real bytes, clears it otherwise. A truncated response has
+  // no inline body to speak for, and its cache file is the thing the
+  // "..." menu opens instead.
+  async function refreshResponseData() {
+    const wanted = detectResponseKind(response) === 'image' || responseView === 'hex'
+    if (!selectedItemId || !wanted || !response || response.truncated) {
+      responseDataUri = null
       return
     }
     try {
-      responseImageUri = await GetResponseCacheDataURI(selectedItemId)
+      responseDataUri = await GetResponseCacheDataURI(selectedItemId)
     } catch {
-      responseImageUri = null
+      responseDataUri = null
     }
   }
+
+  // Switching to hex is the one case that needs the bytes without a send
+  // or a reselect having happened.
+  $: responseView, void refreshResponseData()
 </script>
 
 <svelte:window on:pointermove={onWindowPointerMove} on:pointerup={onWindowPointerUp} />
@@ -1156,7 +1165,7 @@
           {response}
           {sendError}
           formatted={formattedResponse}
-          imageUri={responseImageUri}
+          dataUri={responseDataUri}
           bind:tab={responseTab}
           bind:view={responseView}
           bind:collapsed={responsePaneCollapsed}
