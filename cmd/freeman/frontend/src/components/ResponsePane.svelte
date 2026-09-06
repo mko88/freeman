@@ -8,12 +8,13 @@
   // menu act on files keyed by the selected request's id, which this
   // component has no business knowing, so they come in as callbacks.
   import type { httpengine } from '../../wailsjs/go/models'
+  import CodeEditor from './CodeEditor.svelte'
   import { formatBytes, formatDuration, reasonPhrase, statusTone } from '../lib/format'
   import type { ResponseKind } from '../lib/responseFormat'
 
   export let response: httpengine.Response | null
   export let sendError: string
-  export let formatted: { kind: ResponseKind; canPretty: boolean; html: string }
+  export let formatted: { kind: ResponseKind; canPretty: boolean; text: string }
   // Loaded on demand from the response cache — the raw bytes in
   // response.body don't survive the Wails bridge intact.
   export let imageUri: string | null
@@ -31,6 +32,15 @@
     openInFileExplorer: () => void
     clearCached: () => void
   }
+
+  // detectResponseKind has five values; the editor has three. html is
+  // close enough to xml to share a grammar, and image never reaches the
+  // editor at all.
+  $: editorLanguage = ((): 'json' | 'xml' | 'plain' => {
+    if (formatted.kind === 'json') return 'json'
+    if (formatted.kind === 'xml' || formatted.kind === 'html') return 'xml'
+    return 'plain'
+  })()
 
   // The response's headers, flattened (one row per value) and sorted,
   // for the Headers panel.
@@ -133,10 +143,8 @@
       {:else}
         <p class="muted">Loading image…</p>
       {/if}
-    {:else if formatted.canPretty && view === 'pretty'}
-      <pre class="response-body">{@html formatted.html}</pre>
     {:else}
-      <pre class="response-body">{response.body}</pre>
+      <CodeEditor readOnly fill value={formatted.text} language={editorLanguage} />
     {/if}
   {:else}
     <p class="muted">Send a request to see the response here.</p>
@@ -322,16 +330,6 @@
     color: var(--fm-error);
   }
 
-  .response-body {
-    flex: 1;
-    overflow: auto;
-    background: var(--fm-bg-response);
-    padding: 0.75rem;
-    margin: 0;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
   .response-image {
     flex: 1;
     overflow: auto;
@@ -350,12 +348,6 @@
     background-size: 16px 16px;
     background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   }
-
-  /* JSON syntax colors — deliberately the same hues the rest of the app
-     already uses (the accent for keys, the method/status palette for
-     values) so a highlighted body reads as part of this UI, not a
-     dropped-in editor theme. :global because the spans come from
-     {@html}. */
 
   .response-truncated {
     flex: 1;

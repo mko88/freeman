@@ -1,14 +1,14 @@
 <script lang="ts">
   // A CodeMirror 6 editor themed to look like the rest of Freeman.
   //
-  // Used for the request's raw body, where the editing behaviours are
-  // worth a dependency: indentation, bracket matching, folding, and an
-  // undo history that survives programmatic edits — which a plain
-  // textarea can't offer, because writing its value back from Svelte
-  // clears the browser's own undo stack.
+  // Serves the request's raw body (editable) and the response body
+  // (readOnly), so both get the same grammar-driven highlighting,
+  // folding, and viewport rendering from one theme.
   //
-  // The read-only highlighting elsewhere (the Code tab, the response
-  // pane) stays hand-rolled: it costs nothing and this buys it nothing.
+  // The Code tab keeps its own highlighter: it shows sh and PowerShell,
+  // and neither CodeMirror's legacy shell mode nor highlight.js models a
+  // quoted heredoc — both tokenise the JSON body inside `<<'BODY'` as
+  // shell, which is exactly the case that tab exists to show.
   import { onDestroy, onMount } from 'svelte'
   import { indentWithTab, temporarilySetTabFocusMode } from '@codemirror/commands'
   import { json } from '@codemirror/lang-json'
@@ -22,6 +22,14 @@
   export let value: string
   export let language: 'json' | 'xml' | 'plain' = 'plain'
   export let placeholder = ''
+  // Read-only mode is the response pane: same highlighting, same theme,
+  // plus folding and viewport rendering, which matter more there than in
+  // a body you type — a large response used to render as one <pre> full
+  // of spans.
+  export let readOnly = false
+  // Fill the available height (the response pane) instead of a fixed,
+  // user-resizable box (the body editor).
+  export let fill = false
 
   let host: HTMLElement
   let view: EditorView | undefined
@@ -94,6 +102,7 @@
         doc: value,
         extensions: [
           basicSetup,
+          ...(readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
           // Tab indents. Escape then Tab gets you out: tab-focus mode is
           // CodeMirror's own answer to Tab-capture trapping the
           // keyboard, and lasts until the next keypress. The default
@@ -128,7 +137,7 @@
   }
 </script>
 
-<div class="code-editor" bind:this={host}></div>
+<div class="code-editor" class:fill bind:this={host}></div>
 
 <style>
   .code-editor {
@@ -139,6 +148,19 @@
     border: 1px solid var(--fm-border);
     border-radius: var(--fm-radius);
     background: var(--fm-bg-elevated);
+  }
+
+  /* The response pane sizes itself to what's left of the window rather
+     than to a handle, so it drops the fixed height and the border it
+     doesn't need. */
+  .code-editor.fill {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+    resize: none;
+    border: none;
+    border-radius: 0;
+    background: var(--fm-bg-response);
   }
 
   .code-editor:focus-within {
