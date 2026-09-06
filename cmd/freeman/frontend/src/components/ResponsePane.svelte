@@ -15,7 +15,7 @@
 
   export let response: httpengine.Response | null
   export let sendError: string
-  export let formatted: { kind: ResponseKind; hasPretty: boolean; text: string }
+  export let formatted: { kind: ResponseKind; text: string }
   // The cached body as a data: URI, loaded on demand — the bytes as
   // they arrived, which response.body can't carry across the Wails
   // bridge. Rendered as the picture for an image, and the source the
@@ -80,17 +80,17 @@
   // them back would be inventing them the way a status line would.
   $: headerHex = hexDump(new TextEncoder().encode(headerText))
 
-  // Which views this panel offers. Every panel with content has its
-  // text and the bytes of that text; a reading distinct from them —
-  // the table, the reindent, the picture — only sometimes. A truncated
-  // body has none of the three, because that panel is the callout and
-  // its buttons instead. Fewer than two hides the switch rather than
-  // showing a control that does nothing.
-  $: views = ((): ResponseView[] => {
-    if (tab === 'headers') return ['pretty', 'raw', 'hex']
-    if (response?.truncated) return []
-    return formatted.hasPretty ? ['pretty', 'raw', 'hex'] : ['raw', 'hex']
-  })()
+  // All three, always, on both panels — the switch keeps one shape
+  // rather than gaining and losing buttons with the shape of the body,
+  // which is worst exactly when you're comparing a failure against a
+  // success. Pretty falls back to the plain text when there's nothing
+  // to reindent; see formatResponse.
+  //
+  // The one exception is a truncated body, where the panel is the
+  // "too large" callout and its buttons: there's no rendered content
+  // for a view to apply to.
+  $: views = ((): ResponseView[] =>
+    tab === 'body' && response?.truncated ? [] : ['pretty', 'raw', 'hex'])()
 
   $: activeView = views.includes(view) ? view : 'raw'
 
@@ -153,7 +153,7 @@
             Headers{#if headerRows.length}<span class="tab-count">{headerRows.length}</span>{/if}
           </button>
         </div>
-        {#if !collapsed && views.length > 1}
+        {#if !collapsed && views.length}
           <div class="response-segmented">
             {#each views as v}
               <button class:active={activeView === v} on:click={() => (view = v)}>{viewLabels[v]}</button>

@@ -97,21 +97,19 @@ export function prettyXml(xml: string): string {
 // truncated), and the text to show — formatted for the pretty view,
 // exactly as received for the raw one. Highlighting is CodeMirror's job
 // now; this only decides what to hand it.
+// All three views are always on offer, so pretty is a best effort
+// rather than a promise: a body that reindents gets reindented, one
+// that only has a grammar gets coloured, and one with neither reads the
+// same as raw. That's the cost of a switch that keeps its shape,
+// and it's cheaper than a control that comes and goes.
 export function formatResponse(
   r: httpengine.Response | null,
   view: ResponseView,
   dataUri: string | null = null,
-): { kind: ResponseKind; hasPretty: boolean; text: string } {
+): { kind: ResponseKind; text: string } {
   const body = r?.body ?? ''
   const kind = detectResponseKind(r)
   const inRange = !!r && !r.truncated && body.length <= RESPONSE_PRETTY_MAX
-  // Which kinds have a reading distinct from their payload. An image's
-  // is the picture; JSON's and XML's is the reindented text, once
-  // they're small enough and actually parse.
-  const hasPretty =
-    kind === 'image' ||
-    (inRange && kind === 'json' && parses(body, 'json')) ||
-    (inRange && kind === 'xml' && parses(body, 'xml'))
 
   // Both the hex view and an image's payload need the bytes as they
   // arrived, and response.body can't carry them: Wails marshals Body as
@@ -121,43 +119,33 @@ export function formatResponse(
   // so it's byte-faithful.
   if (view === 'hex') {
     const bytes = dataUri ? bytesFromDataUri(dataUri) : null
-    return { kind, hasPretty, text: bytes ? hexDump(bytes) : 'Reading the cached response…' }
+    return { kind, text: bytes ? hexDump(bytes) : 'Reading the cached response…' }
   }
 
   if (kind === 'image') {
-    return { kind, hasPretty, text: dataUri ?? '' }
+    return { kind, text: dataUri ?? '' }
   }
 
   if (inRange && kind === 'json') {
     try {
       const parsed = JSON.parse(body)
-      return { kind, hasPretty, text: view === 'pretty' ? JSON.stringify(parsed, null, 2) : body }
+      return { kind, text: view === 'pretty' ? JSON.stringify(parsed, null, 2) : body }
     } catch {
-      // Declared as JSON but isn't — show it as it came rather than
-      // claiming a pretty view that would fail.
-      return { kind: 'text', hasPretty: false, text: body }
+      // Declared as JSON but isn't — a 500 serving an HTML error page
+      // under a JSON content type is the usual way this happens. Report
+      // it as text so it isn't coloured against a grammar it doesn't
+      // follow.
+      return { kind: 'text', text: body }
     }
   }
 
   if (inRange && kind === 'xml') {
-    if (!parses(body, 'xml')) return { kind: 'text', hasPretty: false, text: body }
-    return { kind, hasPretty, text: view === 'pretty' ? prettyXml(body) : body }
+    const doc = new DOMParser().parseFromString(body, 'application/xml')
+    if (doc.getElementsByTagName('parsererror').length > 0) return { kind: 'text', text: body }
+    return { kind, text: view === 'pretty' ? prettyXml(body) : body }
   }
 
-  return { kind, hasPretty, text: body }
-}
-
-function parses(body: string, as: 'json' | 'xml'): boolean {
-  if (as === 'json') {
-    try {
-      JSON.parse(body)
-      return true
-    } catch {
-      return false
-    }
-  }
-  const doc = new DOMParser().parseFromString(body, 'application/xml')
-  return doc.getElementsByTagName('parsererror').length === 0
+  return { kind, text: body }
 }
 
 // --- request bodies ---------------------------------------------------------
