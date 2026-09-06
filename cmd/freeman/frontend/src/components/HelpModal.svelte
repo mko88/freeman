@@ -95,8 +95,8 @@
       payload: '{ view }',
       desc:
         "Switch the response view. view is 'pretty' (JSON/XML pretty-printed + highlighted, an image rendered, " +
-        "headers as a table), 'raw' (the payload as text, uncoloured) or 'hex' (a hexdump of the bytes). " +
-        "The headers panel has no 'hex' and reads it as 'raw'.",
+        "headers as a table), 'raw' (the payload as text, uncoloured) or 'hex' (a hexdump of its bytes). " +
+        'Applies to whichever panel is open, body or headers.',
     },
     {
       action: 'openResponseCacheExternally',

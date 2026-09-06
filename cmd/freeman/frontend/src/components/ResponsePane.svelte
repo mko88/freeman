@@ -10,6 +10,7 @@
   import type { httpengine } from '../../wailsjs/go/models'
   import CodeEditor from './CodeEditor.svelte'
   import { formatBytes, formatDuration, reasonPhrase, statusTone } from '../lib/format'
+  import { hexDump } from '../lib/responseFormat'
   import type { ResponseKind, ResponseView } from '../lib/responseFormat'
 
   export let response: httpengine.Response | null
@@ -73,20 +74,24 @@
   // would be inventing one.
   $: headerText = headerRows.map((h) => `${h.name}: ${h.value}`).join('\n')
 
-  // Which views this panel actually offers. Headers are always text, so
-  // there are no bytes to dump; a body always has its payload and its
-  // bytes, and a reading of them only sometimes. A truncated body isn't
-  // here to view at all — that panel is the callout and its buttons.
-  // Anything with fewer than two options hides the switch rather than
+  // The bytes of exactly what the raw view above shows. Not a
+  // reconstruction of the CRLF-delimited block from the wire: Response
+  // keeps headers as a parsed map, so those bytes are gone, and putting
+  // them back would be inventing them the way a status line would.
+  $: headerHex = hexDump(new TextEncoder().encode(headerText))
+
+  // Which views this panel offers. Every panel with content has its
+  // text and the bytes of that text; a reading distinct from them —
+  // the table, the reindent, the picture — only sometimes. A truncated
+  // body has none of the three, because that panel is the callout and
+  // its buttons instead. Fewer than two hides the switch rather than
   // showing a control that does nothing.
   $: views = ((): ResponseView[] => {
-    if (tab === 'headers') return ['pretty', 'raw']
+    if (tab === 'headers') return ['pretty', 'raw', 'hex']
     if (response?.truncated) return []
     return formatted.hasPretty ? ['pretty', 'raw', 'hex'] : ['raw', 'hex']
   })()
 
-  // Hex is a body view; on the headers panel it reads as raw, so the
-  // switch still shows which of the two is active.
   $: activeView = views.includes(view) ? view : 'raw'
 
   const viewLabels: Record<ResponseView, string> = { pretty: 'Pretty', raw: 'Raw', hex: 'Hex' }
@@ -183,7 +188,7 @@
           </table>
         </div>
       {:else}
-        <CodeEditor readOnly layout="fill" value={headerText} language="plain" />
+        <CodeEditor readOnly layout="fill" value={activeView === 'hex' ? headerHex : headerText} language="plain" />
       {/if}
     {:else if response.truncated}
       <div class="response-truncated">
