@@ -157,7 +157,7 @@
     {
       action: 'toggleResponsePane',
       payload: '—',
-      desc: 'Collapse/expand the response body/headers, leaving its status strip (same as clicking the active panel).',
+      desc: 'Collapse/expand the response body/headers, leaving its status strip (same as the ▾ toggle on that strip).',
     },
     { action: 'toggleControlApiLog', payload: '—', desc: 'Collapse/expand the control API log at the bottom.' },
     { action: 'setSidebarWidth', payload: '{ px }', desc: 'Resize the request list (clamped to a sane range).' },

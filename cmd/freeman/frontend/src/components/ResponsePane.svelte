@@ -29,18 +29,11 @@
   // Set by the splitter above; ignored while collapsed.
   export let height: number
 
-  // Clicking the panel that's already showing collapses the pane;
-  // clicking the other switches to it. Mirrors the request editor's tab
-  // strip, down to the chevron. The control API gets setResponseTab,
-  // which always switches and expands, and toggleResponsePane for the
-  // collapse on its own.
+  // Picking a panel shows it — collapsing is the disclosure toggle's job
+  // alone, not a second meaning overloaded onto these buttons.
   function onResponseTabClick(next: 'body' | 'headers') {
-    if (tab === next) {
-      collapsed = !collapsed
-    } else {
-      tab = next
-      collapsed = false
-    }
+    tab = next
+    collapsed = false
   }
 
   export let cache: {
@@ -71,40 +64,48 @@
     <p class="error">{sendError}</p>
   {:else if response}
     <div class="response-header">
-      <div class="response-meta">
-        <div class="response-stat">
-          <span class="response-stat-label">Status</span>
-          <span class="status status-{statusTone(response.statusCode)}">
-            {response.statusCode} {reasonPhrase(response.status)}
-          </span>
-        </div>
-        <div class="response-stat">
-          <span class="response-stat-label">Time</span>
-          <span>{formatDuration(response.durationNs)}</span>
-        </div>
-        <div class="response-stat">
-          <span class="response-stat-label">Size</span>
-          <span
-            title={response.capped
-              ? 'The response exceeded the size Freeman will hold in memory, so it was cut off at this point.'
-              : undefined}
-          >
-            {response.sizeBytes} bytes{#if response.capped}<span class="size-capped">capped</span>{/if}
-          </span>
-        </div>
-        <div class="response-stat">
-          <span class="response-stat-label">Type</span>
-          <span>{formatted.kind.toUpperCase()}</span>
+      <div class="response-lead">
+        <!-- Same glyphs, same leading position, same wording as the
+             control API log's own toggle at the foot of the window —
+             the app has one collapse language, not two. -->
+        <button
+          class="icon-btn"
+          title={collapsed ? 'Expand the response' : 'Collapse the response'}
+          aria-expanded={!collapsed}
+          on:click={() => (collapsed = !collapsed)}>{collapsed ? '▸' : '▾'}</button
+        >
+        <div class="response-meta">
+          <div class="response-stat">
+            <span class="response-stat-label">Status</span>
+            <span class="status status-{statusTone(response.statusCode)}">
+              {response.statusCode} {reasonPhrase(response.status)}
+            </span>
+          </div>
+          <div class="response-stat">
+            <span class="response-stat-label">Time</span>
+            <span>{formatDuration(response.durationNs)}</span>
+          </div>
+          <div class="response-stat">
+            <span class="response-stat-label">Size</span>
+            <span
+              title={response.capped
+                ? 'The response exceeded the size Freeman will hold in memory, so it was cut off at this point.'
+                : undefined}
+            >
+              {response.sizeBytes} bytes{#if response.capped}<span class="size-capped">capped</span>{/if}
+            </span>
+          </div>
+          <div class="response-stat">
+            <span class="response-stat-label">Type</span>
+            <span>{formatted.kind.toUpperCase()}</span>
+          </div>
         </div>
       </div>
       <div class="response-header-actions">
         <div class="response-segmented">
-          <button class:active={tab === 'body'} on:click={() => onResponseTabClick('body')}>
-            Body{#if tab === 'body'}<span class="tab-chevron">{collapsed ? '▸' : '▾'}</span>{/if}
-          </button>
+          <button class:active={tab === 'body'} on:click={() => onResponseTabClick('body')}>Body</button>
           <button class:active={tab === 'headers'} on:click={() => onResponseTabClick('headers')}>
             Headers{#if headerRows.length}<span class="tab-count">{headerRows.length}</span>{/if}
-            {#if tab === 'headers'}<span class="tab-chevron">{collapsed ? '▸' : '▾'}</span>{/if}
           </button>
         </div>
         {#if !collapsed && tab === 'body' && formatted.canPretty}
@@ -195,17 +196,32 @@
     padding-top: 0.75rem;
   }
 
+  /* The spacing below the strip lives here rather than on .response-meta,
+     so the disclosure button beside it can centre against the stats
+     instead of being pushed up by their margin. */
   .response-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
+    margin-bottom: 0.5rem;
+  }
+
+  /* Collapsed, the strip is the whole pane — nothing below to space off. */
+  .response.collapsed .response-header {
+    margin-bottom: 0;
+  }
+
+  .response-lead {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
   }
 
   .response-meta {
     display: flex;
     gap: 1.5rem;
     font-size: 0.85rem;
-    margin-bottom: 0.5rem;
   }
 
   .response-header-actions {
