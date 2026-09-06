@@ -172,10 +172,15 @@
         </div>
       </div>
     {:else if formatted.kind === 'image'}
-      {#if imageUri}
+      {#if !imageUri}
+        <p class="muted">Loading image…</p>
+      {:else if view === 'pretty'}
         <div class="response-image"><img src={imageUri} alt="Response body" /></div>
       {:else}
-        <p class="muted">Loading image…</p>
+        <!-- Raw for an image is the data: URI read back from the cache
+             file — base64 of the exact bytes, which response.body can't
+             carry. Wrapped, since it's one very long line. -->
+        <CodeEditor readOnly layout="fill" value={formatted.text} language="plain" />
       {/if}
     {:else}
       <CodeEditor readOnly layout="fill" value={formatted.text} language={editorLanguage} />

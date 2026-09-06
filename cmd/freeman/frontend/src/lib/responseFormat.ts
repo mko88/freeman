@@ -62,10 +62,21 @@ export function prettyXml(xml: string): string {
 export function formatResponse(
   r: httpengine.Response | null,
   view: 'pretty' | 'raw',
+  imageUri: string | null = null,
 ): { kind: ResponseKind; canPretty: boolean; text: string } {
   const body = r?.body ?? ''
   const kind = detectResponseKind(r)
   const inRange = !!r && !r.truncated && body.length <= RESPONSE_PRETTY_MAX
+
+  // An image has two views like any other body: the picture, and the
+  // payload behind it. The payload has to come from the data URI the
+  // pane loaded out of the response cache, not from response.body —
+  // Wails marshals Body as JSON, and JSON replaces every byte that
+  // isn't valid UTF-8 with U+FFFD, so response.body for a PNG is a wall
+  // of replacement characters rather than the bytes that arrived.
+  if (kind === 'image') {
+    return { kind, canPretty: !!imageUri, text: imageUri ?? '' }
+  }
 
   if (inRange && kind === 'json') {
     try {

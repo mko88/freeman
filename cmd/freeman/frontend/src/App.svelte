@@ -88,9 +88,9 @@
   // survive the JSON bridge intact. null until loaded / not an image.
   let responseImageUri: string | null = null
   let activeTab: RequestTab = 'headers'
-  // Collapsed by re-clicking whichever tab is already active (see
-  // onRequestTabClick below) — the Headers/Body table hides, and
-  // .response (already flex: 1) just grows into the freed space.
+  // Collapsed by the disclosure toggle at the head of the tab row: the
+  // tab content hides, the name/URL/tab rows stay, and the response
+  // takes the freed height (see .request-pane.collapsed).
   let requestPaneCollapsed = false
 
   // The same gesture on the response's own Body/Headers switch: the meta
@@ -1042,7 +1042,7 @@
   // The response pane's derived view model: what kind of body came
   // back, whether a pretty view is even possible, and the highlighted
   // HTML when it's the pretty view's turn to render.
-  $: formattedResponse = formatResponse(response, responseView)
+  $: formattedResponse = formatResponse(response, responseView, responseImageUri)
 
   function setResponseView(view: 'pretty' | 'raw') {
     responseView = view
