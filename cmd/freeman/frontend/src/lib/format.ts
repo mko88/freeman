@@ -18,14 +18,48 @@ export function methodColor(method: string): string {
   return methodColorVar[method] ?? 'var(--fm-method-neutral)'
 }
 
+// Duration in the largest unit that still reads as a number rather than
+// a lot of zeroes. Sub-millisecond keeps a decimal instead of rounding
+// to "0 ms", which would say a request took no time at all; past a
+// minute it splits, because "83.4 s" is arithmetic the reader shouldn't
+// have to do. Exact milliseconds stay available as a tooltip — see
+// durationMillis.
 export function formatDuration(ns: number): string {
-  return `${Math.round(ns / 1e6)} ms`
+  const ms = ns / 1e6
+  if (ms < 1) return `${ms.toFixed(2)} ms`
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(2)} s`
+  const totalSeconds = ms / 1000
+  const minutes = Math.floor(totalSeconds / 60)
+  return `${minutes} m ${Math.round(totalSeconds - minutes * 60)} s`
 }
 
+// The unrounded figure behind formatDuration, for the tooltip.
+export function durationMillis(ns: number): string {
+  const ms = ns / 1e6
+  return `${ms < 1 ? ms.toFixed(3) : Math.round(ms).toLocaleString()} ms`
+}
+
+// Binary multiples, since this counts bytes off a wire and out of a
+// buffer. One decimal past KB: three significant figures is as much as
+// anyone reads off a size.
+const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const
+
 export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} bytes`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  if (n < 1024) return `${n} B`
+  let value = n
+  let unit = 0
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value.toFixed(1)} ${BYTE_UNITS[unit]}`
+}
+
+// The exact count behind formatBytes, for the tooltip. Grouped, because
+// a bare seven-digit run is unreadable.
+export function exactBytes(n: number): string {
+  return `${n.toLocaleString()} bytes`
 }
 
 // Go's http.Response.Status (httpengine.Response.status) is already

@@ -9,7 +9,7 @@
   // component has no business knowing, so they come in as callbacks.
   import type { httpengine } from '../../wailsjs/go/models'
   import CodeEditor from './CodeEditor.svelte'
-  import { formatBytes, formatDuration, reasonPhrase, statusTone } from '../lib/format'
+  import { durationMillis, exactBytes, formatBytes, formatDuration, reasonPhrase, statusTone } from '../lib/format'
   import { hexDump } from '../lib/responseFormat'
   import type { ResponseKind, ResponseView } from '../lib/responseFormat'
 
@@ -101,82 +101,77 @@
   {#if sendError}
     <p class="error">{sendError}</p>
   {:else if response}
-    <div class="response-header">
-      <div class="response-lead">
-        <!-- Same glyphs, same leading position, same wording as the
-             control API log's own toggle at the foot of the window —
-             the app has one collapse language, not two. -->
+    <!-- One bar, then the content. The request editor needs two rows
+         because its options differ per tab; the response's don't, so
+         everything fits beside the tabs and the pane keeps the height a
+         second row would have cost.
+--
+         The bar carries the rule under the whole width; .tabs inside it
+         gives up its own. Keeping the tabs in their own child is what
+         stops .tabs button restyling the view buttons next to them. -->
+    <div class="response-bar">
+      <div class="tabs">
         <button
           class="disclosure"
           title={collapsed ? 'Expand the response' : 'Collapse the response'}
           aria-expanded={!collapsed}
           on:click={() => (collapsed = !collapsed)}>{collapsed ? '▸' : '▾'}</button
         >
-        <div class="response-meta">
-          <div class="response-stat">
-            <span class="response-stat-label">Status</span>
-            <!-- The code alone: it's what's actually read at a glance,
-                 and the colour already carries its class. The reason
-                 phrase is a tooltip rather than a second word competing
-                 with the number beside it. -->
-            <span
-              class="status status-{statusTone(response.statusCode)}"
-              title={reasonPhrase(response.status) || undefined}
-            >
-              {response.statusCode}
-            </span>
-          </div>
-          <div class="response-stat">
-            <span class="response-stat-label">Time</span>
-            <span>{formatDuration(response.durationNs)}</span>
-          </div>
-          <div class="response-stat">
-            <span class="response-stat-label">Size</span>
-            <span
-              title={response.capped
-                ? 'The response exceeded the size Freeman will hold in memory, so it was cut off at this point.'
-                : undefined}
-            >
-              {response.sizeBytes} bytes{#if response.capped}<span class="size-capped">capped</span>{/if}
-            </span>
-          </div>
-          <div class="response-stat">
-            <span class="response-stat-label">Type</span>
-            <span>{formatted.kind.toUpperCase()}</span>
-          </div>
-        </div>
+        <button class:active={tab === 'body'} on:click={() => onResponseTabClick('body')}>Body</button>
+        <button class:active={tab === 'headers'} on:click={() => onResponseTabClick('headers')}>
+          Headers<span class="tab-count">{headerRows.length}</span>
+        </button>
       </div>
-      <div class="response-header-actions">
-        <div class="response-segmented">
-          <button class:active={tab === 'body'} on:click={() => onResponseTabClick('body')}>Body</button>
-          <button class:active={tab === 'headers'} on:click={() => onResponseTabClick('headers')}>
-            Headers{#if headerRows.length}<span class="tab-count">{headerRows.length}</span>{/if}
-          </button>
-        </div>
-        {#if !collapsed && views.length}
-          <div class="response-segmented">
-            {#each views as v}
-              <button class:active={activeView === v} on:click={() => (view = v)}>{viewLabels[v]}</button>
-            {/each}
-          </div>
-        {/if}
-        <div class="response-actions-menu">
-          <button class="icon-btn" title="Response actions" on:click={() => (showActionsMenu = !showActionsMenu)}
-            >⋯</button
-          >
-          {#if showActionsMenu}
-            <!-- svelte-ignore a11y-no-static-element-interactions -->
-            <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <div class="menu-backdrop" on:click={() => (showActionsMenu = false)}></div>
-            <div class="dropdown-menu">
-              <button on:click={cache.openExternally}>Open in external editor</button>
-              <button on:click={cache.copyPath}>Copy path</button>
-              <button on:click={cache.openInFileExplorer}>Open in File Explorer</button>
-              <button on:click={cache.clearCached}>Clear cached response</button>
-            </div>
-          {/if}
-        </div>
+
+      <!-- No labels: each value says what it is by its own shape — a
+           bare number coloured by class, a duration with a unit, a size
+           with a unit, a type name. The labels were repeating that in
+           words. Where a value is rounded for reading, the exact figure
+           is a tooltip. -->
+      <div class="response-meta">
+        <span
+          class="response-stat status status-{statusTone(response.statusCode)}"
+          title={reasonPhrase(response.status) || undefined}
+        >
+          {response.statusCode}
+        </span>
+        <span class="response-stat" title={durationMillis(response.durationNs)}>
+          {formatDuration(response.durationNs)}
+        </span>
+        <span
+          class="response-stat"
+          title={response.capped
+            ? `${exactBytes(response.sizeBytes)} — the response exceeded the size Freeman will hold in memory, so it was cut off at this point.`
+            : exactBytes(response.sizeBytes)}
+        >
+          {formatBytes(response.sizeBytes)}{#if response.capped}<span class="size-capped">capped</span>{/if}
+        </span>
+        <span class="response-stat">{formatted.kind.toUpperCase()}</span>
       </div>
+
+      {#if !collapsed}
+        <div class="option-row response-views">
+          {#each views as v}
+            <button class:active={activeView === v} on:click={() => (view = v)}>{viewLabels[v]}</button>
+          {/each}
+          <div class="response-actions-menu">
+            <button class="icon-btn" title="Response actions" on:click={() => (showActionsMenu = !showActionsMenu)}
+              >⋯</button
+            >
+            {#if showActionsMenu}
+              <!-- svelte-ignore a11y-no-static-element-interactions -->
+              <!-- svelte-ignore a11y-click-events-have-key-events -->
+              <div class="menu-backdrop" on:click={() => (showActionsMenu = false)}></div>
+              <div class="dropdown-menu">
+                <button on:click={cache.openExternally}>Open in external editor</button>
+                <button on:click={cache.copyPath}>Copy path</button>
+                <button on:click={cache.openInFileExplorer}>Open in File Explorer</button>
+                <button on:click={cache.clearCached}>Clear cached response</button>
+              </div>
+            {/if}
+          </div>
+        </div>
+      {/if}
     </div>
     {#if collapsed}
       <!-- Nothing: the meta strip above stays, and its chevron is what
@@ -257,65 +252,71 @@
     padding-top: 0.75rem;
   }
 
-  /* The spacing below the strip lives here rather than on .response-meta,
-     so the disclosure button beside it can centre against the stats
-     instead of being pushed up by their margin. */
-  .response-header {
+  /* Tabs, stats and view buttons on one line. The rule belongs to the
+     bar so it runs the full width; .tabs would only draw it under the
+     tabs themselves. */
+  .response-bar {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 0.5rem;
+    align-items: stretch;
+    border-bottom: 1px solid var(--fm-border-subtle);
   }
 
-  /* Collapsed, the strip is the whole pane — nothing below to space off. */
-  .response.collapsed .response-header {
-    margin-bottom: 0;
+  .response-bar .tabs {
+    border-bottom: none;
   }
 
-  .response-lead {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    min-width: 0;
-  }
-
+  /* Rides the right end of the bar: these describe the response as a
+     whole, not whichever panel is open, so they sit apart from the tabs
+     rather than among them. Allowed to shrink and clip on a narrow
+     window — the tabs are what must stay clickable.
+--
+     The explicit height is what makes the hairlines between the stats
+     line up: they're borders on stretched children, so they're only
+     equal if the row they stretch to is. Shorter than the tab row, so
+     the rules read as separators inside the group rather than reaching
+     for its edges. */
   .response-meta {
     display: flex;
-    gap: 1.5rem;
+    align-items: stretch;
+    align-self: center;
+    height: 1.4rem;
+    margin-left: auto;
+    padding-left: 1rem;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
     font-size: 0.85rem;
   }
 
-  .response-header-actions {
+  .response-stat {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    flex-shrink: 0;
+    padding: 0 0.75rem;
   }
 
-  .response-segmented {
-    display: flex;
+  /* A hairline, not a middle dot: the same 1px divider the tab row, the
+     splitter and the status bar already use, so the app separates things
+     one way. */
+  .response-stat + .response-stat {
+    border-left: 1px solid var(--fm-border-subtle);
   }
 
-  .response-segmented button {
-    padding: 0.15rem 0.5rem;
-    font-size: 0.8rem;
-    border-radius: 0;
-    background: none;
-    color: var(--fm-text-muted);
+  .response-stat:last-child {
+    padding-right: 0;
   }
 
-  .response-segmented button:first-child {
-    border-radius: var(--fm-radius) 0 0 var(--fm-radius);
+  /* Last in the bar, after the stats. .option-row's bottom margin is for
+     a row of its own; in here the bar's height sets the spacing. */
+  .response-views {
+    align-self: center;
+    margin: 0;
+    padding-left: 1rem;
   }
 
-  .response-segmented button:last-child {
-    border-radius: 0 var(--fm-radius) var(--fm-radius) 0;
-    border-left: none;
-  }
-
-  .response-segmented button.active {
-    color: var(--fm-text);
-    background: var(--fm-bg-hover);
+  /* A touch more air before the menu than between the view buttons —
+     it's a different kind of control, not a fourth view. */
+  .response-views .response-actions-menu {
+    margin-left: 0.35rem;
   }
 
   .response-headers {
@@ -391,18 +392,6 @@
     background: var(--fm-bg-hover);
   }
 
-  .response-stat {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
-
-  .response-stat-label {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: var(--fm-text-muted);
-  }
-
   /* Marks a body that hit httpengine.MaxResponseBytes — the number next
      to it is what was kept, not what the server sent. */
   .size-capped {
@@ -417,8 +406,11 @@
     background: color-mix(in srgb, var(--fm-warning) 16%, transparent);
   }
 
+  /* The one thing in the row that gets to be bigger than the rest: it's
+     the first question anyone asks of a response. Its tone colour does
+     the rest, so nothing else here is coloured. */
   .status {
-    font-size: 1.05rem;
+    font-size: 1rem;
     font-weight: 600;
     letter-spacing: -0.01em;
   }

@@ -215,6 +215,40 @@ code {
   border-bottom: 2px solid var(--fm-accent);
 }
 
+/* The row under a tab row that says how to read what's in it: the
+   request body's Auto/JSON/XML/Plain, the response's Pretty/Raw/Hex.
+   Same question in both panes, so one rule rather than each restyling
+   small buttons its own way. An item with margin-left:auto goes to the
+   right end — the body editor's key hint, the response's "..." menu.
+--
+   The accent tint marks the active choice rather than .primary's filled
+   accent: that's the weight Send carries, and a view selector shouldn't
+   shout as loudly as the button that puts a request on the wire. */
+.option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.4rem;
+}
+
+.option-row button {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.8rem;
+  color: var(--fm-text-muted);
+}
+
+.option-row button.active {
+  color: var(--fm-text);
+  border-color: var(--fm-accent);
+  background: color-mix(in srgb, var(--fm-accent) 14%, transparent);
+}
+
+/* Without this the base button:hover rule wins on specificity and the
+   active button is the one thing in the row that doesn't respond. */
+.option-row button.active:hover {
+  background: color-mix(in srgb, var(--fm-accent) 22%, transparent);
+}
+
 /* What a tab holds — a row count, or the option it has selected — so
    the ones you're not looking at still say what's in them. Always
    rendered, including at zero: a tab with nothing in it should look

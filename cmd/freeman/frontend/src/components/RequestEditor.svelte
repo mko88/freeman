@@ -268,7 +268,7 @@
   </div>
 
   {#if draft.bodyMode === 'raw'}
-    <div class="body-languages">
+    <div class="option-row body-languages">
       {#each bodyLanguages as l}
         <button class:active={bodyLanguage === l.value} on:click={() => (bodyLanguage = l.value)}>{l.label}</button>
       {/each}
@@ -355,29 +355,6 @@
     font-weight: 600;
     color: var(--m);
     border-left: 2px solid var(--m);
-  }
-
-  .body-languages {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    margin-bottom: 0.4rem;
-  }
-
-  .body-languages button {
-    padding: 0.15rem 0.5rem;
-    font-size: 0.8rem;
-    color: var(--fm-text-muted);
-  }
-
-  .body-languages button.active {
-    color: var(--fm-text);
-    border-color: var(--fm-accent);
-    background: color-mix(in srgb, var(--fm-accent) 14%, transparent);
-  }
-
-  .body-languages button.active:hover {
-    background: color-mix(in srgb, var(--fm-accent) 22%, transparent);
   }
 
   .body-language-detected {
