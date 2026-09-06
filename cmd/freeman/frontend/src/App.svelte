@@ -32,7 +32,6 @@
   import ResponsePane from './components/ResponsePane.svelte'
   import SettingsModal from './components/SettingsModal.svelte'
   import Switcher from './components/Switcher.svelte'
-  import NameDialog from './components/NameDialog.svelte'
   import { formatBytes, formatDuration, methodColor, reasonPhrase, statusTone } from './lib/format'
   import { detectResponseKind, formatResponse } from './lib/responseFormat'
   import type { BodyLanguage, ResponseView } from './lib/responseFormat'
@@ -62,21 +61,20 @@
   let collection: domain.Collection | null = null
   let selectedItemId: string | null = null
 
-  // The two top-bar switchers' open state, and the one dialog they share
-  // for "what should this be called?". null when no dialog is up.
+  // The two top-bar switchers' open state.
   let showCollectionMenu = false
   let showEnvironmentMenu = false
-  let nameDialog: {
-    title: string
-    confirmLabel: string
-    value: string
-    onConfirm: (name: string) => void
-  } | null = null
 
   let environmentId = ''
   let environment: domain.Environment | null = null
   let showSettings = false
-  let settingsTab: 'workspace' | 'environments' = 'workspace'
+  // The settings window's tabs: the workspace folder, and the two things
+  // it holds many of. Collections and environments are managed there
+  // rather than from the top bar's switchers, which only pick one —
+  // creating and deleting are occasional, and don't belong a slip away
+  // from a control used several times an hour.
+  type SettingsTab = 'workspace' | 'collections' | 'environments'
+  let settingsTab: SettingsTab = 'workspace'
 
   let response: httpengine.Response | null = null
   let sending = false
@@ -349,7 +347,7 @@
         break
       case 'selectSettingsTab': {
         const tab = payload?.tab
-        if (tab === 'workspace' || tab === 'environments') settingsTab = tab
+        if (tab === 'workspace' || tab === 'collections' || tab === 'environments') settingsTab = tab
         break
       }
       case 'selectEnvironment':
@@ -717,55 +715,17 @@
     return workspace
   }
 
-  // The menu items open the dialog; the dialog's confirm calls the same
-  // function a ui:action would, so both paths land in one place.
-  function promptNewCollection() {
-    nameDialog = {
-      title: 'New collection',
-      confirmLabel: 'Create',
-      value: '',
-      onConfirm: (name) => runDialog(() => newCollection(name)),
-    }
+  // The switchers' "Edit …" item: open the settings window on the tab
+  // that manages that kind of thing.
+  function openSettingsTab(tab: SettingsTab) {
+    settingsTab = tab
+    showSettings = true
   }
 
-  function promptRenameCollection() {
-    nameDialog = {
-      title: 'Rename collection',
-      confirmLabel: 'Save',
-      value: collection?.name ?? '',
-      onConfirm: (name) => runDialog(() => renameCollection(name)),
-    }
-  }
-
-  function promptNewEnvironment() {
-    nameDialog = {
-      title: 'New environment',
-      confirmLabel: 'Create',
-      value: '',
-      onConfirm: (name) => runDialog(() => newEnvironment(name)),
-    }
-  }
-
-  function promptRenameEnvironment() {
-    nameDialog = {
-      title: 'Rename environment',
-      confirmLabel: 'Save',
-      value: environment?.name ?? '',
-      onConfirm: (name) => runDialog(() => renameEnvironment(name)),
-    }
-  }
-
-  // Renaming goes through the editor's own two steps — set the field,
-  // then save — so the dialog and the Settings name box can't diverge.
-  async function renameEnvironment(name: string) {
-    setEnvironmentField('name', name)
-    await saveEnvironment()
-  }
-
-  // Closes the dialog first so a backend error surfaces against the app
-  // rather than behind a modal that's still up.
-  async function runDialog(action: () => Promise<void>) {
-    nameDialog = null
+  // A backend call from a click, with its error surfaced rather than
+  // left as an unhandled rejection. The control API path reports through
+  // dispatchUIAction's own handling instead.
+  async function guard(action: () => Promise<void>) {
     try {
       await action()
     } catch (e) {
@@ -780,7 +740,7 @@
     const count = collection?.items?.length ?? 0
     const detail = count ? ` and its ${count} request${count === 1 ? '' : 's'}` : ''
     if (confirm(`Delete "${name}"${detail}? This can't be undone from the app.`)) {
-      void runDialog(() => deleteCollection())
+      void guard(() => deleteCollection())
     }
   }
 
@@ -1110,12 +1070,25 @@
   // exactly the same path.
   const environmentActions = {
     select: selectEnvironment,
-    create: newEnvironment,
+    create: () => newEnvironment(),
     setName: (value: string) => setEnvironmentField('name', value),
     confirmDelete: confirmDeleteEnvironment,
     addVariable: () => addEnvironmentVariable(),
     removeVariable: removeEnvironmentVariable,
     save: saveEnvironment,
+  }
+
+  // The same shape for collections, minus the variables — a collection
+  // is only its name here; its requests are edited in the sidebar. So
+  // there's nothing for a Save button to batch, and `rename` commits on
+  // its own. It's wired to the field's change event, not its input
+  // event: renaming moves a directory on disk, and doing that once per
+  // keystroke would leave a trail of them across a typed word.
+  const collectionActions = {
+    select: (id: string) => guard(() => selectCollection(id)),
+    create: () => guard(() => newCollection('New collection')),
+    rename: (value: string) => guard(() => renameCollection(value)),
+    confirmDelete: confirmDeleteCollection,
   }
 
   function addEnvironmentVariable(initial?: Partial<domain.Variable>) {
@@ -1239,10 +1212,8 @@
         selectedId={collectionId}
         emptyName="No collection"
         bind:open={showCollectionMenu}
-        onSelect={(id) => void runDialog(() => selectCollection(id))}
-        onNew={promptNewCollection}
-        onRename={promptRenameCollection}
-        onDelete={confirmDeleteCollection}
+        onSelect={(id) => void guard(() => selectCollection(id))}
+        onEdit={() => openSettingsTab('collections')}
       />
       <Switcher
         label="Environment"
@@ -1250,10 +1221,8 @@
         selectedId={environmentId}
         emptyName="No environment"
         bind:open={showEnvironmentMenu}
-        onSelect={(id) => void runDialog(() => selectEnvironment(id))}
-        onNew={promptNewEnvironment}
-        onRename={promptRenameEnvironment}
-        onDelete={confirmDeleteEnvironment}
+        onSelect={(id) => void guard(() => selectEnvironment(id))}
+        onEdit={() => openSettingsTab('environments')}
       />
     {/if}
     <span class="top-bar-actions">
@@ -1264,15 +1233,6 @@
     </span>
   </header>
 
-{#if nameDialog}
-  <NameDialog
-    title={nameDialog.title}
-    confirmLabel={nameDialog.confirmLabel}
-    value={nameDialog.value}
-    onConfirm={nameDialog.onConfirm}
-    onCancel={() => (nameDialog = null)}
-  />
-{/if}
 {#if !workspace}
   <main class="welcome">
     <h1>Freeman</h1>
@@ -1383,7 +1343,10 @@
       bind:settingsTab
       bind:environmentId
       bind:environment
+      bind:collectionId
+      {collection}
       env={environmentActions}
+      coll={collectionActions}
       onClose={() => (showSettings = false)}
       onOpenWorkspace={openWorkspace}
       onClearResponseCache={clearResponseCache}

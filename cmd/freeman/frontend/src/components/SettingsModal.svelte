@@ -17,9 +17,11 @@
   // edited here, and the variable rows below write straight into
   // `environment` — App.svelte's reportUIState mirrors all three, so the
   // changes have to travel back up.
-  export let settingsTab: 'workspace' | 'environments'
+  export let settingsTab: 'workspace' | 'collections' | 'environments'
   export let environmentId: string
   export let environment: domain.Environment | null
+  export let collectionId: string
+  export let collection: domain.Collection | null
 
   export let onClose: () => void
   export let onOpenWorkspace: () => void
@@ -36,6 +38,13 @@
     addVariable: () => void
     removeVariable: (index: number) => void
     save: () => void
+  }
+
+  export let coll: {
+    select: (id: string) => void
+    create: () => void
+    rename: (value: string) => void
+    confirmDelete: () => void
   }
 </script>
 
@@ -62,6 +71,9 @@
 
     <div class="tabs">
       <button class:active={settingsTab === 'workspace'} on:click={() => (settingsTab = 'workspace')}>Workspace</button>
+      <button class:active={settingsTab === 'collections'} on:click={() => (settingsTab = 'collections')}
+        >Collections</button
+      >
       <button class:active={settingsTab === 'environments'} on:click={() => (settingsTab = 'environments')}
         >Environments</button
       >
@@ -84,6 +96,40 @@
           <button on:click={onClearResponseCache}>Clear response cache</button>
           {#if responseCacheCleared}<span class="muted">Cleared.</span>{/if}
         </div>
+      {:else if settingsTab === 'collections'}
+        <p class="prose">
+          A collection is a folder of saved requests. The one you pick here is the one the sidebar shows.
+        </p>
+        <div class="row env-fields">
+          <select bind:value={collectionId} on:change={() => coll.select(collectionId)}>
+            {#each workspace.collections as c (c.id)}
+              <option value={c.id}>{c.name}</option>
+            {/each}
+          </select>
+          <!-- on:change, not on:input: renaming moves the collection's
+               folder, so it commits when you leave the field or press
+               Enter rather than on every keystroke. -->
+          <input
+            class="env-name"
+            type="text"
+            value={collection ? collection.name : ''}
+            on:change={(e) => coll.rename(e.currentTarget.value)}
+            placeholder="Collection name"
+            disabled={!collection}
+          />
+        </div>
+
+        <div class="row env-actions">
+          <button on:click={coll.create}>New</button>
+          <button on:click={coll.confirmDelete} disabled={workspace.collections.length <= 1}>Delete</button>
+        </div>
+
+        <p class="prose">
+          {#if collection}
+            {collection.items?.length ?? 0} request{(collection.items?.length ?? 0) === 1 ? '' : 's'}. Deleting the
+            collection deletes them too.
+          {/if}
+        </p>
       {:else}
         <div class="row env-fields">
           <select bind:value={environmentId} on:change={() => env.select(environmentId)}>

@@ -57,11 +57,15 @@
   ]
 
   const uiActions = [
-    { action: 'toggleSettings', payload: '—', desc: 'Open/close the settings window (workspace folder, environments).' },
+    {
+      action: 'toggleSettings',
+      payload: '—',
+      desc: 'Open/close the settings window (workspace folder, collections, environments).',
+    },
     {
       action: 'selectSettingsTab',
       payload: '{ tab }',
-      desc: "Switch the settings window tab. tab is 'workspace' or 'environments'.",
+      desc: "Switch the settings window tab. tab is 'workspace', 'collections' or 'environments'.",
     },
     { action: 'selectEnvironment', payload: '{ id }', desc: 'Switch the active environment.' },
     { action: 'newEnvironment', payload: '—', desc: 'Create a new environment and switch to it.' },
@@ -92,12 +96,12 @@
     {
       action: 'toggleCollectionMenu',
       payload: '—',
-      desc: "Open/close the top bar's collection switcher menu.",
+      desc: "Open/close the top bar's collection picker (picking only — the rest is the settings window).",
     },
     {
       action: 'toggleEnvironmentMenu',
       payload: '—',
-      desc: "Open/close the top bar's environment switcher menu.",
+      desc: "Open/close the top bar's environment picker.",
     },
     { action: 'selectRequest', payload: '{ id }', desc: 'Select a request in the sidebar.' },
     {

@@ -145,6 +145,11 @@ def test_settings_window(api: ControlAPI, r: Report) -> None:
     root = state.get("workspaceRoot")
     r.check("state.workspaceRoot is a non-empty path", bool(root), str(root))
 
+    r.step("selectSettingsTab {tab: 'collections'}  (where collections are created/renamed/deleted)")
+    api.action("selectSettingsTab", {"tab": "collections"})
+    state = poll(api.state, lambda s: s.get("settingsTab") == "collections")
+    r.check("state.settingsTab reflects selectSettingsTab 'collections'", state.get("settingsTab") == "collections", str(state.get("settingsTab")))
+
     r.step("selectSettingsTab {tab: 'environments'}")
     api.action("selectSettingsTab", {"tab": "environments"})
     state = poll(api.state, lambda s: s.get("settingsTab") == "environments")
