@@ -14,10 +14,10 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | RESTful API support | 🟡 | `internal/httpengine.Execute`: any method, `{{var}}` in URL/params/headers, **raw** body + Content-Type, captures status/headers/body/time/size, 30s timeout. |
 | Environments | ✅ | Multiple envs; variables with enabled/secret flags; `{{var}}` substitution; `.local.json` overlay for secrets; in-app editor modal. |
 | GraphQL API support | ⬜ | Needs a query editor + variables pane + (optional) schema introspection. Could reuse the raw-body path for transport. |
-| SOAP API support | ⬜ | Needs raw-XML body mode surfaced + optional WSDL import (→ `internal/importer`). Low priority. |
-| Request chaining | ⬜ | Domain already has `Item.PreRequestScript` / `Item.TestScript`; `internal/script.Engine` interface exists, only `NoopEngine` wired. Needs: response→variable extraction, then feed vars forward. |
+| SOAP API support | ⬜ | Needs raw-XML body mode surfaced + optional WSDL import. Low priority. |
+| Request chaining | ⬜ | Domain already has `Item.PreRequestScript` / `Item.TestScript`, but nothing runs them — `core.ExecuteRequest` has no scripting seam. Needs: a `script.Engine` (goja), response→variable extraction, then feed vars forward. |
 | Random data | ⬜ | Extend `httpengine.Substitute` (or a pre-pass) with dynamic tokens: `{{$guid}}`, `{{$timestamp}}`, `{{$randomInt}}`, faker-style. |
-| API testing | ⬜ | `Item.TestScript` present but not executed. Needs a real `script.Engine` (goja) + a test-results pane. |
+| API testing | ⬜ | `Item.TestScript` present but not executed. Needs a `script.Engine` (goja) + a test-results pane — the pane matters, because a failed assertion is not a failed request and needs somewhere of its own to surface. |
 | API monitoring | ⬜ | Needs a scheduler + run history + alerting. Largest new surface; depends on testing landing first. |
 | CLI | 🟡 | No `freeman run …` binary. `cmd/freeman-server` (HTTP/container) + desktop control API on `:8090` cover scripting. A `cmd/freeman-cli` headless runner was always planned. |
 | Team collaboration | 🟡 | Collections + environments are plain git-friendly JSON in a workspace folder (secrets in `.local.json` stay out of VCS). No in-app sync/sharing/comments. |
@@ -171,8 +171,38 @@ the same path; components get them as grouped callback props
 (`env`, `rows`, `cache`). Every step verified no CSS rule was dropped by
 diffing the parsed selector sets.
 
-Still open from that review: no CI, the unenforced `$backend` contract,
-the unused `script`/`importer` stubs, and no root README.
+**Update 2026-09-06 (the rest of the review):**
+`src/backend.contract.ts` now asserts, at type-check time, that the two
+`$backend` implementations have the same exported shape. tsconfig can
+only resolve `$backend` to the Wails variant, so before this the HTTP one
+was unchecked — adding an export to one and forgetting the other failed
+at runtime, in whichever build you hadn't tested. Verified by breaking it
+both ways: a missing export and a changed signature each fail
+`npm run check`, naming the export.
+
+`internal/script` and `internal/importer` deleted. Both were interfaces
+with no implementation and no caller, and this file claimed `NoopEngine`
+was wired when nothing wired it. Wiring it wasn't the one-liner it
+looked like either: `RunTest` returns "an assertion failed", and until
+there's a test-results pane that error has nowhere to go that doesn't
+make a good response read as a failed request. The plan stays here in
+prose; git history keeps the interfaces.
+
+Still open from that review: CI, and no root README.
+
+CI was written and then dropped before merging, because three Go tests
+execute real requests against httpbin.org — `core.TestExecuteRequestCommonMethods` (all five common methods), `core.TestVerticalSlice`, and
+`httpapi.TestVerticalSliceOverHTTP`. They're fast (~1.4s) and valuable
+locally, but on a shared runner they make the build red whenever httpbin
+is down or rate-limiting, which is how a team learns to ignore CI.
+Guard them with `testing.Short()` and run `go test -short -race ./...`
+in CI, and the rest is straightforward: no apt dependencies are needed,
+because the only cgo in the whole dependency graph is wails'
+`signal_linux.go` and it includes libc headers only — no GTK, no WebKit.
+Node must be pinned to 22 (same reason `.devcontainer/setup.sh` pins
+it). The suite's `--consistency-only` section is the part that runs
+without a GUI; the other 156 checks drive a real webview and have to
+stay local.
 
 ---
 
@@ -203,8 +233,8 @@ the unused `script`/`importer` stubs, and no root README.
 - [ ] Sidebar tree UI (`domain.Item` is already a folder/request union with `Items []Item`; `Collection.UpsertItem`/`FindItem` walk the tree). Currently the sidebar renders a flat list.
 
 ### 3. Scripting engine → unlocks chaining + testing
-- [ ] Replace `script.NoopEngine` with a `goja`-backed `script.Engine`.
-- [ ] Wire `Engine.RunPreRequest` / `RunTest` into `core.ExecuteRequest` (call sites already shaped for it).
+- [ ] Add a `goja`-backed `script.Engine` (an interface sketch was deleted 2026-09-06 as dead code — see git history if the shape is still useful).
+- [ ] Wire `Engine.RunPreRequest` / `RunTest` into `core.ExecuteRequest`, and decide where a failed assertion surfaces — it must not read as a failed request.
 - [ ] Minimal `pm`-style API: `pm.response`, `pm.environment.set`, `pm.test(...)`, assertions.
 - [ ] Test-results pane in the response area.
 - [ ] **Request chaining** then falls out: a test/pre-request script sets a variable from a prior response.
@@ -212,7 +242,7 @@ the unused `script`/`importer` stubs, and no root README.
 ### 4. Random / dynamic data
 - [ ] Dynamic `{{$...}}` tokens resolved before/inside `Substitute`.
 
-### 5. Importers (`internal/importer` — interface exists, no impls)
+### 5. Importers
 - [ ] Postman Collection v2.1 → `domain.Collection`.
 - [ ] OpenAPI 3 → `domain.Collection`.
 - [ ] cURL paste → single request.
@@ -231,4 +261,4 @@ the unused `script`/`importer` stubs, and no root README.
 
 ### 9. SOAP (low priority)
 - [ ] Surface a raw-XML body mode with envelope scaffold.
-- [ ] (Optional) WSDL import via `internal/importer`.
+- [ ] (Optional) WSDL import.
