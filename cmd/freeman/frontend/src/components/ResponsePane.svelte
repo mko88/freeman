@@ -49,7 +49,14 @@
   // detectResponseKind has five values; the editor has three. html is
   // close enough to xml to share a grammar, and image never reaches the
   // editor at all.
+  //
+  // Raw means raw: the bytes as they arrived, with no grammar applied.
+  // Only when the Pretty/Raw switch is actually on screen, so a body
+  // that simply has no pretty view (too large, or not parseable) still
+  // gets its colours — there's no visible control there to explain
+  // losing them.
   $: editorLanguage = ((): 'json' | 'xml' | 'plain' => {
+    if (formatted.canPretty && view === 'raw') return 'plain'
     if (formatted.kind === 'json') return 'json'
     if (formatted.kind === 'xml' || formatted.kind === 'html') return 'xml'
     return 'plain'

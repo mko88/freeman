@@ -1,10 +1,7 @@
-// How a response body is classified and rendered: the lightweight
-// kind sniffing behind the "Type" badge, the JSON/XML pretty-printers,
-// and the token highlighting the response pane drops in with {@html}.
-//
-// Safe for an untrusted body by construction: every highlighter escapes
-// &, < and > *first* and only then inserts its own <span class="syntax-*">
-// wrappers, so nothing from the response can close a tag or open one.
+// How a response body is classified and reshaped for display: the
+// lightweight kind sniffing behind the "Type" badge, and the JSON/XML
+// pretty-printers. Everything here returns plain text — colouring it is
+// CodeMirror's job, so an untrusted body is never turned into markup.
 import type { httpengine } from '../../wailsjs/go/models'
 
 // Above this the pretty view isn't worth the JSON.parse + regex pass on

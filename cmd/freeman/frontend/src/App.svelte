@@ -72,10 +72,12 @@
   // response gets cached to disk (see saveResponseCache) regardless of
   // size.
   let showResponseActionsMenu = false
-  // 'pretty' pretty-prints + syntax-highlights a JSON response body;
-  // 'raw' shows exactly what came back. Sticky across requests — a view
-  // preference, not per-response state. See formattedResponse below for
-  // the (lightweight) detection of whether pretty is even possible.
+  // 'pretty' reindents a JSON/XML response body and colours it; 'raw'
+  // shows exactly what came back, uncoloured as well as unformatted —
+  // it's the view you switch to when you want to see the bytes, not a
+  // reading of them. Sticky across requests — a view preference, not
+  // per-response state. See formattedResponse below for the
+  // (lightweight) detection of whether pretty is even possible.
   let responseView: 'pretty' | 'raw' = 'pretty'
   // Which of the response's two panels is showing — the body, or its
   // headers (the response's meta info the meta stats don't cover).
