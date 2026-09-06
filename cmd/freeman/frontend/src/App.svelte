@@ -1090,16 +1090,21 @@
         rows={requestRowActions}
       />
 
-      <ResponsePane
-        {response}
-        {sendError}
-        formatted={formattedResponse}
-        imageUri={responseImageUri}
-        bind:tab={responseTab}
-        bind:view={responseView}
-        bind:showActionsMenu={showResponseActionsMenu}
-        cache={responseCacheActions}
-      />
+      <!-- The Code tab is about the command, not the last reply — so it
+           gets the whole pane rather than sharing it with a response the
+           reader isn't looking at. -->
+      {#if activeTab !== 'code'}
+        <ResponsePane
+          {response}
+          {sendError}
+          formatted={formattedResponse}
+          imageUri={responseImageUri}
+          bind:tab={responseTab}
+          bind:view={responseView}
+          bind:showActionsMenu={showResponseActionsMenu}
+          cache={responseCacheActions}
+        />
+      {/if}
     </main>
   </div>
 {/if}

@@ -123,7 +123,9 @@
     {
       action: 'selectRequestTab',
       payload: '{ tab }',
-      desc: "Switch the request editor tab. tab is 'params', 'headers', 'auth', 'body' or 'code'.",
+      desc:
+        "Switch the request editor tab. tab is 'params', 'headers', 'auth', 'body' or 'code'. " +
+        "'code' hides the response pane; the response itself is unaffected and still readable through /api/ui/state.",
     },
     {
       action: 'selectCodeFormat',

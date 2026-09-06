@@ -13,23 +13,29 @@
   import { indentWithTab, temporarilySetTabFocusMode } from '@codemirror/commands'
   import { json } from '@codemirror/lang-json'
   import { xml } from '@codemirror/lang-xml'
-  import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
+  import { HighlightStyle, StreamLanguage, syntaxHighlighting } from '@codemirror/language'
+  import { powerShell } from '@codemirror/legacy-modes/mode/powershell'
+  import { shell } from '@codemirror/legacy-modes/mode/shell'
   import { Compartment, EditorState } from '@codemirror/state'
   import { EditorView, keymap, placeholder as placeholderExt } from '@codemirror/view'
   import { tags } from '@lezer/highlight'
   import { basicSetup } from 'codemirror'
 
   export let value: string
-  export let language: 'json' | 'xml' | 'plain' = 'plain'
+  export let language: 'json' | 'xml' | 'shell' | 'powershell' | 'plain' = 'plain'
   export let placeholder = ''
-  // Read-only mode is the response pane: same highlighting, same theme,
-  // plus folding and viewport rendering, which matter more there than in
-  // a body you type — a large response used to render as one <pre> full
-  // of spans.
+  // Read-only mode is the response pane and the Code tab: same
+  // highlighting, same theme, plus folding and viewport rendering, which
+  // matter more there than in a body you type — a large response used to
+  // render as one <pre> full of spans.
   export let readOnly = false
-  // Fill the available height (the response pane) instead of a fixed,
-  // user-resizable box (the body editor).
-  export let fill = false
+  // How the editor is sized: a fixed box the user can drag (the request
+  // body), or whatever height the pane has left (the response pane and
+  // the Code tab, each of which owns the space below the tab bar).
+  export let layout: 'box' | 'fill' = 'box'
+  // Off for generated commands, which scroll sideways rather than wrap —
+  // a wrapped one-line curl is harder to read, not easier.
+  export let wrap = true
 
   let host: HTMLElement
   let view: EditorView | undefined
@@ -42,11 +48,11 @@
   // style.css) mapped onto lezer's tags, so a JSON body reads
   // identically whether it's in this editor or the response pane.
   const freemanHighlight = HighlightStyle.define([
-    { tag: [tags.propertyName, tags.tagName], color: 'var(--fm-accent)' },
-    { tag: [tags.string, tags.attributeValue], color: 'var(--fm-success)' },
-    { tag: [tags.number, tags.attributeName], color: 'var(--fm-method-get)' },
-    { tag: [tags.bool, tags.atom], color: 'var(--fm-method-put)' },
-    { tag: [tags.null, tags.comment, tags.angleBracket], color: 'var(--fm-text-muted)' },
+    { tag: [tags.propertyName, tags.tagName, tags.keyword, tags.definitionKeyword], color: 'var(--fm-accent)' },
+    { tag: [tags.string, tags.attributeValue, tags.special(tags.string)], color: 'var(--fm-success)' },
+    { tag: [tags.number, tags.attributeName, tags.standard(tags.variableName)], color: 'var(--fm-method-get)' },
+    { tag: [tags.bool, tags.atom, tags.variableName], color: 'var(--fm-method-put)' },
+    { tag: [tags.null, tags.comment, tags.angleBracket, tags.meta], color: 'var(--fm-text-muted)' },
     { tag: tags.invalid, color: 'var(--fm-error)' },
   ])
 
@@ -54,12 +60,13 @@
     {
       '&': {
         height: '100%',
-        fontSize: '0.9rem',
-        backgroundColor: 'var(--fm-bg-elevated)',
+        fontSize: layout === 'box' ? '0.9rem' : '0.85rem',
+        backgroundColor: 'transparent',
         color: 'var(--fm-text)',
       },
       '&.cm-focused': { outline: 'none' },
       '.cm-scroller': {
+        overflow: 'auto',
         fontFamily: "'IBM Plex Mono', 'Cascadia Code', Consolas, monospace",
         lineHeight: '1.5',
       },
@@ -92,6 +99,8 @@
   function languageExtension(lang: typeof language) {
     if (lang === 'json') return json()
     if (lang === 'xml') return xml()
+    if (lang === 'shell') return StreamLanguage.define(shell)
+    if (lang === 'powershell') return StreamLanguage.define(powerShell)
     return []
   }
 
@@ -111,7 +120,7 @@
           languageCompartment.of(languageExtension(language)),
           freemanTheme,
           syntaxHighlighting(freemanHighlight),
-          EditorView.lineWrapping,
+          ...(wrap ? [EditorView.lineWrapping] : []),
           placeholderExt(placeholder),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
@@ -137,10 +146,10 @@
   }
 </script>
 
-<div class="code-editor" class:fill bind:this={host}></div>
+<div class="code-editor {layout}" bind:this={host}></div>
 
 <style>
-  .code-editor {
+  .code-editor.box {
     height: 220px;
     min-height: 120px;
     resize: vertical;
@@ -150,20 +159,15 @@
     background: var(--fm-bg-elevated);
   }
 
-  /* The response pane sizes itself to what's left of the window rather
-     than to a handle, so it drops the fixed height and the border it
-     doesn't need. */
+  /* Sizes itself to what's left of the pane rather than to a handle, so
+     it drops the fixed height and the border it doesn't need. */
   .code-editor.fill {
     flex: 1;
-    height: auto;
     min-height: 0;
-    resize: none;
-    border: none;
-    border-radius: 0;
     background: var(--fm-bg-response);
   }
 
-  .code-editor:focus-within {
+  .code-editor.box:focus-within {
     border-color: var(--fm-accent);
   }
 </style>

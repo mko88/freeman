@@ -144,7 +144,7 @@
         <p class="muted">Loading image…</p>
       {/if}
     {:else}
-      <CodeEditor readOnly fill value={formatted.text} language={editorLanguage} />
+      <CodeEditor readOnly layout="fill" value={formatted.text} language={editorLanguage} />
     {/if}
   {:else}
     <p class="muted">Send a request to see the response here.</p>

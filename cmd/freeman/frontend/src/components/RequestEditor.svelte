@@ -10,7 +10,6 @@
   // path.
   import CodeEditor from './CodeEditor.svelte'
   import { methodColor } from '../lib/format'
-  import { highlightGeneratedCode } from '../lib/highlightScript'
   import { resolveBodyLanguage } from '../lib/responseFormat'
   import type { BodyLanguage } from '../lib/responseFormat'
   import { bodyModes, codeFormats, methods } from '../lib/requestDraft'
@@ -87,6 +86,14 @@
   $: bodyContentType =
     draft.headers.find((h) => h.enabled && h.key.trim().toLowerCase() === 'content-type')?.value ?? ''
   $: resolvedBodyLanguage = resolveBodyLanguage(bodyLanguage, draft.bodyRaw, bodyContentType)
+
+  // No sniffing needed for the Code tab — the format that generated the
+  // snippet says what language it is.
+  function languageOf(format: CodeFormat): 'shell' | 'powershell' {
+    return format === 'powershell' || format === 'powershell-script' ? 'powershell' : 'shell'
+  }
+
+  $: codeLanguage = languageOf(codeFormat)
 
   // Tab badges — count of rows with a key filled in (a blank row the
   // user just added isn't a param/header/field yet), blank at zero.
@@ -264,7 +271,7 @@
     {#if codeError}
       <p class="error">{codeError}</p>
     {:else}
-      <pre class="code-output">{@html highlightGeneratedCode(generatedCode, codeFormat)}</pre>
+      <CodeEditor readOnly wrap={false} layout="fill" value={generatedCode} language={codeLanguage} />
     {/if}
   </div>
 {:else}
@@ -479,7 +486,11 @@
     min-width: 0;
   }
 
+  /* Takes the whole editor pane: App.svelte hides the response while
+     this tab is open, so there's nothing below to share the height
+     with. */
   .code-tab {
+    flex: 1;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -513,14 +524,4 @@
     margin-left: auto;
   }
 
-  .code-output {
-    margin: 0;
-    max-height: 16rem;
-    overflow: auto;
-    background: var(--fm-bg-response);
-    padding: 0.75rem;
-    font-size: 0.8rem;
-    white-space: pre;
-    word-break: normal;
-  }
 </style>
