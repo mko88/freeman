@@ -149,10 +149,13 @@
 <div class="code-editor {layout}" bind:this={host}></div>
 
 <style>
+  /* 220px preferred, but it grows into whatever the pane isn't using —
+     so collapsing the response gives the body editor the space rather
+     than leaving a gap under it. The request/response splitter is what
+     sizes this now, which is why there's no resize handle of its own. */
   .code-editor.box {
-    height: 220px;
+    flex: 1 1 220px;
     min-height: 120px;
-    resize: vertical;
     overflow: hidden;
     border: 1px solid var(--fm-border);
     border-radius: var(--fm-radius);

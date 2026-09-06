@@ -86,7 +86,9 @@
     {
       action: 'setResponseTab',
       payload: '{ tab }',
-      desc: "Switch the response panel. tab is 'body' or 'headers' (the response's headers).",
+      desc:
+        "Switch the response panel. tab is 'body' or 'headers' (the response's headers). " +
+        'Always expands the pane if it was collapsed.',
     },
     {
       action: 'setResponseView',
@@ -152,8 +154,18 @@
       payload: '—',
       desc: 'Collapse/expand the request editor’s Headers/Body content (same as clicking the active tab).',
     },
+    {
+      action: 'toggleResponsePane',
+      payload: '—',
+      desc: 'Collapse/expand the response body/headers, leaving its status strip (same as clicking the active panel).',
+    },
     { action: 'toggleControlApiLog', payload: '—', desc: 'Collapse/expand the control API log at the bottom.' },
     { action: 'setSidebarWidth', payload: '{ px }', desc: 'Resize the request list (clamped to a sane range).' },
+    {
+      action: 'setResponseHeight',
+      payload: '{ px }',
+      desc: 'Set the response pane’s height, i.e. the request/response splitter (clamped to a sane range).',
+    },
     {
       action: 'setStatusBarHeight',
       payload: '{ px }',

@@ -24,7 +24,24 @@
   // to travel back up.
   export let tab: 'body' | 'headers'
   export let view: 'pretty' | 'raw'
+  export let collapsed: boolean
   export let showActionsMenu: boolean
+  // Set by the splitter above; ignored while collapsed.
+  export let height: number
+
+  // Clicking the panel that's already showing collapses the pane;
+  // clicking the other switches to it. Mirrors the request editor's tab
+  // strip, down to the chevron. The control API gets setResponseTab,
+  // which always switches and expands, and toggleResponsePane for the
+  // collapse on its own.
+  function onResponseTabClick(next: 'body' | 'headers') {
+    if (tab === next) {
+      collapsed = !collapsed
+    } else {
+      tab = next
+      collapsed = false
+    }
+  }
 
   export let cache: {
     openExternally: () => void
@@ -49,7 +66,7 @@
     .sort((a, b) => a.name.localeCompare(b.name) || a.value.localeCompare(b.value))
 </script>
 
-<section class="response">
+<section class="response" class:collapsed style:height="{height}px">
   {#if sendError}
     <p class="error">{sendError}</p>
   {:else if response}
@@ -82,12 +99,15 @@
       </div>
       <div class="response-header-actions">
         <div class="response-segmented">
-          <button class:active={tab === 'body'} on:click={() => (tab = 'body')}>Body</button>
-          <button class:active={tab === 'headers'} on:click={() => (tab = 'headers')}>
+          <button class:active={tab === 'body'} on:click={() => onResponseTabClick('body')}>
+            Body{#if tab === 'body'}<span class="tab-chevron">{collapsed ? '▸' : '▾'}</span>{/if}
+          </button>
+          <button class:active={tab === 'headers'} on:click={() => onResponseTabClick('headers')}>
             Headers{#if headerRows.length}<span class="tab-count">{headerRows.length}</span>{/if}
+            {#if tab === 'headers'}<span class="tab-chevron">{collapsed ? '▸' : '▾'}</span>{/if}
           </button>
         </div>
-        {#if tab === 'body' && formatted.canPretty}
+        {#if !collapsed && tab === 'body' && formatted.canPretty}
           <div class="response-segmented">
             <button class:active={view === 'pretty'} on:click={() => (view = 'pretty')}>Pretty</button>
             <button class:active={view === 'raw'} on:click={() => (view = 'raw')}>Raw</button>
@@ -111,7 +131,10 @@
         </div>
       </div>
     </div>
-    {#if tab === 'headers'}
+    {#if collapsed}
+      <!-- Nothing: the meta strip above stays, and its chevron is what
+           brings the panel back. -->
+    {:else if tab === 'headers'}
       <div class="response-headers">
         {#if headerRows.length}
           <table class="response-headers-table">
@@ -152,11 +175,22 @@
 </section>
 
 <style>
+  /* Height comes from the splitter, as an inline style. shrink 1 (rather
+     than a hard height) means a window too short for both halves takes
+     it out of the response instead of overflowing the column. */
   .response {
-    flex: 1;
+    flex: 0 1 auto;
     display: flex;
     flex-direction: column;
     min-height: 0;
+  }
+
+  /* Collapsed it's just the meta strip: no splitter above it any more,
+     so it brings back the hairline the splitter was providing, and drops
+     the dragged height so the request editor takes that space. */
+  .response.collapsed {
+    flex: none;
+    height: auto !important;
     border-top: 1px solid var(--fm-border-subtle);
     padding-top: 0.75rem;
   }
