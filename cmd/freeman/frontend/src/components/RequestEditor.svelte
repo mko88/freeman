@@ -8,10 +8,10 @@
   // Everything that reaches the backend stays in App.svelte and arrives
   // as a callback, so a click and a control-API action take the same
   // path.
-  import { tick } from 'svelte'
+  import CodeEditor from './CodeEditor.svelte'
   import { methodColor } from '../lib/format'
   import { highlightGeneratedCode } from '../lib/highlightScript'
-  import { highlightBody, resolveBodyLanguage } from '../lib/responseFormat'
+  import { resolveBodyLanguage } from '../lib/responseFormat'
   import type { BodyLanguage } from '../lib/responseFormat'
   import { bodyModes, codeFormats, methods } from '../lib/requestDraft'
   import type { CodeFormat, RequestDraft, RequestTab } from '../lib/requestDraft'
@@ -87,74 +87,6 @@
   $: bodyContentType =
     draft.headers.find((h) => h.enabled && h.key.trim().toLowerCase() === 'content-type')?.value ?? ''
   $: resolvedBodyLanguage = resolveBodyLanguage(bodyLanguage, draft.bodyRaw, bodyContentType)
-
-  // The backdrop scrolls with the textarea over it; without this the
-  // highlighting stays put while the text moves.
-  let bodyBackdropEl: HTMLElement | undefined
-  function syncBodyScroll(e: Event) {
-    const el = e.currentTarget as HTMLTextAreaElement
-    if (bodyBackdropEl) {
-      bodyBackdropEl.scrollTop = el.scrollTop
-      bodyBackdropEl.scrollLeft = el.scrollLeft
-    }
-  }
-
-  const BODY_INDENT = '  '
-
-  // Tab indents instead of moving focus, which is what you want in
-  // something you type JSON into — but swallowing Tab outright would
-  // leave a field a keyboard can enter and not leave. Two ways out:
-  // Escape arms the next Tab to move focus as usual, and Shift+Tab
-  // always does. Typing anything else disarms it again, so Escape only
-  // ever affects the Tab that directly follows it.
-  let bodyTabArmed = false
-
-  async function onBodyKeydown(e: KeyboardEvent) {
-    const el = e.currentTarget as HTMLTextAreaElement
-    if (e.key === 'Escape') {
-      bodyTabArmed = true
-      return
-    }
-    if (e.key !== 'Tab') {
-      bodyTabArmed = false
-      return
-    }
-    if (bodyTabArmed || e.shiftKey) {
-      bodyTabArmed = false
-      return // let the browser move focus
-    }
-
-    e.preventDefault()
-    const value = draft.bodyRaw
-    const start = el.selectionStart
-    const end = el.selectionEnd
-
-    if (value.slice(start, end).includes('\n')) {
-      // A selection spanning lines indents all of them. Replacing it
-      // with two spaces — the naive version — would silently delete
-      // whatever was selected.
-      const lineStart = value.lastIndexOf('\n', start - 1) + 1
-      const block = value.slice(lineStart, end)
-      // (?!$) skips blank lines: editors don't put whitespace on them,
-      // and without it a selection ending at a newline would get two
-      // trailing spaces on the empty line after it.
-      const indented = block.replace(/^(?!$)/gm, BODY_INDENT)
-      draft.bodyRaw = value.slice(0, lineStart) + indented + value.slice(end)
-      await tick()
-      // The whole block stays selected, so Tab can be pressed again.
-      // Deriving the new caret from `start` instead would be wrong
-      // whenever the first line was blank and so wasn't indented.
-      el.selectionStart = lineStart
-      el.selectionEnd = lineStart + indented.length
-      return
-    }
-
-    draft.bodyRaw = value.slice(0, start) + BODY_INDENT + value.slice(end)
-    // The caret jumps to the end when Svelte writes the bound value
-    // back, so it has to be put back afterwards.
-    await tick()
-    el.selectionStart = el.selectionEnd = start + BODY_INDENT.length
-  }
 
   // Tab badges — count of rows with a key filled in (a blank row the
   // user just added isn't a param/header/field yet), blank at zero.
@@ -356,26 +288,7 @@
       <span class="body-keys">Tab indents · Esc then Tab leaves</span>
     </div>
 
-    <!-- A textarea can't render styled text, so the highlighted copy
-         sits behind a transparent one. Both must agree on every metric
-         that affects where a glyph lands (font, size, line-height,
-         padding, wrapping) or the caret drifts away from the text it's
-         supposed to be in — see .body-raw's CSS, which sets them once
-         for both. -->
-    <div class="body-raw">
-      <pre class="body-raw-backdrop" aria-hidden="true" bind:this={bodyBackdropEl}>{@html highlightBody(
-          draft.bodyRaw,
-          resolvedBodyLanguage,
-        )}</pre>
-      <textarea
-        class="body-raw-input"
-        bind:value={draft.bodyRaw}
-        on:scroll={syncBodyScroll}
-        on:keydown={onBodyKeydown}
-        spellcheck="false"
-        placeholder="Raw request body"
-      ></textarea>
-    </div>
+    <CodeEditor bind:value={draft.bodyRaw} language={resolvedBodyLanguage} placeholder="Raw request body" />
   {:else if draft.bodyMode === 'form-data' || draft.bodyMode === 'x-www-form-urlencoded'}
     <table class="kv-table">
       <thead>
@@ -488,69 +401,6 @@
     margin-left: auto;
     font-size: 0.72rem;
     color: var(--fm-text-muted);
-  }
-
-  /* The wrapper carries the border, the background and the resize
-     handle, so the two stacked children can be identical and
-     borderless. Resizing the textarea itself would leave the backdrop
-     behind at the old size. */
-  .body-raw {
-    position: relative;
-    height: 180px;
-    min-height: 140px;
-    resize: vertical;
-    overflow: hidden;
-    background: var(--fm-bg-elevated);
-    border: 1px solid var(--fm-border);
-    border-radius: var(--fm-radius);
-  }
-
-  /* Every property here decides where a glyph lands. The two elements
-     must agree on all of them, or the caret separates from the text —
-     which is why they're set together rather than on each child. */
-  .body-raw-backdrop,
-  .body-raw-input {
-    position: absolute;
-    inset: 0;
-    margin: 0;
-    padding: 0.4rem 0.5rem;
-    border: none;
-    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
-    font-size: 0.9rem;
-    line-height: 1.5;
-    tab-size: 2;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-    overflow: auto;
-  }
-
-  .body-raw-backdrop {
-    pointer-events: none;
-    color: var(--fm-text);
-    background: none;
-  }
-
-  /* Transparent text over the backdrop, but a visible caret — the
-     textarea still owns selection, undo and every other native editing
-     behaviour, which is the whole reason for stacking rather than using
-     a contenteditable. */
-  .body-raw-input {
-    background: transparent;
-    color: transparent;
-    caret-color: var(--fm-text);
-    resize: none;
-  }
-
-  .body-raw-input::placeholder {
-    color: var(--fm-text-muted);
-  }
-
-  .body-raw-input:focus-visible {
-    outline: none;
-  }
-
-  .body-raw:focus-within {
-    border-color: var(--fm-accent);
   }
 
   .body-mode-picker {

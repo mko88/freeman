@@ -146,20 +146,3 @@ export function resolveBodyLanguage(
   if (s.startsWith('<')) return 'xml'
   return 'plain'
 }
-
-// Highlighted markup for the raw-body editor's backdrop. Unlike the
-// response highlighters this runs against half-typed input, which is why
-// it never parses: highlightJson and highlightXml are both regex passes
-// that degrade to "some tokens matched" on a fragment rather than
-// failing. The trailing newline keeps the backdrop's last line aligned
-// with the textarea's, which renders one even when the value ends in a
-// newline.
-export function highlightBody(body: string, language: 'json' | 'xml' | 'plain'): string {
-  const html =
-    language === 'json'
-      ? highlightJson(body)
-      : language === 'xml'
-        ? highlightXml(body)
-        : body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return html + '\n'
-}
