@@ -101,21 +101,27 @@
   {#if sendError}
     <p class="error">{sendError}</p>
   {:else if response}
-    <!-- Same three bands as the request editor above: a tab row saying
-         which panel, an options row saying how to read it, then the
-         content. The stats ride the right of the tab row — they describe
-         the response as a whole, not either panel. -->
-    <div class="tabs">
-      <button
-        class="disclosure"
-        title={collapsed ? 'Expand the response' : 'Collapse the response'}
-        aria-expanded={!collapsed}
-        on:click={() => (collapsed = !collapsed)}>{collapsed ? '▸' : '▾'}</button
-      >
-      <button class:active={tab === 'body'} on:click={() => onResponseTabClick('body')}>Body</button>
-      <button class:active={tab === 'headers'} on:click={() => onResponseTabClick('headers')}>
-        Headers<span class="tab-count">{headerRows.length}</span>
-      </button>
+    <!-- One bar, then the content. The request editor needs two rows
+         because its options differ per tab; the response's don't, so
+         everything fits beside the tabs and the pane keeps the height a
+         second row would have cost.
+--
+         The bar carries the rule under the whole width; .tabs inside it
+         gives up its own. Keeping the tabs in their own child is what
+         stops .tabs button restyling the view buttons next to them. -->
+    <div class="response-bar">
+      <div class="tabs">
+        <button
+          class="disclosure"
+          title={collapsed ? 'Expand the response' : 'Collapse the response'}
+          aria-expanded={!collapsed}
+          on:click={() => (collapsed = !collapsed)}>{collapsed ? '▸' : '▾'}</button
+        >
+        <button class:active={tab === 'body'} on:click={() => onResponseTabClick('body')}>Body</button>
+        <button class:active={tab === 'headers'} on:click={() => onResponseTabClick('headers')}>
+          Headers<span class="tab-count">{headerRows.length}</span>
+        </button>
+      </div>
 
       <!-- No labels: each value says what it is by its own shape — a
            bare number coloured by class, a duration with a unit, a size
@@ -123,7 +129,10 @@
            words. Where a value is rounded for reading, the exact figure
            is a tooltip. -->
       <div class="response-meta">
-        <span class="response-stat status status-{statusTone(response.statusCode)}" title={reasonPhrase(response.status) || undefined}>
+        <span
+          class="response-stat status status-{statusTone(response.statusCode)}"
+          title={reasonPhrase(response.status) || undefined}
+        >
           {response.statusCode}
         </span>
         <span class="response-stat" title={durationMillis(response.durationNs)}>
@@ -139,34 +148,31 @@
         </span>
         <span class="response-stat">{formatted.kind.toUpperCase()}</span>
       </div>
-    </div>
 
-    {#if !collapsed}
-      <!-- The response's answer to the body editor's Auto/JSON/XML/Plain
-           row: same question (how should this be read), so the same
-           place and the same treatment. -->
-      <div class="option-row response-views">
-        {#each views as v}
-          <button class:active={activeView === v} on:click={() => (view = v)}>{viewLabels[v]}</button>
-        {/each}
-        <div class="response-actions-menu">
-          <button class="icon-btn" title="Response actions" on:click={() => (showActionsMenu = !showActionsMenu)}
-            >⋯</button
-          >
-          {#if showActionsMenu}
-            <!-- svelte-ignore a11y-no-static-element-interactions -->
-            <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <div class="menu-backdrop" on:click={() => (showActionsMenu = false)}></div>
-            <div class="dropdown-menu">
-              <button on:click={cache.openExternally}>Open in external editor</button>
-              <button on:click={cache.copyPath}>Copy path</button>
-              <button on:click={cache.openInFileExplorer}>Open in File Explorer</button>
-              <button on:click={cache.clearCached}>Clear cached response</button>
-            </div>
-          {/if}
+      {#if !collapsed}
+        <div class="option-row response-views">
+          {#each views as v}
+            <button class:active={activeView === v} on:click={() => (view = v)}>{viewLabels[v]}</button>
+          {/each}
+          <div class="response-actions-menu">
+            <button class="icon-btn" title="Response actions" on:click={() => (showActionsMenu = !showActionsMenu)}
+              >⋯</button
+            >
+            {#if showActionsMenu}
+              <!-- svelte-ignore a11y-no-static-element-interactions -->
+              <!-- svelte-ignore a11y-click-events-have-key-events -->
+              <div class="menu-backdrop" on:click={() => (showActionsMenu = false)}></div>
+              <div class="dropdown-menu">
+                <button on:click={cache.openExternally}>Open in external editor</button>
+                <button on:click={cache.copyPath}>Copy path</button>
+                <button on:click={cache.openInFileExplorer}>Open in File Explorer</button>
+                <button on:click={cache.clearCached}>Clear cached response</button>
+              </div>
+            {/if}
+          </div>
         </div>
-      </div>
-    {/if}
+      {/if}
+    </div>
     {#if collapsed}
       <!-- Nothing: the meta strip above stays, and its chevron is what
            brings the panel back. -->
@@ -246,7 +252,20 @@
     padding-top: 0.75rem;
   }
 
-  /* Rides the right end of the tab row: these describe the response as a
+  /* Tabs, stats and view buttons on one line. The rule belongs to the
+     bar so it runs the full width; .tabs would only draw it under the
+     tabs themselves. */
+  .response-bar {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--fm-border-subtle);
+  }
+
+  .response-bar .tabs {
+    border-bottom: none;
+  }
+
+  /* Rides the right end of the bar: these describe the response as a
      whole, not whichever panel is open, so they sit apart from the tabs
      rather than among them. Allowed to shrink and clip on a narrow
      window — the tabs are what must stay clickable.
@@ -286,16 +305,12 @@
     padding-right: 0;
   }
 
-  /* Right-aligned, unlike the body editor's language row: these sit with
-     the "..." menu rather than under the tabs, so the whole row reads as
-     one group of controls for the panel below.
---
-     The vertical margins are its own because .response is a flex column
-     with no gap (the editor's rows get 0.75rem from .request-pane), so
-     without them this row sits against the tab row's bottom border. */
+  /* Last in the bar, after the stats. .option-row's bottom margin is for
+     a row of its own; in here the bar's height sets the spacing. */
   .response-views {
-    justify-content: flex-end;
-    margin-block: 0.5rem;
+    align-self: center;
+    margin: 0;
+    padding-left: 1rem;
   }
 
   /* A touch more air before the menu than between the view buttons —
