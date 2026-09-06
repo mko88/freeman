@@ -101,65 +101,64 @@
   {#if sendError}
     <p class="error">{sendError}</p>
   {:else if response}
-    <div class="response-header">
-      <div class="response-lead">
-        <!-- Same glyphs, same leading position, same wording as the
-             control API log's own toggle at the foot of the window —
-             the app has one collapse language, not two. -->
-        <button
-          class="disclosure"
-          title={collapsed ? 'Expand the response' : 'Collapse the response'}
-          aria-expanded={!collapsed}
-          on:click={() => (collapsed = !collapsed)}>{collapsed ? '▸' : '▾'}</button
-        >
-        <div class="response-meta">
-          <div class="response-stat">
-            <span class="response-stat-label">Status</span>
-            <!-- The code alone: it's what's actually read at a glance,
-                 and the colour already carries its class. The reason
-                 phrase is a tooltip rather than a second word competing
-                 with the number beside it. -->
-            <span
-              class="status status-{statusTone(response.statusCode)}"
-              title={reasonPhrase(response.status) || undefined}
-            >
-              {response.statusCode}
-            </span>
-          </div>
-          <div class="response-stat">
-            <span class="response-stat-label">Time</span>
-            <span>{formatDuration(response.durationNs)}</span>
-          </div>
-          <div class="response-stat">
-            <span class="response-stat-label">Size</span>
-            <span
-              title={response.capped
-                ? 'The response exceeded the size Freeman will hold in memory, so it was cut off at this point.'
-                : undefined}
-            >
-              {response.sizeBytes} bytes{#if response.capped}<span class="size-capped">capped</span>{/if}
-            </span>
-          </div>
-          <div class="response-stat">
-            <span class="response-stat-label">Type</span>
-            <span>{formatted.kind.toUpperCase()}</span>
-          </div>
-        </div>
+    <!-- Same three bands as the request editor above: a tab row saying
+         which panel, an options row saying how to read it, then the
+         content. The stats ride the right of the tab row — they describe
+         the response as a whole, not either panel. -->
+    <div class="tabs">
+      <button
+        class="disclosure"
+        title={collapsed ? 'Expand the response' : 'Collapse the response'}
+        aria-expanded={!collapsed}
+        on:click={() => (collapsed = !collapsed)}>{collapsed ? '▸' : '▾'}</button
+      >
+      <button class:active={tab === 'body'} on:click={() => onResponseTabClick('body')}>Body</button>
+      <button class:active={tab === 'headers'} on:click={() => onResponseTabClick('headers')}>
+        Headers<span class="tab-count">{headerRows.length}</span>
+      </button>
+
+      <div class="response-meta">
+        <span class="response-stat">
+          <span class="response-stat-label">Status</span>
+          <!-- The code alone: it's what's read at a glance, and the
+               colour already carries its class. The reason phrase is a
+               tooltip rather than a second word competing with it. -->
+          <span
+            class="status status-{statusTone(response.statusCode)}"
+            title={reasonPhrase(response.status) || undefined}
+          >
+            {response.statusCode}
+          </span>
+        </span>
+        <span class="response-stat">
+          <span class="response-stat-label">Time</span>
+          <span>{formatDuration(response.durationNs)}</span>
+        </span>
+        <span class="response-stat">
+          <span class="response-stat-label">Size</span>
+          <span
+            title={response.capped
+              ? 'The response exceeded the size Freeman will hold in memory, so it was cut off at this point.'
+              : undefined}
+          >
+            {response.sizeBytes} bytes{#if response.capped}<span class="size-capped">capped</span>{/if}
+          </span>
+        </span>
+        <span class="response-stat">
+          <span class="response-stat-label">Type</span>
+          <span>{formatted.kind.toUpperCase()}</span>
+        </span>
       </div>
-      <div class="response-header-actions">
-        <div class="response-segmented">
-          <button class:active={tab === 'body'} on:click={() => onResponseTabClick('body')}>Body</button>
-          <button class:active={tab === 'headers'} on:click={() => onResponseTabClick('headers')}>
-            Headers{#if headerRows.length}<span class="tab-count">{headerRows.length}</span>{/if}
-          </button>
-        </div>
-        {#if !collapsed && views.length}
-          <div class="response-segmented">
-            {#each views as v}
-              <button class:active={activeView === v} on:click={() => (view = v)}>{viewLabels[v]}</button>
-            {/each}
-          </div>
-        {/if}
+    </div>
+
+    {#if !collapsed}
+      <!-- The response's answer to the body editor's Auto/JSON/XML/Plain
+           row: same question (how should this be read), so the same
+           place and the same treatment. -->
+      <div class="option-row response-views">
+        {#each views as v}
+          <button class:active={activeView === v} on:click={() => (view = v)}>{viewLabels[v]}</button>
+        {/each}
         <div class="response-actions-menu">
           <button class="icon-btn" title="Response actions" on:click={() => (showActionsMenu = !showActionsMenu)}
             >⋯</button
@@ -177,7 +176,7 @@
           {/if}
         </div>
       </div>
-    </div>
+    {/if}
     {#if collapsed}
       <!-- Nothing: the meta strip above stays, and its chevron is what
            brings the panel back. -->
@@ -257,65 +256,34 @@
     padding-top: 0.75rem;
   }
 
-  /* The spacing below the strip lives here rather than on .response-meta,
-     so the disclosure button beside it can centre against the stats
-     instead of being pushed up by their margin. */
-  .response-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 0.5rem;
-  }
-
-  /* Collapsed, the strip is the whole pane — nothing below to space off. */
-  .response.collapsed .response-header {
-    margin-bottom: 0;
-  }
-
-  .response-lead {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    min-width: 0;
-  }
-
+  /* Rides the right end of the tab row: these describe the response as a
+     whole, not whichever panel is open, so they sit apart from the tabs
+     rather than among them. Allowed to shrink and clip on a narrow
+     window — the tabs are what must stay clickable. */
   .response-meta {
     display: flex;
-    gap: 1.5rem;
+    align-items: baseline;
+    gap: 1.25rem;
+    margin-left: auto;
+    padding-left: 1rem;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
     font-size: 0.85rem;
   }
 
-  .response-header-actions {
+  /* Label and value on one baseline. Stacked, they made the strip two
+     lines tall; a tab row has one. */
+  .response-stat {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-shrink: 0;
+    align-items: baseline;
+    gap: 0.35rem;
   }
 
-  .response-segmented {
-    display: flex;
-  }
-
-  .response-segmented button {
-    padding: 0.15rem 0.5rem;
-    font-size: 0.8rem;
-    border-radius: 0;
-    background: none;
-    color: var(--fm-text-muted);
-  }
-
-  .response-segmented button:first-child {
-    border-radius: var(--fm-radius) 0 0 var(--fm-radius);
-  }
-
-  .response-segmented button:last-child {
-    border-radius: 0 var(--fm-radius) var(--fm-radius) 0;
-    border-left: none;
-  }
-
-  .response-segmented button.active {
-    color: var(--fm-text);
-    background: var(--fm-bg-hover);
+  /* The "..." menu takes the right end of the options row, the way the
+     body editor's key hint does in its. */
+  .response-views .response-actions-menu {
+    margin-left: auto;
   }
 
   .response-headers {
@@ -391,12 +359,6 @@
     background: var(--fm-bg-hover);
   }
 
-  .response-stat {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
-
   .response-stat-label {
     font-size: 0.7rem;
     font-weight: 600;
@@ -417,8 +379,11 @@
     background: color-mix(in srgb, var(--fm-warning) 16%, transparent);
   }
 
+  /* The one thing in the row that gets to be bigger than the rest: it's
+     the first question anyone asks of a response. Its tone colour does
+     the rest, so nothing else here is coloured. */
   .status {
-    font-size: 1.05rem;
+    font-size: 1rem;
     font-weight: 600;
     letter-spacing: -0.01em;
   }
