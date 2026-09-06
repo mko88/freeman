@@ -8,6 +8,7 @@
   // Everything that reaches the backend stays in App.svelte and arrives
   // as a callback, so a click and a control-API action take the same
   // path.
+  import { tick } from 'svelte'
   import { methodColor } from '../lib/format'
   import { highlightGeneratedCode } from '../lib/highlightScript'
   import { highlightBody, resolveBodyLanguage } from '../lib/responseFormat'
@@ -96,6 +97,63 @@
       bodyBackdropEl.scrollTop = el.scrollTop
       bodyBackdropEl.scrollLeft = el.scrollLeft
     }
+  }
+
+  const BODY_INDENT = '  '
+
+  // Tab indents instead of moving focus, which is what you want in
+  // something you type JSON into — but swallowing Tab outright would
+  // leave a field a keyboard can enter and not leave. Two ways out:
+  // Escape arms the next Tab to move focus as usual, and Shift+Tab
+  // always does. Typing anything else disarms it again, so Escape only
+  // ever affects the Tab that directly follows it.
+  let bodyTabArmed = false
+
+  async function onBodyKeydown(e: KeyboardEvent) {
+    const el = e.currentTarget as HTMLTextAreaElement
+    if (e.key === 'Escape') {
+      bodyTabArmed = true
+      return
+    }
+    if (e.key !== 'Tab') {
+      bodyTabArmed = false
+      return
+    }
+    if (bodyTabArmed || e.shiftKey) {
+      bodyTabArmed = false
+      return // let the browser move focus
+    }
+
+    e.preventDefault()
+    const value = draft.bodyRaw
+    const start = el.selectionStart
+    const end = el.selectionEnd
+
+    if (value.slice(start, end).includes('\n')) {
+      // A selection spanning lines indents all of them. Replacing it
+      // with two spaces — the naive version — would silently delete
+      // whatever was selected.
+      const lineStart = value.lastIndexOf('\n', start - 1) + 1
+      const block = value.slice(lineStart, end)
+      // (?!$) skips blank lines: editors don't put whitespace on them,
+      // and without it a selection ending at a newline would get two
+      // trailing spaces on the empty line after it.
+      const indented = block.replace(/^(?!$)/gm, BODY_INDENT)
+      draft.bodyRaw = value.slice(0, lineStart) + indented + value.slice(end)
+      await tick()
+      // The whole block stays selected, so Tab can be pressed again.
+      // Deriving the new caret from `start` instead would be wrong
+      // whenever the first line was blank and so wasn't indented.
+      el.selectionStart = lineStart
+      el.selectionEnd = lineStart + indented.length
+      return
+    }
+
+    draft.bodyRaw = value.slice(0, start) + BODY_INDENT + value.slice(end)
+    // The caret jumps to the end when Svelte writes the bound value
+    // back, so it has to be put back afterwards.
+    await tick()
+    el.selectionStart = el.selectionEnd = start + BODY_INDENT.length
   }
 
   // Tab badges — count of rows with a key filled in (a blank row the
@@ -295,6 +353,7 @@
       {#if bodyLanguage === 'auto'}
         <span class="body-language-detected">detected: {resolvedBodyLanguage}</span>
       {/if}
+      <span class="body-keys">Tab indents · Esc then Tab leaves</span>
     </div>
 
     <!-- A textarea can't render styled text, so the highlighted copy
@@ -312,6 +371,7 @@
         class="body-raw-input"
         bind:value={draft.bodyRaw}
         on:scroll={syncBodyScroll}
+        on:keydown={onBodyKeydown}
         spellcheck="false"
         placeholder="Raw request body"
       ></textarea>
@@ -418,6 +478,14 @@
   }
 
   .body-language-detected {
+    font-size: 0.72rem;
+    color: var(--fm-text-muted);
+  }
+
+  /* Tab-indents-instead-of-moving-focus isn't guessable, and neither is
+     the way back out. */
+  .body-keys {
+    margin-left: auto;
     font-size: 0.72rem;
     color: var(--fm-text-muted);
   }
