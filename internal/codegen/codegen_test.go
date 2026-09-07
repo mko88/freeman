@@ -7,6 +7,8 @@ import (
 	"freeman/internal/domain"
 )
 
+func redirects(n int) *int { return &n }
+
 func mustGen(t *testing.T, item domain.Item, vars map[string]string, f Format) string {
 	t.Helper()
 	out, err := Generate(item, vars, f)
@@ -35,7 +37,7 @@ func TestGenerateGETWithParamsHeadersAndVars(t *testing.T) {
 		// never does, and the jar flags because the request is on the
 		// shared cookie jar — see TestGenerateMatchesTransportOptions
 		// and TestGenerateMatchesCookieOption.
-		"curl -X GET -L \"$url\" \\\n  -b 'cookies.txt' -c 'cookies.txt' --max-time 30 \\\n  \"${headers[@]}\"",
+		"curl -X GET -L --max-redirs 10 \"$url\" \\\n  -b 'cookies.txt' -c 'cookies.txt' --max-time 30 \\\n  \"${headers[@]}\"",
 	} {
 		if !strings.Contains(bash, want) {
 			t.Fatalf("bash script missing %q:\n%s", want, bash)
@@ -51,8 +53,8 @@ func TestGenerateGETWithParamsHeadersAndVars(t *testing.T) {
 	ps := mustGen(t, item, vars, FormatPowerShell)
 	want := "$uri = 'https://api.example.com/users?active=true'\n\n" +
 		"$headers = @{\n    'Accept' = 'application/json'\n}\n\n" +
-		"Invoke-RestMethod `\n    -Method GET `\n    -Uri $uri `\n    -TimeoutSec 30 `\n" +
-		"    -SessionVariable session `\n    -Headers $headers\n"
+		"Invoke-RestMethod `\n    -Method GET `\n    -Uri $uri `\n    -MaximumRedirection 10 `\n" +
+		"    -TimeoutSec 30 `\n    -SessionVariable session `\n    -Headers $headers\n"
 	if ps != want {
 		t.Fatalf("powershell script wrong:\ngot:\n%s\nwant:\n%s", ps, want)
 	}
@@ -352,7 +354,7 @@ func TestGenerateMatchesRedirectOptions(t *testing.T) {
 		t.Fatalf("PowerShell follows by default, so not following has to be spelled out:\n%s", got)
 	}
 
-	item.Options = &domain.Options{FollowRedirects: true, MaxRedirects: 3, StoreCookies: true}
+	item.Options = &domain.Options{FollowRedirects: true, MaxRedirects: redirects(3), StoreCookies: true}
 	if got := mustGen(t, item, nil, FormatBash); !strings.Contains(got, "--max-redirs 3") {
 		t.Fatalf("a redirect cap should carry into curl:\n%s", got)
 	}
@@ -500,7 +502,7 @@ func TestGeneratePython(t *testing.T) {
 		Body:    &domain.Body{Mode: domain.BodyModeRaw, Raw: "{\n  \"sku\": \"A-1\"\n}"},
 		Options: &domain.Options{
 			FollowRedirects:   true,
-			MaxRedirects:      3,
+			MaxRedirects:      redirects(3),
 			TimeoutMs:         2500,
 			SkipTLSVerify:     true,
 			ClientCertFile:    "/certs/client.pem",
@@ -540,7 +542,7 @@ func TestGenerateJavaScriptTransportOptions(t *testing.T) {
 		URL:    "https://api.example.com/thing",
 		Options: &domain.Options{
 			FollowRedirects:   true,
-			MaxRedirects:      3,
+			MaxRedirects:      redirects(3),
 			StoreCookies:      true,
 			SkipTLSVerify:     true,
 			ClientCertFile:    "/certs/client.pem",
@@ -650,7 +652,7 @@ func TestGenerateScriptsCarryNoComments(t *testing.T) {
 		Body: &domain.Body{Mode: domain.BodyModeRaw, Raw: `{"sku": "A-1"}`},
 		Options: &domain.Options{
 			FollowRedirects:   true,
-			MaxRedirects:      3,
+			MaxRedirects:      redirects(3),
 			StoreCookies:      true,
 			TimeoutMs:         2500,
 			SkipTLSVerify:     true,

@@ -161,7 +161,7 @@ func TestTrimLargeBody(t *testing.T) {
 		t.Fatalf("a small body should be left inline, got %+v", *small)
 	}
 
-	big := jsonResponse(strings.Repeat("b", httpengine.LargeResponseThreshold+1))
+	big := jsonResponse(strings.Repeat("b", int(httpengine.LargeResponseThreshold)+1))
 	a.saveResponseCache("r_big000", big)
 	a.trimLargeBody("r_big000", big)
 	if !big.Truncated {
@@ -177,7 +177,7 @@ func TestTrimLargeBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading BodyFile: %v", err)
 	}
-	if len(data) != httpengine.LargeResponseThreshold+1 {
+	if int64(len(data)) != httpengine.LargeResponseThreshold+1 {
 		t.Fatalf("cache file holds %d bytes, want the whole %d", len(data), httpengine.LargeResponseThreshold+1)
 	}
 }

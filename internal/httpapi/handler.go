@@ -16,6 +16,7 @@ import (
 	"freeman/internal/core"
 	"freeman/internal/domain"
 	"freeman/internal/headercatalog"
+	"freeman/internal/settings"
 	"freeman/internal/theme"
 	"freeman/internal/version"
 )
@@ -220,6 +221,31 @@ func NewHandler(app *core.App, static fs.FS) http.Handler {
 	// found on a port.
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, version.Get())
+	})
+
+	// The workspace's app-wide defaults: timeout, redirect cap, and the
+	// two response-size limits. See internal/settings.
+	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) {
+		s, err := app.Settings()
+		if err != nil {
+			writeCoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, s)
+	})
+
+	mux.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
+		var req settings.Settings
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		saved, err := app.SaveSettings(req)
+		if err != nil {
+			writeCoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, saved)
 	})
 
 	mux.HandleFunc("GET /api/theme", func(w http.ResponseWriter, r *http.Request) {

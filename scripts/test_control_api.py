@@ -123,6 +123,7 @@ from control_api.checks.workspace import (
     test_read_only_routes,
     test_settings_window,
     test_workspace_navigation,
+    test_workspace_settings,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -267,6 +268,7 @@ def main() -> int:
         test_delete_request(api, r, collection_id)
         test_collection_management(api, r, collection_id)
         test_settings_window(api, r)
+        test_workspace_settings(api, r)
         test_layout_comfort(api, r)
         test_help_modal(api, r)
         if not args.skip_rapid_fire:

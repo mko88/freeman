@@ -60,8 +60,12 @@ type Options struct {
 	// FollowRedirects off returns the 3xx itself — which is the only way
 	// to assert on a redirect's status or its Location header.
 	FollowRedirects bool `json:"followRedirects"`
-	// MaxRedirects caps the chain when following. 0 means the default.
-	MaxRedirects int `json:"maxRedirects,omitempty"`
+	// MaxRedirects caps the chain when following: 0 is no cap at all,
+	// and only the request's own timeout ends a loop. A pointer so that
+	// a request saved before the field existed — where the key is simply
+	// absent — still means DefaultMaxRedirects rather than reading as an
+	// explicit 0.
+	MaxRedirects *int `json:"maxRedirects,omitempty"`
 	// StoreCookies puts this request on the shared jar: Set-Cookie is
 	// kept and sent back on later requests, which is what makes a
 	// log-in-then-call-something flow possible. Off isolates the

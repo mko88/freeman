@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"freeman/internal/httpengine"
+	"freeman/internal/settings"
 	"freeman/internal/store"
 )
 
@@ -67,6 +68,11 @@ func (a *App) OpenWorkspace(root string) (*WorkspaceInfo, error) {
 	// to it.
 	httpengine.ResetCookies()
 	httpengine.ResetTokens()
+
+	// The workspace's own answers for timeout, redirect cap and response
+	// limits — its settings.yaml, or the built-in defaults when it has
+	// none. See internal/settings.
+	applySettings(settings.Load(root))
 
 	if len(ws.CollectionPaths) == 0 {
 		if _, err := a.createCollection("My Requests"); err != nil {

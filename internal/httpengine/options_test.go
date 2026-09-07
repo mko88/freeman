@@ -13,6 +13,8 @@ import (
 	"freeman/internal/domain"
 )
 
+func redirects(n int) *int { return &n }
+
 func follow(v bool) *domain.Options { return &domain.Options{FollowRedirects: v, StoreCookies: true} }
 func cookiesOn(v bool) *domain.Options {
 	return &domain.Options{FollowRedirects: true, StoreCookies: v}
@@ -91,7 +93,7 @@ func TestExecuteStopsAtMaxRedirects(t *testing.T) {
 	item := domain.Item{
 		Method:  "GET",
 		URL:     srv.URL,
-		Options: &domain.Options{FollowRedirects: true, MaxRedirects: 3, StoreCookies: true},
+		Options: &domain.Options{FollowRedirects: true, MaxRedirects: redirects(3), StoreCookies: true},
 	}
 	_, err := Execute(context.Background(), item, nil)
 	if err == nil {
@@ -245,5 +247,56 @@ func TestExecutePerRequestTimeout(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("should have given up in ~100ms, took %s", elapsed)
+	}
+}
+
+// The redirect cap reads literally now: nil is the app default, a
+// number is that number, and 0 is no cap at all. The distinction
+// matters for data saved before the field existed, where the key is
+// absent — that has to keep meaning the default, not "unlimited".
+func TestOptionsRedirectCapSemantics(t *testing.T) {
+	var hops int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hops++
+		http.Redirect(w, r, "/again", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	send := func(opts *domain.Options) error {
+		hops = 0
+		_, err := Execute(context.Background(), domain.Item{Method: "GET", URL: srv.URL, Options: opts}, nil)
+		return err
+	}
+
+	// Absent options: the app default, whatever it currently is.
+	original := DefaultMaxRedirects
+	DefaultMaxRedirects = 4
+	defer func() { DefaultMaxRedirects = original }()
+	if err := send(nil); err == nil {
+		t.Fatal("an endless chain should stop at the default cap")
+	}
+	if hops != 4 {
+		t.Errorf("nil options should follow DefaultMaxRedirects (4) hops, got %d", hops)
+	}
+
+	// An explicit cap.
+	if err := send(&domain.Options{FollowRedirects: true, MaxRedirects: redirects(2)}); err == nil {
+		t.Fatal("an endless chain should stop at the request's cap")
+	}
+	if hops != 2 {
+		t.Errorf("an explicit cap of 2 should follow 2 hops, got %d", hops)
+	}
+
+	// Zero means no cap: only the timeout ends it, so this uses a short
+	// one rather than following forever.
+	originalTimeout := RequestTimeout
+	RequestTimeout = 300 * time.Millisecond
+	defer func() { RequestTimeout = originalTimeout }()
+	err := send(&domain.Options{FollowRedirects: true, MaxRedirects: redirects(0)})
+	if err == nil {
+		t.Fatal("expected the timeout to end an uncapped chain")
+	}
+	if hops <= 4 {
+		t.Errorf("0 should mean no cap, but it stopped after %d hops", hops)
 	}
 }

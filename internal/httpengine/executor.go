@@ -29,7 +29,9 @@ import (
 
 // DefaultMaxRedirects matches net/http's own limit, so a request that
 // says nothing behaves as it always did.
-const DefaultMaxRedirects = 10
+// A var, not a const, so internal/settings can carry the workspace's
+// answer — see core.App.applySettings.
+var DefaultMaxRedirects = 10
 
 // cookies is the session every request that opts in shares — one jar for
 // the app, so logging in on one request authenticates the next. Package
@@ -105,9 +107,16 @@ func clientFor(opts domain.Options) (*http.Client, func(), error) {
 		}
 		return c, release, nil
 	}
-	max := opts.MaxRedirects
+	max := DefaultMaxRedirects
+	if opts.MaxRedirects != nil {
+		max = *opts.MaxRedirects
+	}
 	if max <= 0 {
-		max = DefaultMaxRedirects
+		// No cap. net/http applies its own only when CheckRedirect is
+		// nil, so this has to be an explicit "always follow" — the
+		// request's timeout is what ends a redirect loop.
+		c.CheckRedirect = func(*http.Request, []*http.Request) error { return nil }
+		return c, release, nil
 	}
 	c.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
 		if len(via) >= max {

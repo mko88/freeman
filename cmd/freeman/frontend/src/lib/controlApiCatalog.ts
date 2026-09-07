@@ -44,6 +44,8 @@ export const apiEndpoints: ApiEndpoint[] = [
       'Render a request as a runnable script. Body: {item: domain.Item, environmentId, format}. ' +
       "format is 'bash', 'powershell', 'python' or 'javascript'. Returns {code}.",
   },
+  { method: 'GET', path: '/api/settings', desc: "The workspace's app-wide defaults: timeout, redirect cap, response limits." },
+  { method: 'PUT', path: '/api/settings', desc: 'Replace them. Body: the same object; out-of-range values are clamped. Returns what was stored.' },
   { method: 'GET', path: '/api/version', desc: 'Which build is running: {version, commit, date}. Needs no open workspace.' },
   { method: 'GET', path: '/api/theme', desc: 'Resolved color palette.' },
   { method: 'GET', path: '/api/headers', desc: 'Common request-header names/values for editor autocomplete (from headers.yaml).' },
@@ -98,6 +100,15 @@ export const uiActions: UiAction[] = [
       'No id closes whichever is open. The environment actions below all act on the open one.',
   },
   { action: 'newEnvironment', payload: '—', desc: 'Create a new environment and switch to it.' },
+  {
+    action: 'setWorkspaceSetting',
+    payload: '{ field, value }',
+    desc:
+      "Set one of the workspace's app-wide defaults and save it (settings.yaml — see internal/settings). " +
+      "field is 'requestTimeoutMs' (0 waits forever), 'maxRedirects' (0 follows without limit), " +
+      "'inlineResponseBytes' or 'maxResponseBytes'. Out-of-range values are clamped, and GET /api/settings " +
+      'reports what was actually stored.',
+  },
   {
     action: 'setEnvironmentField',
     payload: "{ field: 'name', value }",

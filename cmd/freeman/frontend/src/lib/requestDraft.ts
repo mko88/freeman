@@ -26,21 +26,31 @@ export type RequestOptions = {
   clientCertKeyFile: string
 }
 
-export const defaultOptions = (): RequestOptions => ({
+// What a new request starts with. maxRedirects and timeoutMs come from
+// the workspace's settings (see internal/settings) rather than being
+// fixed here, so changing the workspace default changes what new
+// requests get — App.svelte passes them in, and these fallbacks are only
+// what stands before the settings have loaded.
+export const defaultOptions = (workspace?: WorkspaceDefaults): RequestOptions => ({
   followRedirects: true,
-  maxRedirects: 0,
+  maxRedirects: workspace?.maxRedirects ?? 10,
   storeCookies: true,
-  timeoutMs: 0,
+  timeoutMs: workspace?.requestTimeoutMs ?? 30_000,
   skipTlsVerify: false,
   clientCertFile: '',
   clientCertKeyFile: '',
 })
 
+// The two workspace settings a request can override per-request. The
+// rest of internal/settings.Settings is about responses, which a request
+// has no say in.
+export type WorkspaceDefaults = { maxRedirects: number; requestTimeoutMs: number }
+
 // Which settings differ from the defaults — the Options tab's badge, so
 // a tab nobody has touched says so rather than looking the same as one
 // that has.
-export function changedOptionCount(o: RequestOptions): number {
-  const d = defaultOptions()
+export function changedOptionCount(o: RequestOptions, workspace?: WorkspaceDefaults): number {
+  const d = defaultOptions(workspace)
   return (Object.keys(d) as (keyof RequestOptions)[]).filter((k) => o[k] !== d[k]).length
 }
 export type AuthType = 'none' | 'bearer' | 'basic' | 'apikey' | 'oauth2'
@@ -122,7 +132,7 @@ export const emptyAuth = (): RequestAuth => ({
   scope: '',
 })
 
-export const emptyDraft = (): RequestDraft => ({
+export const emptyDraft = (workspace?: WorkspaceDefaults): RequestDraft => ({
   name: 'New Request',
   method: 'GET',
   url: '',
@@ -133,5 +143,5 @@ export const emptyDraft = (): RequestDraft => ({
   bodyRaw: '',
   formFields: [],
   binaryFilePath: '',
-  options: defaultOptions(),
+  options: defaultOptions(workspace),
 })
