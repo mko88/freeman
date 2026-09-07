@@ -81,6 +81,15 @@ type request struct {
 	// standalone command; the session it would need belongs to the app.
 	follow       bool
 	maxRedirects int
+	// oauth is set when the request authenticates with the
+	// client-credentials grant. A token can't be baked in — it expires,
+	// and the one Freeman holds is its own — so the script fetches its
+	// own before sending, rather than going out unauthenticated.
+	oauth *oauthGrant
+}
+
+type oauthGrant struct {
+	tokenURL, clientID, clientSecret, scope string
 }
 
 func (r *request) header(name string) string {
@@ -140,6 +149,14 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 	// same precedence httpengine.applyAuth uses.
 	if name, value, ok := authHeader(item.Auth, vars); ok {
 		r.setHeader(name, value)
+	}
+	if item.Auth != nil && item.Auth.Type == domain.AuthTypeOAuth2 {
+		r.oauth = &oauthGrant{
+			tokenURL:     httpengine.Substitute(item.Auth.TokenURL, vars),
+			clientID:     httpengine.Substitute(item.Auth.ClientID, vars),
+			clientSecret: httpengine.Substitute(item.Auth.ClientSecret, vars),
+			scope:        httpengine.Substitute(item.Auth.Scope, vars),
+		}
 	}
 
 	r.body = buildBody(item.Body, vars)
@@ -254,6 +271,11 @@ func curlHeaderArgs(r request) [][]string {
 	for _, h := range r.headers {
 		groups = append(groups, []string{"-H", shQuote(h.name + ": " + h.value)})
 	}
+	if r.oauth != nil {
+		// Double-quoted, uniquely among the headers, because this one has
+		// to expand $token from the fetch above it.
+		groups = append(groups, []string{"-H", `"Authorization: Bearer $token"`})
+	}
 	if suppressContentType(r) {
 		groups = append(groups, []string{"-H", shQuote("Content-Type:")})
 	}
@@ -289,6 +311,16 @@ func renderBash(r request) string {
 	b.WriteString("#!/usr/bin/env bash\n")
 	b.WriteString("set -euo pipefail\n\n")
 	b.WriteString("url=" + shQuote(r.url) + "\n")
+
+	if g := r.oauth; g != nil {
+		// sed rather than jq, so the script needs nothing installed.
+		b.WriteString("\ntoken=$(curl -sS -X POST " + shQuote(g.tokenURL) + " \\\n")
+		b.WriteString("  --data-urlencode 'grant_type=client_credentials' \\\n")
+		for _, f := range oauthFields(g) {
+			b.WriteString("  --data-urlencode " + shQuote(f) + " \\\n")
+		}
+		b.WriteString(`  | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')` + "\n")
+	}
 
 	headerArgs := curlHeaderArgs(r)
 	if len(headerArgs) > 0 {
@@ -418,10 +450,24 @@ func renderPowerShell(r request) string {
 
 	b.WriteString("$uri = " + psQuote(r.url) + "\n")
 
-	if len(ps.headers) > 0 {
+	if g := r.oauth; g != nil {
+		b.WriteString("\n$token = (Invoke-RestMethod -Method POST -Uri " + psQuote(g.tokenURL) + " -Body @{\n")
+		b.WriteString("    grant_type = 'client_credentials'\n")
+		for _, f := range oauthFields(g) {
+			name, value, _ := strings.Cut(f, "=")
+			b.WriteString("    " + name + " = " + psQuote(value) + "\n")
+		}
+		b.WriteString("}).access_token\n")
+	}
+
+	if len(ps.headers) > 0 || r.oauth != nil {
 		b.WriteString("\n$headers = @{\n")
 		for _, h := range ps.headers {
 			b.WriteString("    " + psQuote(h.name) + " = " + psQuote(h.value) + "\n")
+		}
+		if r.oauth != nil {
+			// Double quotes, so $token expands.
+			b.WriteString("    'Authorization' = \"Bearer $token\"\n")
 		}
 		b.WriteString("}\n")
 	}
@@ -459,7 +505,7 @@ func renderPowerShell(r request) string {
 	} else if r.maxRedirects > 0 {
 		params = append(params, fmt.Sprintf("-MaximumRedirection %d", r.maxRedirects))
 	}
-	if len(ps.headers) > 0 {
+	if len(ps.headers) > 0 || r.oauth != nil {
 		params = append(params, "-Headers $headers")
 	}
 	params = append(params, bodyParams...)
@@ -482,6 +528,23 @@ func psBodyLiteral(body string) string {
 		}
 	}
 	return "@'\n" + body + "\n'@"
+}
+
+// oauthFields lists the grant's optional form fields as name=value, in
+// the order both renderers write them. grant_type is always present and
+// so is written by each renderer itself.
+func oauthFields(g *oauthGrant) []string {
+	var out []string
+	for _, f := range []struct{ name, value string }{
+		{"client_id", g.clientID},
+		{"client_secret", g.clientSecret},
+		{"scope", g.scope},
+	} {
+		if f.value != "" {
+			out = append(out, f.name+"="+f.value)
+		}
+	}
+	return out
 }
 
 // psQuote wraps s in a single-quoted PowerShell string, doubling any '.

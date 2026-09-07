@@ -223,6 +223,7 @@
         <option value="bearer">Bearer token</option>
         <option value="basic">Basic</option>
         <option value="apikey">API key (header)</option>
+        <option value="oauth2">OAuth 2.0 (client credentials)</option>
       </select>
     </label>
 
@@ -249,6 +250,27 @@
         <span>Value</span>
         <input type="text" bind:value={draft.auth.value} placeholder="key or {'{'}{'{'}var{'}'}{'}'}" />
       </label>
+    {:else if draft.auth.type === 'oauth2'}
+      <label class="auth-field">
+        <span>Token URL</span>
+        <input type="text" bind:value={draft.auth.tokenUrl} placeholder="https://auth.example.com/oauth/token" />
+      </label>
+      <label class="auth-field">
+        <span>Client ID</span>
+        <input type="text" bind:value={draft.auth.clientId} placeholder="client id or {'{'}{'{'}var{'}'}{'}'}" />
+      </label>
+      <label class="auth-field">
+        <span>Client secret</span>
+        <input type="text" bind:value={draft.auth.clientSecret} placeholder="secret or {'{'}{'{'}var{'}'}{'}'}" />
+      </label>
+      <label class="auth-field">
+        <span>Scope</span>
+        <input type="text" bind:value={draft.auth.scope} placeholder="space-separated, optional" />
+      </label>
+      <p class="auth-note">
+        The token is fetched when the request is sent and reused until it expires. Generated scripts fetch
+        their own the same way.
+      </p>
     {/if}
   </div>
 {:else if activeTab === 'options'}
@@ -564,6 +586,13 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    max-width: 42rem;
+  }
+
+  .auth-note {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--fm-text-muted);
     max-width: 42rem;
   }
 

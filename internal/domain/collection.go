@@ -97,6 +97,7 @@ const (
 	AuthTypeBearer AuthType = "bearer"
 	AuthTypeBasic  AuthType = "basic"
 	AuthTypeAPIKey AuthType = "apikey"
+	AuthTypeOAuth2 AuthType = "oauth2"
 )
 
 // Auth is a request's authorization helper. httpengine.Execute turns it
@@ -112,6 +113,14 @@ type Auth struct {
 	Password string   `json:"password,omitempty"`
 	Key      string   `json:"key,omitempty"`
 	Value    string   `json:"value,omitempty"`
+	// OAuth2 client-credentials fields. The machine-to-machine grant —
+	// the one an API test actually needs, since it wants a token without
+	// a person at a browser. httpengine fetches the token at execute
+	// time and caches it until it expires.
+	TokenURL     string `json:"tokenUrl,omitempty"`
+	ClientID     string `json:"clientId,omitempty"`
+	ClientSecret string `json:"clientSecret,omitempty"`
+	Scope        string `json:"scope,omitempty"`
 }
 
 type QueryParam struct {
