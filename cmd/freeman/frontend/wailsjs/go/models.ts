@@ -149,6 +149,22 @@ export namespace domain {
 		    return a;
 		}
 	}
+	export class Options {
+	    followRedirects: boolean;
+	    maxRedirects?: number;
+	    storeCookies: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Options(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.followRedirects = source["followRedirects"];
+	        this.maxRedirects = source["maxRedirects"];
+	        this.storeCookies = source["storeCookies"];
+	    }
+	}
 	export class Header {
 	    key: string;
 	    value: string;
@@ -194,6 +210,7 @@ export namespace domain {
 	    body?: Body;
 	    preRequestScript?: string;
 	    testScript?: string;
+	    options?: Options;
 	
 	    static createFrom(source: any = {}) {
 	        return new Item(source);
@@ -213,6 +230,7 @@ export namespace domain {
 	        this.body = this.convertValues(source["body"], Body);
 	        this.preRequestScript = source["preRequestScript"];
 	        this.testScript = source["testScript"];
+	        this.options = this.convertValues(source["options"], Options);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -325,6 +343,7 @@ export namespace domain {
 		    return a;
 		}
 	}
+	
 	
 	
 	

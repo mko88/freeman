@@ -72,6 +72,15 @@ type request struct {
 	url     string
 	headers []kv
 	body    reqBody
+	// follow/maxRedirects mirror the request's Options, because the
+	// defaults differ from Freeman's: curl doesn't follow at all unless
+	// told, and Invoke-RestMethod follows up to five. Left implicit and
+	// the generated script would quietly do something else than Send.
+	//
+	// The cookie jar has no equivalent here. A generated script is a
+	// standalone command; the session it would need belongs to the app.
+	follow       bool
+	maxRedirects int
 }
 
 func (r *request) header(name string) string {
@@ -114,7 +123,11 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 		u.RawQuery = q.Encode()
 	}
 
-	r := request{method: method, url: u.String()}
+	opts := domain.Options{FollowRedirects: true, StoreCookies: true}
+	if item.Options != nil {
+		opts = *item.Options
+	}
+	r := request{method: method, url: u.String(), follow: opts.FollowRedirects, maxRedirects: opts.MaxRedirects}
 	for _, h := range item.Headers {
 		if h.Enabled {
 			r.headers = append(r.headers, kv{
@@ -316,7 +329,16 @@ func renderBash(r request) string {
 		bodyArgs = []string{`--data-binary "@$file"`}
 	}
 
-	lines := []string{"curl -X " + r.method + ` "$url"`}
+	// curl doesn't follow redirects unless asked, so following has to be
+	// spelled out to match what Send does.
+	head := "curl -X " + r.method
+	if r.follow {
+		head += " -L"
+		if r.maxRedirects > 0 {
+			head += fmt.Sprintf(" --max-redirs %d", r.maxRedirects)
+		}
+	}
+	lines := []string{head + ` "$url"`}
 	if len(headerArgs) > 0 {
 		// The reference is omitted along with the array: expanding an
 		// empty one under `set -u` is an error on bash before 4.4.
@@ -428,6 +450,15 @@ func renderPowerShell(r request) string {
 	}
 
 	params := []string{"-Method " + r.method, "-Uri $uri"}
+	// Invoke-RestMethod follows up to five redirects on its own, so only
+	// a different answer needs saying. 0 stops it following — it raises
+	// on the 3xx rather than handing it back, which is as close as this
+	// cmdlet gets to curl's default.
+	if !r.follow {
+		params = append(params, "-MaximumRedirection 0")
+	} else if r.maxRedirects > 0 {
+		params = append(params, fmt.Sprintf("-MaximumRedirection %d", r.maxRedirects))
+	}
 	if len(ps.headers) > 0 {
 		params = append(params, "-Headers $headers")
 	}

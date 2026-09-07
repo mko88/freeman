@@ -11,7 +11,34 @@ import type { domain } from '../../wailsjs/go/models'
 // models.ts).
 export type BodyMode = 'none' | 'raw' | 'form-data' | 'x-www-form-urlencoded' | 'binary'
 export type FormFieldType = 'text' | 'file'
-export type RequestTab = 'params' | 'headers' | 'auth' | 'body' | 'code'
+export type RequestTab = 'params' | 'headers' | 'auth' | 'body' | 'options' | 'code'
+
+// How the request is sent, as opposed to what is sent. Mirrors
+// domain.Options; the defaults here are the ones httpengine applies to a
+// request that has none.
+export type RequestOptions = {
+  followRedirects: boolean
+  maxRedirects: number
+  storeCookies: boolean
+}
+
+export const defaultOptions = (): RequestOptions => ({
+  followRedirects: true,
+  maxRedirects: 0,
+  storeCookies: true,
+})
+
+// Which settings differ from the defaults — the Options tab's badge, so
+// a tab nobody has touched says so rather than looking the same as one
+// that has.
+export function changedOptionCount(o: RequestOptions): number {
+  const d = defaultOptions()
+  return (
+    Number(o.followRedirects !== d.followRedirects) +
+    Number(o.maxRedirects !== d.maxRedirects) +
+    Number(o.storeCookies !== d.storeCookies)
+  )
+}
 export type AuthType = 'none' | 'bearer' | 'basic' | 'apikey'
 export type CodeFormat = 'bash' | 'powershell'
 export const codeFormats: { value: CodeFormat; label: string }[] = [
@@ -66,6 +93,7 @@ export type RequestDraft = {
   bodyRaw: string
   formFields: domain.FormField[]
   binaryFilePath: string
+  options: RequestOptions
 }
 
 export const emptyAuth = (): RequestAuth => ({
@@ -88,4 +116,5 @@ export const emptyDraft = (): RequestDraft => ({
   bodyRaw: '',
   formFields: [],
   binaryFilePath: '',
+  options: defaultOptions(),
 })

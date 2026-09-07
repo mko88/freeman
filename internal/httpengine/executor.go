@@ -12,6 +12,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/http/cookiejar"
 	"net/textproto"
 	"net/url"
 	"os"
@@ -24,10 +25,72 @@ import (
 	"freeman/internal/domain"
 )
 
+// DefaultMaxRedirects matches net/http's own limit, so a request that
+// says nothing behaves as it always did.
+const DefaultMaxRedirects = 10
+
+// cookies is the session every request that opts in shares — one jar for
+// the app, so logging in on one request authenticates the next. Package
+// level alongside RequestTimeout and MaxResponseBytes, which is how this
+// package already holds things that outlive a single call; core.App
+// clears it when a workspace opens (ResetCookies), since cookies belong
+// to whoever you were talking to, not to the app.
+var cookies http.CookieJar = mustJar()
+
+func mustJar() http.CookieJar {
+	// cookiejar.New only ever errors on a bad PublicSuffixList, and this
+	// passes none.
+	jar, _ := cookiejar.New(nil)
+	return jar
+}
+
+// ResetCookies empties the shared jar.
+func ResetCookies() {
+	cookies = mustJar()
+}
+
+// optionsOf supplies the defaults for a request that has no Options —
+// everything saved before they existed, and anything nobody has touched.
+// Following redirects and keeping cookies are both on, which is what
+// every other HTTP client does and what the app did before this.
+func optionsOf(item domain.Item) domain.Options {
+	if item.Options == nil {
+		return domain.Options{FollowRedirects: true, StoreCookies: true}
+	}
+	return *item.Options
+}
+
+// clientFor builds the client for one request. Transport is left nil so
+// every request still shares http.DefaultTransport's connection pool —
+// only the per-request policy differs.
+//
 // No Client.Timeout: Execute applies RequestTimeout as a context
 // deadline instead, so the caller's own cancellation still composes with
 // it rather than being shadowed.
-var client = &http.Client{}
+func clientFor(opts domain.Options) *http.Client {
+	c := &http.Client{}
+	if opts.StoreCookies {
+		c.Jar = cookies
+	}
+	if !opts.FollowRedirects {
+		// Hand back the 3xx itself rather than chasing it.
+		c.CheckRedirect = func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		return c
+	}
+	max := opts.MaxRedirects
+	if max <= 0 {
+		max = DefaultMaxRedirects
+	}
+	c.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
+		if len(via) >= max {
+			return fmt.Errorf("stopped after %d redirects", max)
+		}
+		return nil
+	}
+	return c
+}
 
 // Execute builds an HTTP request from item — substituting {{var}} in the
 // URL, enabled query params, enabled headers, the Auth helper (bearer/
@@ -92,7 +155,7 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 	}
 
 	start := time.Now()
-	resp, err := client.Do(req)
+	resp, err := clientFor(optionsOf(item)).Do(req)
 	if err != nil {
 		return nil, err
 	}

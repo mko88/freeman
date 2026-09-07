@@ -12,7 +12,7 @@
   import { methodColor } from '../lib/format'
   import { resolveBodyLanguage } from '../lib/responseFormat'
   import type { BodyLanguage } from '../lib/responseFormat'
-  import { bodyModes, codeFormats, methods } from '../lib/requestDraft'
+  import { bodyModes, changedOptionCount, codeFormats, methods } from '../lib/requestDraft'
   import type { CodeFormat, RequestDraft, RequestTab } from '../lib/requestDraft'
 
   // Common request headers (and, per header, common values) offered as
@@ -103,6 +103,10 @@
   // row put together; shortened it still can't be confused with the
   // other form mode next to it.
   $: bodyTabBadge = draft.bodyMode === 'x-www-form-urlencoded' ? 'urlencoded' : draft.bodyMode
+  // How the request is sent: 'default' until something is changed, so an
+  // untouched tab says so rather than looking like one that was.
+  $: optionsChanged = changedOptionCount(draft.options)
+  $: optionsTabBadge = optionsChanged === 0 ? 'default' : `${optionsChanged} changed`
 </script>
 
 <div class="request-name">
@@ -148,6 +152,9 @@
   </button>
   <button class:active={activeTab === 'body'} on:click={() => onRequestTabClick('body')}>
     Body<span class="tab-count">{bodyTabBadge}</span>
+  </button>
+  <button class:active={activeTab === 'options'} on:click={() => onRequestTabClick('options')}>
+    Options<span class="tab-count">{optionsTabBadge}</span>
   </button>
   <button class:active={activeTab === 'code'} on:click={() => onRequestTabClick('code')}>Code</button>
 </div>
@@ -242,6 +249,48 @@
         <input type="text" bind:value={draft.auth.value} placeholder="key or {'{'}{'{'}var{'}'}{'}'}" />
       </label>
     {/if}
+  </div>
+{:else if activeTab === 'options'}
+  <!-- How the request is sent rather than what is sent. Both default to
+       what every other HTTP client does, so a request nobody has touched
+       behaves the way it always did. -->
+  <div class="options-tab">
+    <label class="option">
+      <input type="checkbox" bind:checked={draft.options.followRedirects} />
+      <span class="option-text">
+        Follow redirects
+        <span class="option-hint">
+          Off returns the 3xx itself, which is the only way to assert on its status or Location.
+        </span>
+      </span>
+    </label>
+
+    <label class="option" class:disabled={!draft.options.followRedirects}>
+      <input
+        type="number"
+        min="0"
+        max="50"
+        class="option-number"
+        disabled={!draft.options.followRedirects}
+        bind:value={draft.options.maxRedirects}
+      />
+      <span class="option-text">
+        Maximum redirects
+        <span class="option-hint">0 uses the default of 10.</span>
+      </span>
+    </label>
+
+    <label class="option">
+      <input type="checkbox" bind:checked={draft.options.storeCookies} />
+      <span class="option-text">
+        Send and store cookies
+        <span class="option-hint">
+          Shares one cookie jar with every other request that has this on, so signing in on one
+          authenticates the next. Off isolates this request from that session. Generated scripts can't
+          carry it — the jar belongs to the app.
+        </span>
+      </span>
+    </label>
   </div>
 {:else if activeTab === 'code'}
   <div class="code-tab">
@@ -368,6 +417,42 @@
     margin-left: auto;
     font-size: 0.72rem;
     color: var(--fm-text-muted);
+  }
+
+  .options-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    max-width: 46rem;
+  }
+
+  /* The control leads, its name and explanation follow — so the column
+     of controls scans down the left the way the checkbox column does in
+     the header and param tables. */
+  .option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+  }
+
+  .option.disabled {
+    opacity: 0.5;
+  }
+
+  .option-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-size: 0.85rem;
+  }
+
+  .option-hint {
+    font-size: 0.75rem;
+    color: var(--fm-text-muted);
+  }
+
+  .option-number {
+    width: 4.5rem;
   }
 
   .body-mode-picker {
