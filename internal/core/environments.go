@@ -66,12 +66,15 @@ func (a *App) saveEnvironment(env domain.Environment) (*domain.Environment, erro
 	if err := a.requireWorkspace(); err != nil {
 		return nil, err
 	}
+	envPath := func(slug string) string {
+		return filepath.Join(a.ws.Root, "environments", slug+".json")
+	}
 	path, exists := a.ws.EnvironmentPaths[env.ID]
 	if !exists {
 		env.ID = domain.NewID("e_")
-		path = filepath.Join(a.ws.Root, "environments", slugify(env.Name, env.ID)+".json")
+		path = uniquePath(slugify(env.Name, env.ID), envPath, a.ws.EnvironmentPaths, env.ID)
 		a.ws.EnvironmentPaths[env.ID] = path
-	} else if want := filepath.Join(a.ws.Root, "environments", slugify(env.Name, env.ID)+".json"); want != path {
+	} else if want := uniquePath(slugify(env.Name, env.ID), envPath, a.ws.EnvironmentPaths, env.ID); want != path {
 		if err := os.Rename(path, want); err == nil {
 			os.Rename(store.LocalPathFor(path), store.LocalPathFor(want)) // best effort — sidecar may not exist
 			a.ws.EnvironmentPaths[env.ID] = want
@@ -102,7 +105,9 @@ func (a *App) DeleteEnvironment(id string) error {
 	if len(a.ws.EnvironmentPaths) <= 1 {
 		return errors.New("can't delete the last environment")
 	}
-	if err := os.Remove(path); err != nil {
+	// A file that has already gone still counts as deleted: otherwise an
+	// entry whose file vanished can never be removed from the list.
+	if err := os.Remove(path); !removedOrMissing(err) {
 		return err
 	}
 	os.Remove(store.LocalPathFor(path)) // best effort — sidecar may not exist
