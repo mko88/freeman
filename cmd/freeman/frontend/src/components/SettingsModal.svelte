@@ -319,6 +319,11 @@
     overflow-y: auto;
     padding-inline: 4px;
     margin-inline: -4px;
+    /* The same room at the bottom, now that this tab ends in a row of
+       number fields rather than a button — and the scroll-padding so
+       focusing one near the edge doesn't scroll it flush against it. */
+    padding-bottom: 0.5rem;
+    scroll-padding: 6px;
   }
 
   .workspace-path {
