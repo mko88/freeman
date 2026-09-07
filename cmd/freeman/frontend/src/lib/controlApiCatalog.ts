@@ -44,6 +44,7 @@ export const apiEndpoints: ApiEndpoint[] = [
       'Render a request as a runnable script. Body: {item: domain.Item, environmentId, format}. ' +
       "format is 'bash', 'powershell', 'python' or 'javascript'. Returns {code}.",
   },
+  { method: 'GET', path: '/api/version', desc: 'Which build is running: {version, commit, date}. Needs no open workspace.' },
   { method: 'GET', path: '/api/theme', desc: 'Resolved color palette.' },
   { method: 'GET', path: '/api/headers', desc: 'Common request-header names/values for editor autocomplete (from headers.yaml).' },
   { method: 'POST', path: '/api/ui/action', desc: 'Drive the GUI itself (desktop only, see below). Body: {action, payload}.' },

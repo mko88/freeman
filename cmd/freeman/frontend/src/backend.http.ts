@@ -91,6 +91,10 @@ export function GetTheme(): Promise<Record<string, string>> {
   return request('GET', '/api/theme')
 }
 
+export function GetVersion(): Promise<Record<string, string>> {
+  return request('GET', '/api/version')
+}
+
 // The response cache (see internal/wailsapp/responsecache.go) is
 // desktop-only — it lives under the desktop app's workspace, which a
 // server that just returns bodies over HTTP has no equivalent for.

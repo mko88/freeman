@@ -15,6 +15,7 @@
     DeleteEnvironment,
     ExecuteRequest,
     GenerateRequestCode,
+    GetVersion,
     GetCachedResponse,
     ClearResponseCache,
     ClearCachedResponse,
@@ -71,6 +72,11 @@
 
   let workspace: core.WorkspaceInfo | null = null
   let openError = ''
+
+  // Which build this is — shown on the welcome screen and in the help
+  // modal, and reported by GET /api/version. Loaded once on mount; it
+  // can't change while the app runs.
+  let appVersion = ''
 
   let collectionId = ''
   let collection: domain.Collection | null = null
@@ -299,6 +305,18 @@
   }
 
   onMount(async () => {
+    // Before the workspace: it needs none, and the welcome screen shows
+    // it while there's nothing else on screen.
+    try {
+      // The version string alone: `git describe` already carries the
+      // commit whenever the build isn't sitting on a tag, so showing
+      // both reads as "v0.1.0-4-g94b2835 (94b2835)". GET /api/version
+      // returns the commit and build date separately for a bug report.
+      appVersion = (await GetVersion()).version ?? ''
+    } catch {
+      // A build without it is not worth an error banner.
+    }
+
     const ws = await CurrentWorkspace()
     if (ws) await initWorkspace(ws)
 
@@ -1378,6 +1396,7 @@
 {#if !workspace}
   <main class="welcome">
     <h1>Freeman</h1>
+    {#if appVersion}<p class="welcome-version">{appVersion}</p>{/if}
     <p class="prose">Pick a folder to use as a workspace for your collections and environments.</p>
     <button class="primary" on:click={openWorkspace}>Choose workspace folder</button>
     {#if openError}<p class="error">{openError}</p>{/if}
@@ -1495,7 +1514,7 @@
   {/if}
 
   {#if showHelp}
-    <HelpModal {controlApiAddr} onClose={() => (showHelp = false)} />
+    <HelpModal {controlApiAddr} {appVersion} onClose={() => (showHelp = false)} />
   {/if}
 </div>
 
@@ -1606,6 +1625,15 @@
     font-weight: 600;
     letter-spacing: -0.01em;
     margin: 0;
+  }
+
+  /* Sits under the title, inside the flex gap that separates it from
+     the prose below — so it reads as part of the heading rather than a
+     third paragraph. */
+  .welcome-version {
+    margin: -0.85rem 0 0;
+    font-size: 0.78rem;
+    color: var(--fm-text-muted);
   }
 
   .welcome .prose {

@@ -17,6 +17,7 @@ export {
   ExecuteRequest,
   GenerateRequestCode,
   GetTheme,
+  GetVersion,
   GetCachedResponse,
   ClearResponseCache,
   ClearCachedResponse,

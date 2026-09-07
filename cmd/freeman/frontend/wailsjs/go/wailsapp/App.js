@@ -78,6 +78,10 @@ export function GetTheme() {
   return window['go']['wailsapp']['App']['GetTheme']();
 }
 
+export function GetVersion() {
+  return window['go']['wailsapp']['App']['GetVersion']();
+}
+
 export function ListCollections() {
   return window['go']['wailsapp']['App']['ListCollections']();
 }
