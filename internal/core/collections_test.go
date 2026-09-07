@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"freeman/internal/domain"
 )
 
 // TestNewCollectionHasEmptyNotNilItems guards against domain.Collection's
@@ -45,5 +47,41 @@ func TestNewCollectionHasEmptyNotNilItems(t *testing.T) {
 	}
 	if strings.Contains(string(data), `"items":null`) || strings.Contains(string(data), `"items": null`) {
 		t.Fatalf("collection.json serialized items as null, not []: %s", data)
+	}
+}
+
+// Collections slugify the same way environments do, so two called
+// "New collection" shared one directory and the second overwrote the
+// first. os.RemoveAll spared them the undeletable half of the bug, but
+// not the data loss.
+func TestCollectionsWithTheSameNameGetTheirOwnDirectories(t *testing.T) {
+	root := t.TempDir()
+	app := NewApp()
+	if _, err := app.OpenWorkspace(root); err != nil {
+		t.Fatalf("OpenWorkspace: %v", err)
+	}
+
+	first, err := app.CreateCollection("New collection")
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	second, err := app.CreateCollection("New collection")
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if app.ws.CollectionPaths[first.ID] == app.ws.CollectionPaths[second.ID] {
+		t.Fatalf("both collections share a directory: %s", app.ws.CollectionPaths[first.ID])
+	}
+
+	// The first one's contents survive the second being created.
+	if _, err := app.SaveRequest(first.ID, domain.Item{Name: "Only in the first", Method: "GET"}); err != nil {
+		t.Fatalf("save into the first: %v", err)
+	}
+	reloaded, err := app.GetCollection(first.ID)
+	if err != nil {
+		t.Fatalf("reload the first: %v", err)
+	}
+	if len(reloaded.Items) != 1 {
+		t.Fatalf("the first collection lost its request: %+v", reloaded.Items)
 	}
 }

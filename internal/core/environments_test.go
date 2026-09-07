@@ -113,3 +113,75 @@ func TestEnvironmentConcurrentListAndRename(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// Two environments with the same name used to slugify to one filename:
+// the second overwrote the first, and deleting either left the other
+// pointing at a file that was gone — so listing the workspace failed and
+// that entry could never be deleted. Reported from the settings window,
+// where "New environment" is what both of them are called.
+func TestEnvironmentsWithTheSameNameGetTheirOwnFiles(t *testing.T) {
+	root := t.TempDir()
+	app := NewApp()
+	if _, err := app.OpenWorkspace(root); err != nil {
+		t.Fatalf("OpenWorkspace: %v", err)
+	}
+
+	first, err := app.SaveEnvironment(domain.Environment{Name: "New environment"})
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	second, err := app.SaveEnvironment(domain.Environment{Name: "New environment"})
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if first.ID == second.ID {
+		t.Fatal("two saves should be two environments")
+	}
+
+	firstPath := app.ws.EnvironmentPaths[first.ID]
+	secondPath := app.ws.EnvironmentPaths[second.ID]
+	if firstPath == secondPath {
+		t.Fatalf("both environments share a file: %s", firstPath)
+	}
+	for _, p := range []string{firstPath, secondPath} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("expected %s on disk: %v", p, err)
+		}
+	}
+
+	// Deleting one leaves the other readable, which is what broke:
+	// workspaceInfo loads every environment to count its variables.
+	if err := app.DeleteEnvironment(first.ID); err != nil {
+		t.Fatalf("delete first: %v", err)
+	}
+	if _, err := app.CurrentWorkspace(); err != nil {
+		t.Fatalf("listing the workspace after a delete: %v", err)
+	}
+	if err := app.DeleteEnvironment(second.ID); err != nil {
+		t.Fatalf("delete second: %v", err)
+	}
+}
+
+// The other half: an entry whose file has already gone still has to be
+// removable, or it stays in the list forever with no way to clear it.
+func TestDeleteEnvironmentWhoseFileIsAlreadyGone(t *testing.T) {
+	root := t.TempDir()
+	app := NewApp()
+	if _, err := app.OpenWorkspace(root); err != nil {
+		t.Fatalf("OpenWorkspace: %v", err)
+	}
+	env, err := app.SaveEnvironment(domain.Environment{Name: "Doomed"})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	if err := os.Remove(app.ws.EnvironmentPaths[env.ID]); err != nil {
+		t.Fatalf("removing the file behind its back: %v", err)
+	}
+	if err := app.DeleteEnvironment(env.ID); err != nil {
+		t.Fatalf("deleting an environment whose file is gone: %v", err)
+	}
+	if _, ok := app.ws.EnvironmentPaths[env.ID]; ok {
+		t.Error("the entry survived the delete")
+	}
+}
