@@ -199,9 +199,8 @@ export const uiActions: UiAction[] = [
     payload: '{ format }',
     desc:
       "Switch the Code tab's output. format is 'bash' (curl), 'powershell' (Invoke-RestMethod), " +
-      "'python' (requests) or 'javascript' (fetch). Each script carries a comment about any option " +
-      "its language can't express as faithfully as Send does. Read the rendered script from " +
-      "GET /api/ui/state's code field.",
+      "'python' (requests) or 'javascript' (fetch). Read the rendered script from GET /api/ui/state's " +
+      'code field.',
   },
   {
     action: 'selectBodyLanguage',

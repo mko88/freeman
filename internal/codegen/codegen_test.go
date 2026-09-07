@@ -46,13 +46,10 @@ func TestGenerateGETWithParamsHeadersAndVars(t *testing.T) {
 	}
 
 	// Compared whole, not by substring: this is the one test that pins
-	// the shape of a script end to end, comment block included.
+	// the shape of a script end to end. A generated script is code and
+	// nothing else, so this is all of it.
 	ps := mustGen(t, item, vars, FormatPowerShell)
-	want := "# This request is on Freeman's shared cookie jar. Invoke-RestMethod has no\n" +
-		"# jar on disk: -SessionVariable keeps the response's cookies in $session for\n" +
-		"# as long as this shell lives. Pass -WebSession $session from a later script\n" +
-		"# in the same shell to continue the session.\n\n" +
-		"$uri = 'https://api.example.com/users?active=true'\n\n" +
+	want := "$uri = 'https://api.example.com/users?active=true'\n\n" +
 		"$headers = @{\n    'Accept' = 'application/json'\n}\n\n" +
 		"Invoke-RestMethod `\n    -Method GET `\n    -Uri $uri `\n    -TimeoutSec 30 `\n" +
 		"    -SessionVariable session `\n    -Headers $headers\n"
@@ -442,11 +439,12 @@ func TestGenerateMatchesTransportOptions(t *testing.T) {
 func TestGenerateMatchesCookieOption(t *testing.T) {
 	item := domain.Item{Method: "GET", URL: "https://api.example.com/thing"}
 
+	// fetch is absent: it has no cookie jar of any kind, so nothing is
+	// emitted for it either way.
 	on := map[Format][]string{
-		FormatBash:       {"-b 'cookies.txt' -c 'cookies.txt'", "shared cookie jar"},
-		FormatPowerShell: {"-SessionVariable session", "shared cookie jar"},
-		FormatPython:     {"MozillaCookieJar('cookies-python.txt')", "session.cookies.save(", "shared cookie jar"},
-		FormatJavaScript: {"fetch has none"},
+		FormatBash:       {"-b 'cookies.txt' -c 'cookies.txt'"},
+		FormatPowerShell: {"-SessionVariable session"},
+		FormatPython:     {"MozillaCookieJar('cookies-python.txt')", "session.cookies.save("},
 	}
 	for format, wants := range on {
 		got := mustGen(t, item, nil, format)
@@ -467,10 +465,9 @@ func TestGenerateMatchesCookieOption(t *testing.T) {
 
 	item.Options = &domain.Options{FollowRedirects: true, StoreCookies: false}
 	off := map[Format][]string{
-		FormatBash:       {"cookies.txt", "cookie"},
-		FormatPowerShell: {"-SessionVariable", "cookie"},
-		FormatPython:     {"MozillaCookieJar", "cookie"},
-		FormatJavaScript: {"cookie"},
+		FormatBash:       {"cookies.txt"},
+		FormatPowerShell: {"-SessionVariable"},
+		FormatPython:     {"MozillaCookieJar"},
 	}
 	for format, unwanted := range off {
 		got := mustGen(t, item, nil, format)
@@ -481,8 +478,9 @@ func TestGenerateMatchesCookieOption(t *testing.T) {
 		}
 	}
 
-	// The point of all of the above: the two must not be the same script.
-	for _, format := range []Format{FormatBash, FormatPowerShell, FormatPython, FormatJavaScript} {
+	// The point of all of the above: for the three formats that have a
+	// jar, the two requests must not produce the same script.
+	for _, format := range []Format{FormatBash, FormatPowerShell, FormatPython} {
 		withJar := mustGen(t, domain.Item{Method: "GET", URL: "https://api.example.com/thing"}, nil, format)
 		withoutJar := mustGen(t, item, nil, format)
 		if withJar == withoutJar {
@@ -533,10 +531,10 @@ func TestGeneratePython(t *testing.T) {
 	}
 }
 
-// fetch is the weakest of the four on transport options. What it can't
-// do has to be said rather than dropped, which is the whole lesson of
-// the cookie jar.
-func TestGenerateJavaScriptSaysWhatFetchCannotDo(t *testing.T) {
+// fetch is the weakest of the four on transport options: the redirect
+// cap, the cookie jar and the client certificate simply have no
+// equivalent. What it *can* do still has to be right.
+func TestGenerateJavaScriptTransportOptions(t *testing.T) {
 	item := domain.Item{
 		Method: "GET",
 		URL:    "https://api.example.com/thing",
@@ -552,13 +550,10 @@ func TestGenerateJavaScriptSaysWhatFetchCannotDo(t *testing.T) {
 	}
 	got := mustGen(t, item, nil, FormatJavaScript)
 	for _, want := range []string{
-		"// This request is on Freeman's shared cookie jar; fetch has none.",
-		"// Freeman caps this request at 3 redirects",
-		"// Freeman presents a client certificate for this request. fetch cannot;",
-		// The one transport option it can honour, and it's process-wide,
-		// which the note says.
+		// The certificate check is the one TLS option fetch can honour,
+		// and only process-wide — set before the first request, not
+		// passed to it.
 		"process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'",
-		"not just this request.",
 		"AbortSignal.timeout(2500)",
 		"redirect: 'follow'",
 	} {
@@ -634,6 +629,54 @@ func TestGeneratePythonAndJavaScriptEscapeAwkwardBodies(t *testing.T) {
 		js := mustGen(t, item, nil, FormatJavaScript)
 		if strings.Contains(js, "`"+raw+"`") && strings.ContainsAny(raw, "`\\") {
 			t.Errorf("javascript inlined a body that would break its template: %q\n%s", raw, js)
+		}
+	}
+}
+
+// A generated script is code you run, not documentation: whatever a
+// language can't express is left out rather than explained. Checked
+// against the busiest request in this file, so every renderer's
+// optional branches are on at once.
+func TestGenerateScriptsCarryNoComments(t *testing.T) {
+	item := domain.Item{
+		Method:  "POST",
+		URL:     "https://api.example.com/orders",
+		Headers: []domain.Header{{Key: "X-Trace", Value: "abc", Enabled: true}},
+		Auth: &domain.Auth{
+			Type:     domain.AuthTypeOAuth2,
+			TokenURL: "https://auth.example.com/token",
+			ClientID: "id",
+		},
+		Body: &domain.Body{Mode: domain.BodyModeRaw, Raw: `{"sku": "A-1"}`},
+		Options: &domain.Options{
+			FollowRedirects:   true,
+			MaxRedirects:      3,
+			StoreCookies:      true,
+			TimeoutMs:         2500,
+			SkipTLSVerify:     true,
+			ClientCertFile:    "/certs/client.pem",
+			ClientCertKeyFile: "/certs/client.key",
+		},
+	}
+	// The shebang is not a comment — it's what makes the file runnable.
+	prefixes := map[Format][]string{
+		FormatBash:       {"#"},
+		FormatPowerShell: {"#"},
+		FormatPython:     {"#"},
+		FormatJavaScript: {"//", "/*"},
+	}
+	for format, marks := range prefixes {
+		got := mustGen(t, item, nil, format)
+		for i, line := range strings.Split(got, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "#!") {
+				continue
+			}
+			for _, mark := range marks {
+				if strings.HasPrefix(trimmed, mark) {
+					t.Errorf("%s line %d is a comment: %q\n%s", format, i+1, trimmed, got)
+				}
+			}
 		}
 	}
 }

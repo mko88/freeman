@@ -7,12 +7,10 @@
 // query-param/header/auth/body handling) so the generated command sends
 // the same request the app's own "Send" would.
 //
-// Where a language can't reach that faithfully — fetch has no cookie
-// jar, no redirect cap and no per-request TLS settings — the script says
-// so in a comment at the top. Silently dropping an option is the one
-// thing a renderer must not do: two requests differing only in the
-// cookie jar once produced identical scripts, one of which quietly sent
-// no cookies at all.
+// The scripts are code and nothing else — no explanatory comments. Where
+// a language can't express an option at all (fetch has no cookie jar, no
+// redirect cap and no per-request TLS), it's simply absent, and the
+// Options tab is where that's written down instead.
 package codegen
 
 import (
@@ -109,12 +107,11 @@ type request struct {
 	// generated script would quietly do something else than Send.
 	follow       bool
 	maxRedirects int
-	// cookies mirrors StoreCookies. How well each language can honour it
-	// differs — curl and Python keep a jar on disk, PowerShell and fetch
-	// only within one process — so each renderer says in a comment what
-	// its own does. What none of them may do is stay silent: two
-	// requests that differ only in this once generated identical
-	// scripts, one of which quietly didn't send the cookies Send would.
+	// cookies mirrors StoreCookies, which each language honours as well
+	// as it can: curl and Python keep a jar on disk, PowerShell one for
+	// the shell's lifetime, and fetch has none at all. Emitting nothing
+	// for it is what generated two identical scripts for two requests
+	// that differ only in this, one of which then sent no cookies.
 	cookies bool
 	// timeout is the effective one — the request's own, or the app-wide
 	// default it inherits — rather than only an override, since there is
@@ -235,25 +232,6 @@ func effectiveTimeout(opts domain.Options) time.Duration {
 		return time.Duration(opts.TimeoutMs) * time.Millisecond
 	}
 	return httpengine.RequestTimeout
-}
-
-// commentBlock renders a renderer's leading notes as comments, with a
-// blank line after, or "" when there are none.
-//
-// Every language here can express some of a request's options and not
-// others. Which ones, and how faithfully, is the reader's problem the
-// moment they run the script — so it goes at the top of the script,
-// where they'll see it, rather than only in Freeman's own docs.
-func commentBlock(prefix string, notes []string) string {
-	if len(notes) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, n := range notes {
-		b.WriteString(strings.TrimRight(prefix+n, " ") + "\n")
-	}
-	b.WriteString("\n")
-	return b.String()
 }
 
 // binaryContentType mirrors the first half of
@@ -383,19 +361,6 @@ func suppressContentType(r request) bool {
 	return r.body.kind == bodyRaw && r.header("Content-Type") == ""
 }
 
-func bashNotes(r request) []string {
-	if !r.cookies {
-		// Off the jar, curl's own default is the right behaviour, so
-		// there's nothing to explain.
-		return nil
-	}
-	return []string{
-		"This request is on Freeman's shared cookie jar. curl keeps its own in",
-		"./" + CookieJarFile + ", so scripts run from this directory share a session",
-		"the same way requests in the app do — but they start from an empty one.",
-	}
-}
-
 // renderBash writes the request as something you'd keep in a file: the
 // URL, the headers and the body come out as variables first, so each is
 // editable on its own instead of buried in one long command.
@@ -409,7 +374,6 @@ func renderBash(r request) string {
 	var b strings.Builder
 	b.WriteString("#!/usr/bin/env bash\n")
 	b.WriteString("set -euo pipefail\n\n")
-	b.WriteString(commentBlock("# ", bashNotes(r)))
 	b.WriteString("url=" + shQuote(r.url) + "\n")
 	if r.certFile != "" {
 		b.WriteString("cert=" + shQuote(r.certFile) + "\n")
@@ -588,7 +552,6 @@ func renderPowerShell(r request) string {
 	ps := splitPowerShell(r)
 	var b strings.Builder
 
-	b.WriteString(commentBlock("# ", powerShellNotes(r)))
 	b.WriteString("$uri = " + psQuote(r.url) + "\n")
 
 	if r.certFile != "" {
@@ -687,18 +650,6 @@ func renderPowerShell(r request) string {
 	return b.String()
 }
 
-func powerShellNotes(r request) []string {
-	if !r.cookies {
-		return nil
-	}
-	return []string{
-		"This request is on Freeman's shared cookie jar. Invoke-RestMethod has no",
-		"jar on disk: -SessionVariable keeps the response's cookies in $session for",
-		"as long as this shell lives. Pass -WebSession $session from a later script",
-		"in the same shell to continue the session.",
-	}
-}
-
 // psBodyLiteral prefers a single-quoted here-string — literal, so a body
 // full of quotes stays exactly as typed. A here-string ends at a line
 // beginning with '@, so a body containing one falls back to an inline
@@ -744,7 +695,6 @@ func psQuote(s string) string {
 func renderPython(r request) string {
 	var b strings.Builder
 	b.WriteString("#!/usr/bin/env python3\n")
-	b.WriteString(commentBlock("# ", pythonNotes(r)))
 	b.WriteString("import requests\n")
 	if r.cookies {
 		b.WriteString("from http.cookiejar import MozillaCookieJar\n")
@@ -857,19 +807,6 @@ func renderPython(r request) string {
 	return b.String()
 }
 
-func pythonNotes(r request) []string {
-	if !r.cookies {
-		return nil
-	}
-	return []string{
-		"This request is on Freeman's shared cookie jar. requests keeps its own in",
-		"./" + PythonCookieJarFile + ", so Python scripts run from this directory share a",
-		"session — starting from an empty one. It is deliberately not the file the",
-		"bash script uses: curl and Python disagree on how a session cookie is",
-		"stored, and pointed at one file Python would discard curl's.",
-	}
-}
-
 // pyQuote wraps s in a single-quoted Python string. Backslashes go
 // first, or the escapes added after it would be escaped in turn.
 func pyQuote(s string) string {
@@ -901,12 +838,12 @@ func pyBool(v bool) string {
 
 // renderJavaScript writes the request against fetch, which needs no
 // dependency on Node 18+ and is what a browser reader expects too. It's
-// the weakest of the four on the transport options — no redirect cap,
-// no cookie jar, no per-request TLS — so those come out as notes at the
-// top rather than being silently dropped.
+// the weakest of the four on the transport options: the redirect cap,
+// the cookie jar and the client certificate have no equivalent and
+// don't appear, and the certificate check is skipped process-wide
+// because fetch has no per-request setting for it.
 func renderJavaScript(r request) string {
 	var b strings.Builder
-	b.WriteString(commentBlock("// ", javaScriptNotes(r)))
 
 	if r.skipTLSVerify {
 		// Process-wide and read when the connection is made, so it has
@@ -1008,36 +945,6 @@ func renderJavaScript(r request) string {
 		return b.String()
 	}
 	return strings.Join(imports, "\n") + "\n\n" + b.String()
-}
-
-func javaScriptNotes(r request) []string {
-	var notes []string
-	if r.cookies {
-		notes = append(notes,
-			"This request is on Freeman's shared cookie jar; fetch has none. Read",
-			"Set-Cookie off the response and send it back yourself, or use a library",
-			"like tough-cookie, if the next request needs the session.",
-		)
-	}
-	if r.follow && r.maxRedirects > 0 {
-		notes = append(notes,
-			fmt.Sprintf("Freeman caps this request at %d redirects; fetch has no such option and", r.maxRedirects),
-			"Node follows up to 20.",
-		)
-	}
-	if r.skipTLSVerify {
-		notes = append(notes,
-			"NODE_TLS_REJECT_UNAUTHORIZED below is how fetch skips the certificate",
-			"check. It applies to the whole process, not just this request.",
-		)
-	}
-	if r.certFile != "" {
-		notes = append(notes,
-			"Freeman presents a client certificate for this request. fetch cannot;",
-			"that needs an undici Agent configured with a tls option.",
-		)
-	}
-	return notes
 }
 
 // jsQuote wraps s in a single-quoted JavaScript string.
