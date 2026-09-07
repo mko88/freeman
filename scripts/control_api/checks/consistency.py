@@ -1,7 +1,7 @@
 """Makes CLAUDE.md's standing rule executable instead of remembered.
 
 A new interactive element is supposed to land in four places at once: a
-`case` in App.svelte's `dispatchUIAction`, a row in HelpModal.svelte's
+`case` in App.svelte's `dispatchUIAction`, a row in lib/controlApiCatalog.ts's
 `uiActions` table, a mirrored field in `reportUIState`, and coverage in
 this suite.
 That held by hand for a long time, but "held by hand" is exactly the kind
@@ -37,8 +37,8 @@ def _read(root: Path, rel: str) -> str:
 
 
 def _documented_actions(app_svelte: str) -> set[str]:
-    """Action names from the `uiActions` help table (in components/HelpModal.svelte)."""
-    table = _slice(app_svelte, "const uiActions = [", "\n  ]")
+    """Action names from the `uiActions` catalogue (lib/controlApiCatalog.ts)."""
+    table = _slice(app_svelte, "uiActions: UiAction[] = [", "\n]")
     return set(re.findall(r"action:\s*'([A-Za-z]+)'", table))
 
 
@@ -64,8 +64,8 @@ def _driven_actions(checks_dir: Path) -> set[str]:
 
 
 def _documented_routes(app_svelte: str) -> set[str]:
-    """"<METHOD> <path>" pairs from the `apiEndpoints` help table."""
-    table = _slice(app_svelte, "const apiEndpoints = [", "\n  ]")
+    """"<METHOD> <path>" pairs from the `apiEndpoints` catalogue."""
+    table = _slice(app_svelte, "apiEndpoints: ApiEndpoint[] = [", "\n]")
     methods = re.findall(r"method:\s*'([A-Z]+)'", table)
     paths = re.findall(r"path:\s*'([^']+)'", table)
     if len(methods) != len(paths):
@@ -97,15 +97,16 @@ def test_consistency(r: Report, repo_root: Path) -> None:
     # spectacularly silly way for a consistency check to fail.
     r.section("Control-API consistency (help table vs dispatcher vs this suite vs Go routes)")
 
-    # The two tables live in the help modal that renders them; the
+    # The two tables live in lib/controlApiCatalog.ts, which the help
+    # modal renders and App.svelte reports to Go for GET /api/agent; the
     # dispatcher stays in App.svelte with the state it mutates.
-    help_modal = _read(repo_root, "cmd/freeman/frontend/src/components/HelpModal.svelte")
+    help_modal = _read(repo_root, "cmd/freeman/frontend/src/lib/controlApiCatalog.ts")
     app_svelte = _read(repo_root, "cmd/freeman/frontend/src/App.svelte")
     documented = _documented_actions(help_modal)
     dispatched = _dispatched_actions(app_svelte)
     driven = _driven_actions(Path(__file__).parent)
 
-    r.step("parsing HelpModal.svelte's tables, App.svelte's dispatcher, and this package's checks")
+    r.step("parsing controlApiCatalog.ts's tables, App.svelte's dispatcher, and this package's checks")
 
     # A parse that quietly returns nothing would make every diff below
     # look clean, so prove the parser still found the tables first.

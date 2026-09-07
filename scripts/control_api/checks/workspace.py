@@ -28,6 +28,25 @@ def test_read_only_routes(api: ControlAPI, r: Report) -> dict:
     ui_state = api.state()
     r.check("GET /api/ui/state returns an object", isinstance(ui_state, dict), str(ui_state))
 
+    # The endpoint an agent reads first. It's assembled from the same
+    # catalogue the help modal renders, so the thing worth checking is
+    # that the catalogue actually reached Go — a document with the prose
+    # but no tables means the frontend never reported.
+    status, agent_doc = api.raw("GET", "/api/agent")
+    doc = agent_doc if isinstance(agent_doc, str) else ""
+    r.check("GET /api/agent returns markdown", status == 200 and doc.startswith("# Freeman control API"), f"status={status} head={doc[:60]!r}")
+    r.check(
+        "GET /api/agent explains the act-then-read loop and the content-type rule",
+        "/api/ui/action" in doc and "/api/ui/state" in doc and "Content-Type: application/json" in doc,
+        "the hand-written half of the document is missing",
+    )
+    for name in ("sendRequest", "selectRequestTab", "renameCollection"):
+        if f"`{name}`" not in doc:
+            r.check(f"GET /api/agent lists the {name} action", False, "the frontend's catalogue never reached Go")
+            break
+    else:
+        r.check("GET /api/agent lists the actions the frontend reported", True)
+
     return workspace
 
 

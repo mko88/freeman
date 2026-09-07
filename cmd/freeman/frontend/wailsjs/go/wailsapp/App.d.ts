@@ -11,6 +11,8 @@ export function ClearResponseCache():Promise<void>;
 
 export function ControlAPIAddr():Promise<string>;
 
+export function ControlAPIDocs():Promise<string>;
+
 export function CreateCollection(arg1:string):Promise<domain.Collection>;
 
 export function CurrentWorkspace():Promise<core.WorkspaceInfo>;
@@ -52,6 +54,8 @@ export function OpenResponseCacheInFileExplorer(arg1:string):Promise<void>;
 export function OpenWorkspace(arg1:string):Promise<core.WorkspaceInfo>;
 
 export function RenameCollection(arg1:string,arg2:string):Promise<domain.Collection>;
+
+export function ReportControlAPIDocs(arg1:string):Promise<void>;
 
 export function ReportUIState(arg1:string):Promise<void>;
 

@@ -28,8 +28,11 @@ type App struct {
 	ctx         context.Context
 	controlAddr string
 
-	uiStateMu sync.RWMutex
-	uiState   string
+	// One lock for both: each is a string the frontend pushes and an
+	// HTTP handler reads, written once per report and never together.
+	uiStateMu      sync.RWMutex
+	uiState        string
+	controlAPIDocs string
 }
 
 func NewApp() *App {
@@ -293,6 +296,30 @@ func (a *App) ReportUIState(stateJSON string) {
 	a.uiStateMu.Lock()
 	defer a.uiStateMu.Unlock()
 	a.uiState = stateJSON
+}
+
+// ReportControlAPIDocs receives the control API's own route/action
+// catalogue from the frontend on mount, the same way ReportUIState
+// receives the editor's state. It's reported rather than written here
+// because the frontend already owns that list — the help modal renders
+// it and consistency.py diffs it against the dispatcher — and a second
+// copy in Go would be free to drift from the app it describes.
+//
+// GET /api/agent (see cmd/freeman/main.go) formats it for an agent that
+// has no way to read a Svelte component.
+func (a *App) ReportControlAPIDocs(catalogJSON string) {
+	a.uiStateMu.Lock()
+	defer a.uiStateMu.Unlock()
+	a.controlAPIDocs = catalogJSON
+}
+
+// ControlAPIDocs returns the catalogue last reported, or "" before the
+// window has mounted — agentdocs.Render says so rather than implying the
+// app has no actions.
+func (a *App) ControlAPIDocs() string {
+	a.uiStateMu.RLock()
+	defer a.uiStateMu.RUnlock()
+	return a.controlAPIDocs
 }
 
 // UIState returns the most recently reported state as raw JSON (see

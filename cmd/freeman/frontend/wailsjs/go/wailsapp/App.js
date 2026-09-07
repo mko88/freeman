@@ -14,6 +14,10 @@ export function ControlAPIAddr() {
   return window['go']['wailsapp']['App']['ControlAPIAddr']();
 }
 
+export function ControlAPIDocs() {
+  return window['go']['wailsapp']['App']['ControlAPIDocs']();
+}
+
 export function CreateCollection(arg1) {
   return window['go']['wailsapp']['App']['CreateCollection'](arg1);
 }
@@ -96,6 +100,10 @@ export function OpenWorkspace(arg1) {
 
 export function RenameCollection(arg1, arg2) {
   return window['go']['wailsapp']['App']['RenameCollection'](arg1, arg2);
+}
+
+export function ReportControlAPIDocs(arg1) {
+  return window['go']['wailsapp']['App']['ReportControlAPIDocs'](arg1);
 }
 
 export function ReportUIState(arg1) {
