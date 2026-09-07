@@ -256,7 +256,19 @@
     padding: 0;
     border: 1px solid var(--fm-border-subtle);
     border-radius: var(--fm-radius);
-    overflow: hidden;
+  }
+
+  /* The ends are rounded by rounding the end rows rather than clipping
+     the list: overflow: hidden here would also clip anything a row opens
+     outside itself, like an InfoTip's popup. */
+  .settings-list > li:first-child {
+    border-start-start-radius: var(--fm-radius);
+    border-start-end-radius: var(--fm-radius);
+  }
+
+  .settings-list > li:last-child {
+    border-end-start-radius: var(--fm-radius);
+    border-end-end-radius: var(--fm-radius);
   }
 
   .settings-list > li {
