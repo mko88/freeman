@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .. import ControlAPI, Report, poll
 from ..fixtures import (
+    SMALL_WINS_NAME,
     TEST_REQUEST_NAME,
     DELETE_TEST_NAME,
     TEST_HEADER_KEY,
@@ -376,5 +377,122 @@ def test_delete_request(api: ControlAPI, r: Report, collection_id: str) -> None:
     r.check(
         "deleting an already-deleted request errors instead of silently succeeding",
         status >= 400,
+        f"status={status} body={body}",
+    )
+
+
+def test_small_wins(api: ControlAPI, r: Report, collection_id: str, item_id: str) -> None:
+    """The sidebar filter, duplicating a request, cancelling a send, and
+    importing a curl command. Each is small enough that its whole story
+    fits in one section; they share one because they share the scratch
+    request main() made for them."""
+    r.section("Filter / duplicate / cancel / import from curl")
+
+    if not item_id:
+        r.check("skipped — no empty scratch request for this test", False)
+        return
+
+    r.step(f"selectRequest {{id: {item_id}}}, setRequestField name, saveRequest")
+    api.action("selectRequest", {"id": item_id})
+    poll(api.state, lambda s: s.get("selectedItemId") == item_id)
+    api.action("setRequestField", {"field": "name", "value": SMALL_WINS_NAME})
+    api.action("setRequestField", {"field": "method", "value": "PATCH"})
+    api.action("saveRequest")
+    poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: find_item(c, SMALL_WINS_NAME) is not None,
+    )
+
+    # --- the filter is a view state, so the getter is the whole check ---
+    r.step("filterRequests {text: 'zzz-matches-nothing'}")
+    api.action("filterRequests", {"text": "zzz-matches-nothing"})
+    state = poll(api.state, lambda s: s.get("requestFilter") == "zzz-matches-nothing")
+    r.check(
+        "state.requestFilter reflects filterRequests",
+        state.get("requestFilter") == "zzz-matches-nothing",
+        str(state.get("requestFilter")),
+    )
+    r.step("filterRequests {text: ''}  (clears it)")
+    api.action("filterRequests", {"text": ""})
+    state = poll(api.state, lambda s: s.get("requestFilter") == "")
+    r.check("an empty filter clears it", state.get("requestFilter") == "", str(state.get("requestFilter")))
+
+    # --- duplicate ---
+    r.step(f"duplicateRequest {{id: {item_id}}}")
+    api.action("duplicateRequest", {"id": item_id})
+    copy_name = f"{SMALL_WINS_NAME} copy"
+    collection = poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: find_item(c, copy_name) is not None,
+    )
+    copy = find_item(collection, copy_name)
+    original = find_item(collection, SMALL_WINS_NAME)
+    r.check("the copy exists under its own name", copy is not None, str(copy))
+    r.check(
+        "...with its own id, and the original untouched",
+        copy is not None and original is not None and copy["id"] != original["id"],
+        f"copy={(copy or {}).get('id')} original={(original or {}).get('id')}",
+    )
+    r.check("...and carries the original's method", (copy or {}).get("method") == "PATCH", str(copy))
+    state = poll(api.state, lambda s, c=copy: s.get("selectedItemId") == (c or {}).get("id"))
+    r.check(
+        "the copy is what's selected, so it's what you edit",
+        state.get("selectedItemId") == (copy or {}).get("id"),
+        str(state.get("selectedItemId")),
+    )
+    if copy:
+        api.action("deleteRequest", {"id": copy["id"]})
+        poll(
+            lambda: api.get(f"/api/collections/{collection_id}"),
+            lambda c: find_item(c, copy_name) is None,
+        )
+
+    # --- cancel: nothing in flight, so this only has to be harmless ---
+    r.step("cancelRequest with no request in flight  (must be a no-op, not an error)")
+    api.action("cancelRequest")
+    r.check("cancelRequest is safe when nothing is sending", True)
+
+    # --- import ---
+    r.step("toggleImport  (watch: the Import from curl dialog opens)")
+    api.action("toggleImport")
+    state = poll(api.state, lambda s: s.get("showImport") is True)
+    r.check("state.showImport reflects toggleImport", state.get("showImport") is True, str(state.get("showImport")))
+
+    curl = (
+        "curl 'https://api.example.com/v1/orders?page=2' "
+        "-H 'Accept: application/json' -H 'X-Trace: abc' --data-raw '{\"sku\":\"A-1\"}'"
+    )
+    r.step("importCurl with a browser-style command")
+    api.action("importCurl", {"text": curl})
+    state = poll(api.state, lambda s: s.get("url") == "https://api.example.com/v1/orders")
+    r.check(
+        "the URL arrives with its query split off",
+        state.get("url") == "https://api.example.com/v1/orders",
+        str(state.get("url")),
+    )
+    r.check("a body with no -X becomes a POST", state.get("method") == "POST", str(state.get("method")))
+    r.check(
+        "the query became a param row",
+        any(p.get("key") == "page" and p.get("value") == "2" for p in state.get("params") or []),
+        str(state.get("params")),
+    )
+    r.check(
+        "both headers came across",
+        {h.get("key") for h in state.get("headers") or []} >= {"Accept", "X-Trace"},
+        str(state.get("headers")),
+    )
+    r.check('the raw body came across', state.get("bodyRaw") == '{"sku":"A-1"}', str(state.get("bodyRaw")))
+    r.check(
+        "it loaded as an unsaved request rather than joining the collection",
+        state.get("selectedItemId") is None,
+        str(state.get("selectedItemId")),
+    )
+    r.check("...and the dialog closed itself", state.get("showImport") is False, str(state.get("showImport")))
+
+    r.step("POST /api/import/curl directly, with something that isn't curl")
+    status, body = api.post("/api/import/curl", {"text": "wget https://example.com"})
+    r.check(
+        "POST /api/import/curl refuses what it can't parse",
+        status == 400 and isinstance(body, dict) and "error" in body,
         f"status={status} body={body}",
     )

@@ -18,6 +18,8 @@ export {
   GenerateRequestCode,
   GetTheme,
   GetVersion,
+  ImportCurl,
+  CancelRequest,
   GetSettings,
   SaveSettings,
   GetCachedResponse,

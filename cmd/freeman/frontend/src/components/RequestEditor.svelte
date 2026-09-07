@@ -34,6 +34,7 @@
 
   export let onSave: () => void
   export let onSend: () => void
+  export let onCancel: () => void
   export let onCopyCode: () => void
 
   // Row add/remove and the native file pickers. Grouped into one prop,
@@ -136,9 +137,14 @@
     placeholder="{'{'}{'{'}schema{'}'}{'}'}://{'{'}{'{'}base{'}'}{'}'}/api/{'{'}{'{'}version{'}'}{'}'}/health"
   />
   <button on:click={onSave}>Save</button>
-  <button class="primary" on:click={onSend} disabled={sending}>
-    {sending ? 'Sending…' : 'Send'}
-  </button>
+  <!-- The same button, because a request in flight is the only thing you
+       want to do to it — a separate Cancel would sit dead most of the
+       time, and this way the control is always where your hand is. -->
+  {#if sending}
+    <button class="cancel-send" title="Stop this request" on:click={onCancel}>Cancel</button>
+  {:else}
+    <button class="primary" on:click={onSend}>Send</button>
+  {/if}
 </div>
 
 <div class="tabs">
@@ -491,6 +497,13 @@
      the way back out. */
   .body-keys {
     margin-left: auto;
+  }
+
+  /* Not .primary: it replaces Send, and a filled accent on "stop" reads
+     as the thing to press rather than the way out of a mistake. */
+  .cancel-send {
+    border-color: var(--fm-accent);
+    color: var(--fm-text);
   }
 
   /* One line per setting now that the explanations are behind their own

@@ -106,7 +106,7 @@ from control_api.checks.environments import test_environment_editor
 from control_api.checks.execute import test_execute, test_file_upload, test_http_methods
 from control_api.checks.guard import test_api_guard
 from control_api.checks.regression import test_rapid_fire_regression
-from control_api.checks.request_editor import test_delete_request, test_request_editor
+from control_api.checks.request_editor import test_delete_request, test_request_editor, test_small_wins
 from control_api.checks.responses import (
     test_large_response_truncation,
     test_response_cache,
@@ -265,6 +265,7 @@ def main() -> int:
         test_large_response_truncation(api, r, collection_id, environment_id, item_ids.get("large_response"))
         test_response_cache(api, r, collection_id, environment_id, item_ids.get("response_cache"))
         test_code_tab(api, r, collection_id, environment_id, item_ids.get("code_tab"), servers.base_url)
+        test_small_wins(api, r, collection_id, item_ids.get("small_wins"))
         test_delete_request(api, r, collection_id)
         test_collection_management(api, r, collection_id)
         test_settings_window(api, r)

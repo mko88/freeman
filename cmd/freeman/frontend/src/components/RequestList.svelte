@@ -21,9 +21,23 @@
   export let onSelectCollection: (id: string) => void
   export let onEditCollections: () => void
 
+  // Bound: App.svelte mirrors it in GET /api/ui/state and
+  // filterRequests drives it. Not persisted — a filter is where you are
+  // right now, not a setting.
+  export let filter = ''
+
   export let onNew: () => void
   export let onSelect: (item: domain.Item) => void
+  export let onDuplicate: (item: domain.Item) => void
   export let onDelete: (item: domain.Item) => void
+
+  // Matched against the name and the method, because "post" is as
+  // likely a search as a word in a name. Case-insensitive, no globbing:
+  // this is a way to find one row in forty, not a query language.
+  $: needle = filter.trim().toLowerCase()
+  $: shown = (collection?.items ?? []).filter(
+    (i) => !needle || `${i.method || 'GET'} ${i.name}`.toLowerCase().includes(needle),
+  )
 </script>
 
 <aside class="sidebar" style="width: {width}px">
@@ -41,17 +55,28 @@
     />
     <button class="icon-btn sidebar-new" title="New request" on:click={onNew}>+</button>
   </div>
+
+  <div class="sidebar-filter">
+    <input type="search" bind:value={filter} placeholder="Filter requests" aria-label="Filter requests" />
+  </div>
+
   <ul class="request-list scroll-pane">
-    {#each collection?.items ?? [] as item (item.id)}
+    {#each shown as item (item.id)}
       <li class:active={item.id === selectedItemId} style="--m: {methodColor(item.method || 'GET')}">
         <button class="request-select" on:click={() => onSelect(item)}>
           <span class="method-tag">{item.method || 'GET'}</span>
           <span class="truncate">{item.name}</span>
         </button>
+        <button class="icon-btn" title="Duplicate request" on:click={() => onDuplicate(item)}>⧉</button>
         <button class="icon-btn" title="Delete request" on:click={() => onDelete(item)}>×</button>
       </li>
     {/each}
   </ul>
+  <!-- An empty list means one of two different things, and saying which
+       saves a hunt for a request that was never there. -->
+  {#if shown.length === 0 && needle}
+    <p class="sidebar-empty muted">Nothing matches “{filter}”.</p>
+  {/if}
 </aside>
 
 <style>
@@ -80,6 +105,23 @@
 
   .sidebar-new {
     flex: none;
+  }
+
+  .sidebar-filter {
+    flex: none;
+    padding: 0.5rem 0.6rem;
+  }
+
+  .sidebar-filter input {
+    width: 100%;
+    font-size: 0.8rem;
+  }
+
+  .sidebar-empty {
+    flex: none;
+    margin: 0;
+    padding: 0.25rem 1rem 0.75rem;
+    font-size: 0.8rem;
   }
 
   /* .scroll-pane (style.css) supplies the overflow, the padding and the
