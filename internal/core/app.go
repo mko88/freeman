@@ -63,8 +63,10 @@ func (a *App) OpenWorkspace(root string) (*WorkspaceInfo, error) {
 	a.ws = ws
 
 	// A new workspace is a different set of APIs, so whatever session the
-	// last one had established doesn't belong to it.
+	// last one had established — cookies, OAuth2 tokens — doesn't belong
+	// to it.
 	httpengine.ResetCookies()
+	httpengine.ResetTokens()
 
 	if len(ws.CollectionPaths) == 0 {
 		if _, err := a.createCollection("My Requests"); err != nil {

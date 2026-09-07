@@ -43,7 +43,7 @@ export function changedOptionCount(o: RequestOptions): number {
   const d = defaultOptions()
   return (Object.keys(d) as (keyof RequestOptions)[]).filter((k) => o[k] !== d[k]).length
 }
-export type AuthType = 'none' | 'bearer' | 'basic' | 'apikey'
+export type AuthType = 'none' | 'bearer' | 'basic' | 'apikey' | 'oauth2'
 export type CodeFormat = 'bash' | 'powershell'
 export const codeFormats: { value: CodeFormat; label: string }[] = [
   { value: 'bash', label: 'bash' },
@@ -85,6 +85,11 @@ export type RequestAuth = {
   password: string
   key: string
   value: string
+  // OAuth2 client credentials — the grant that needs no browser.
+  tokenUrl: string
+  clientId: string
+  clientSecret: string
+  scope: string
 }
 export type RequestDraft = {
   name: string
@@ -107,6 +112,10 @@ export const emptyAuth = (): RequestAuth => ({
   password: '',
   key: '',
   value: '',
+  tokenUrl: '',
+  clientId: '',
+  clientSecret: '',
+  scope: '',
 })
 
 export const emptyDraft = (): RequestDraft => ({

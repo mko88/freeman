@@ -264,8 +264,11 @@ export const uiActions: UiAction[] = [
     payload: "{ field, value }",
     desc:
       "Set an Auth-tab field on the request in the editor (before saving). field is 'type', 'token', " +
-      "'username', 'password', 'key', or 'value'. type is 'none', 'bearer', 'basic', or 'apikey'; the " +
-      "engine turns a non-none auth into a header (Bearer/Basic Authorization, or key: value) at send time.",
+      "'username', 'password', 'key', 'value', or — for oauth2 — 'tokenUrl', 'clientId', " +
+      "'clientSecret', 'scope'. type is 'none', 'bearer', 'basic', 'apikey', or 'oauth2'; the engine " +
+      'turns a non-none auth into a header (Bearer/Basic Authorization, or key: value) at send time. ' +
+      'oauth2 is the client-credentials grant: the token is fetched at send time and cached until it ' +
+      'expires, and a request whose token cannot be fetched fails rather than going out unauthenticated.',
   },
   {
     action: 'addRequestHeader',

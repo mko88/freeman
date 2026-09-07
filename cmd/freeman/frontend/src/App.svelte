@@ -574,7 +574,13 @@
         const field = payload?.field
         const value = payload?.value
         if (field === 'type') {
-          if (value === 'none' || value === 'bearer' || value === 'basic' || value === 'apikey') {
+          if (
+            value === 'none' ||
+            value === 'bearer' ||
+            value === 'basic' ||
+            value === 'apikey' ||
+            value === 'oauth2'
+          ) {
             draft.auth = { ...draft.auth, type: value }
           }
         } else if (
@@ -582,7 +588,11 @@
             field === 'username' ||
             field === 'password' ||
             field === 'key' ||
-            field === 'value') &&
+            field === 'value' ||
+            field === 'tokenUrl' ||
+            field === 'clientId' ||
+            field === 'clientSecret' ||
+            field === 'scope') &&
           typeof value === 'string'
         ) {
           draft.auth = { ...draft.auth, [field]: value }

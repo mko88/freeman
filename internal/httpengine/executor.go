@@ -188,7 +188,9 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 		}
 	}
 
-	applyAuth(req, item.Auth, vars)
+	if err := applyAuth(req, item.Auth, vars); err != nil {
+		return nil, err
+	}
 
 	if bodyContentType != "" {
 		if item.Body != nil && item.Body.Mode == domain.BodyModeForm {
@@ -252,9 +254,15 @@ func readCapped(r io.Reader) ([]byte, bool, error) {
 // dedicated way to set it. Values go through Substitute so a token or
 // password can be an {{environment var}}. A nil Auth or AuthTypeNone is
 // a no-op, as is a bearer/apikey with its key field left blank.
-func applyAuth(req *http.Request, a *domain.Auth, vars map[string]string) {
+// applyAuth can fail, because oauth2 has to go and get a token first —
+// and a request whose credentials couldn't be obtained must not be sent
+// unauthenticated as if nothing were wrong.
+//
+// The token call runs on the request's own context, so a per-request
+// timeout covers the whole send rather than just the part after it.
+func applyAuth(req *http.Request, a *domain.Auth, vars map[string]string) error {
 	if a == nil {
-		return
+		return nil
 	}
 	switch a.Type {
 	case domain.AuthTypeBearer:
@@ -269,7 +277,14 @@ func applyAuth(req *http.Request, a *domain.Auth, vars map[string]string) {
 		if name := Substitute(a.Key, vars); name != "" {
 			req.Header.Set(name, Substitute(a.Value, vars))
 		}
+	case domain.AuthTypeOAuth2:
+		token, err := oauth2Token(req.Context(), a, vars)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	return nil
 }
 
 // decodeContentEncoding transparently decodes a still-compressed

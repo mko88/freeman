@@ -359,3 +359,50 @@ func TestGenerateUnknownFormat(t *testing.T) {
 		t.Fatal("expected an error for an unknown format")
 	}
 }
+
+// A token can't be baked into a script — it expires, and the one Freeman
+// holds is its own — so the script fetches its own rather than going out
+// unauthenticated.
+func TestGenerateOAuth2FetchesItsOwnToken(t *testing.T) {
+	item := domain.Item{
+		Method: "GET", URL: "https://api.example.com/thing",
+		Auth: &domain.Auth{
+			Type:         domain.AuthTypeOAuth2,
+			TokenURL:     "https://auth.example.com/token",
+			ClientID:     "abc",
+			ClientSecret: "s3cret",
+			Scope:        "read:things",
+		},
+	}
+
+	bash := mustGen(t, item, nil, FormatBash)
+	for _, want := range []string{
+		"token=$(curl -sS -X POST 'https://auth.example.com/token'",
+		"--data-urlencode 'grant_type=client_credentials'",
+		"--data-urlencode 'client_id=abc'",
+		"--data-urlencode 'scope=read:things'",
+		`-H "Authorization: Bearer $token"`,
+	} {
+		if !strings.Contains(bash, want) {
+			t.Fatalf("bash script missing %q:\n%s", want, bash)
+		}
+	}
+	// The bearer header is the one that must expand, so it can't be
+	// single-quoted like the rest.
+	if strings.Contains(bash, `'Authorization: Bearer $token'`) {
+		t.Fatalf("the bearer header must be double-quoted so $token expands:\n%s", bash)
+	}
+
+	ps := mustGen(t, item, nil, FormatPowerShell)
+	for _, want := range []string{
+		"$token = (Invoke-RestMethod -Method POST -Uri 'https://auth.example.com/token' -Body @{",
+		"grant_type = 'client_credentials'",
+		"client_id = 'abc'",
+		`'Authorization' = "Bearer $token"`,
+		"-Headers $headers",
+	} {
+		if !strings.Contains(ps, want) {
+			t.Fatalf("powershell script missing %q:\n%s", want, ps)
+		}
+	}
+}

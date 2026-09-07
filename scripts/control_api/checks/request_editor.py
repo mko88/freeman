@@ -225,6 +225,39 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str, item_id:
     r.check("auth.type round-tripped to 'bearer'", saved_auth.get("type") == "bearer", str(saved_auth))
     r.check("auth.token round-tripped unsubstituted", saved_auth.get("token") == token_ref, str(saved_auth))
 
+    # OAuth2 client credentials. The grant itself is covered by Go tests
+    # against a local token server; what matters here is that the four
+    # extra fields reach the editor and the file.
+    r.step("setRequestAuth type 'oauth2' + tokenUrl/clientId/clientSecret/scope, saveRequest")
+    api.action("setRequestAuth", {"field": "type", "value": "oauth2"})
+    for field, value in [
+        ("tokenUrl", "https://auth.example.com/token"),
+        ("clientId", "probe-client"),
+        ("clientSecret", "probe-secret"),
+        ("scope", "read:things"),
+    ]:
+        api.action("setRequestAuth", {"field": field, "value": value})
+    state = poll(api.state, lambda s: (s.get("auth") or {}).get("scope") == "read:things")
+    r.check(
+        "state.auth carries the oauth2 fields",
+        (state.get("auth") or {}).get("type") == "oauth2"
+        and (state.get("auth") or {}).get("tokenUrl") == "https://auth.example.com/token",
+        str(state.get("auth")),
+    )
+    api.action("saveRequest")
+    collection = poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: ((find_item(c, TEST_REQUEST_NAME) or {}).get("auth") or {}).get("type") == "oauth2",
+    )
+    saved_auth = (find_item(collection, TEST_REQUEST_NAME) or {}).get("auth") or {}
+    r.check(
+        "the oauth2 grant round-tripped to the collection file",
+        saved_auth.get("tokenUrl") == "https://auth.example.com/token"
+        and saved_auth.get("clientId") == "probe-client"
+        and saved_auth.get("scope") == "read:things",
+        str(saved_auth),
+    )
+
     r.step("setRequestAuth {field: 'type', value: 'none'}, saveRequest  (clear it)")
     api.action("setRequestAuth", {"field": "type", "value": "none"})
     api.action("saveRequest")

@@ -78,6 +78,10 @@ export namespace domain {
 	    password?: string;
 	    key?: string;
 	    value?: string;
+	    tokenUrl?: string;
+	    clientId?: string;
+	    clientSecret?: string;
+	    scope?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Auth(source);
@@ -91,6 +95,10 @@ export namespace domain {
 	        this.password = source["password"];
 	        this.key = source["key"];
 	        this.value = source["value"];
+	        this.tokenUrl = source["tokenUrl"];
+	        this.clientId = source["clientId"];
+	        this.clientSecret = source["clientSecret"];
+	        this.scope = source["scope"];
 	    }
 	}
 	export class FormField {
