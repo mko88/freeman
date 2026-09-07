@@ -9,6 +9,7 @@
   // component has no business knowing, so they come in as callbacks.
   import type { httpengine } from '../../wailsjs/go/models'
   import CodeEditor from './CodeEditor.svelte'
+  import Popover from './Popover.svelte'
   import { durationMillis, exactBytes, formatBytes, formatDuration, reasonPhrase, statusTone } from '../lib/format'
   import { hexDump } from '../lib/responseFormat'
   import type { ResponseKind, ResponseView } from '../lib/responseFormat'
@@ -29,6 +30,8 @@
   export let view: ResponseView
   export let collapsed: boolean
   export let showActionsMenu: boolean
+
+  let actionsButton: HTMLButtonElement
   // Set by the splitter above; ignored while collapsed or filling.
   export let height: number
   // Take the whole editor pane rather than the dragged height — set when
@@ -153,20 +156,20 @@
             <button class:active={activeView === v} on:click={() => (view = v)}>{viewLabels[v]}</button>
           {/each}
           <div class="response-actions-menu">
-            <button class="icon-btn" title="Response actions" on:click={() => (showActionsMenu = !showActionsMenu)}
-              >⋯</button
+            <button
+              class="icon-btn"
+              bind:this={actionsButton}
+              title="Response actions"
+              on:click={() => (showActionsMenu = !showActionsMenu)}>⋯</button
             >
-            {#if showActionsMenu}
-              <!-- svelte-ignore a11y-no-static-element-interactions -->
-              <!-- svelte-ignore a11y-click-events-have-key-events -->
-              <div class="menu-backdrop" on:click={() => (showActionsMenu = false)}></div>
+            <Popover bind:open={showActionsMenu} anchor={actionsButton} align="end">
               <div class="dropdown-menu">
                 <button on:click={cache.openExternally}>Open in external editor</button>
                 <button on:click={cache.copyPath}>Copy path</button>
                 <button on:click={cache.openInFileExplorer}>Open in File Explorer</button>
                 <button on:click={cache.clearCached}>Clear cached response</button>
               </div>
-            {/if}
+            </Popover>
           </div>
         </div>
       {/if}

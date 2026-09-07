@@ -115,6 +115,17 @@ body {
   }
 }
 
+/* One line, cut with an ellipsis rather than widening its container.
+   min-width: 0 because the usual case is a flex child, which otherwise
+   refuses to shrink below its content and pushes its siblings out
+   instead of truncating. */
+.truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -441,28 +452,46 @@ button.primary:disabled:hover {
 }
 
 /* ---------------------------------------------------------------------------
-   Dropdown menus: the response pane's "..." actions and the top bar's
+   Dropdown menus: the response pane's "..." actions and the two
    collection/environment switchers. Global because more than one
    component opens one — scoped to whichever component happened to
    define it first, the second one gets the markup and none of the
    styling, which is a menu that renders as a row of loose buttons.
 
-   The backdrop is a full-screen click target under the menu, so clicking
-   anywhere else closes it without every component wiring up a document
-   listener of its own.
+   How it floats is not here: components/Popover.svelte owns placement,
+   the backdrop and dismissal for every floating panel in the app. This
+   is only what a menu looks like, so a caller puts it inside a Popover
+   rather than positioning it itself.
    --------------------------------------------------------------------------- */
 
-.menu-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 5;
+/* ---------------------------------------------------------------------------
+   A pane that scrolls without clipping what's inside it.
+
+   overflow-y: auto computes overflow-x to auto along with it, so a
+   scroll container clips on all four sides — and a focus ring sits 3px
+   outside its control (a 2px outline at 1px offset). A control flush
+   against the pane's edge therefore loses part of its ring. The padding
+   gives the ring room, the negative margin puts the content back where
+   it was, and the bottom padding is real space so the last row doesn't
+   sit against the edge.
+
+   scroll-padding is the other half: when focus lands on a control near
+   an edge the browser scrolls it *just* into view, flush, with the ring
+   outside again.
+
+   Only needed where content reaches the pane's edge. A scroll container
+   with padding of its own already — .modal, the response body and
+   headers — has the room and doesn't want this.
+   --------------------------------------------------------------------------- */
+
+.scroll-pane {
+  overflow-y: auto;
+  padding: 4px 4px 0.5rem;
+  margin: -4px -4px 0;
+  scroll-padding: 6px;
 }
 
 .dropdown-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  z-index: 10;
   display: flex;
   flex-direction: column;
   min-width: 12rem;

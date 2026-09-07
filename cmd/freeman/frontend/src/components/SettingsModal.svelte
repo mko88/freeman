@@ -100,7 +100,7 @@
       >
     </div>
 
-    <div class="settings-body">
+    <div class="settings-body scroll-pane">
       {#if settingsTab === 'workspace'}
         <!-- Setting, value, action — the same row rhythm as the two
              lists beside it, rather than paragraphs with buttons after
@@ -109,7 +109,7 @@
           <li class="settings-setting">
             <div class="settings-setting-text">
               <span class="settings-setting-name">Folder</span>
-              <code class="workspace-path">{workspace.root}</code>
+              <code class="workspace-path truncate">{workspace.root}</code>
             </div>
             <button on:click={onOpenWorkspace}>Change…</button>
           </li>
@@ -316,22 +316,10 @@
   .settings-body {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
-    padding-inline: 4px;
-    margin-inline: -4px;
-    /* The same room at the bottom, now that this tab ends in a row of
-       number fields rather than a button — and the scroll-padding so
-       focusing one near the edge doesn't scroll it flush against it. */
-    padding-bottom: 0.5rem;
-    scroll-padding: 6px;
   }
 
   .workspace-path {
     flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   /* One row per thing, across all three tabs: what it is on the left,

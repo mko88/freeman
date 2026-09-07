@@ -1467,7 +1467,7 @@
     ></div>
 
     <main class="editor" bind:this={editorEl}>
-      <div class="request-pane" class:collapsed={requestPaneCollapsed}>
+      <div class="request-pane scroll-pane" class:collapsed={requestPaneCollapsed}>
         <RequestEditor
           bind:draft
           bind:activeTab
@@ -1719,22 +1719,6 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-    overflow-y: auto;
-    /* A focus ring sits 3px outside its control (a 2px outline at 1px
-       offset), and this is a scroll container: overflow-y: auto computes
-       overflow-x to auto with it, so it clips on all four sides. Without
-       the padding, a field at the pane's edge loses part of its ring —
-       the left side of every input in the Options tab, and the bottom of
-       the last row. The negative margin puts the content back where it
-       was; the extra bottom padding is real space, so the last row
-       doesn't sit flush against the edge. Same fix .settings-body needed
-       for the same reason. */
-    padding: 4px 4px 0.5rem;
-    margin: -4px -4px 0;
-    /* And when focus lands on a control near an edge, the browser
-       scrolls it *just* into view — flush, with the ring outside again.
-       This reserves the ring's width on that scroll. */
-    scroll-padding: 6px;
   }
 
   /* Collapsed it's only the name, URL and tab rows, so it shrinks to
