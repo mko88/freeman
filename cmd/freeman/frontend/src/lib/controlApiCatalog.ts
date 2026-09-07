@@ -247,8 +247,8 @@ export const uiActions: UiAction[] = [
       "redirect), 'maxRedirects' (number, 0 for the default of 10), 'storeCookies' (boolean — the " +
       "shared cookie jar, so signing in on one request authenticates the next), 'timeoutMs' (number, " +
       "0 for the app default of 30s), 'skipTlsVerify' (boolean — accept any server certificate), or " +
-      "'clientCertFile'/'clientCertKeyFile' (paths to a PEM pair for mutual TLS; both or neither). " +
-      'Persisted by saveRequest.',
+      "'clientCertFile'/'clientCertKeyFile' (paths to a PEM pair for mutual TLS; both or neither, and " +
+      'both take {{var}} substitution like the URL does). Persisted by saveRequest.',
   },
   {
     action: 'setRequestField',

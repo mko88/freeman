@@ -38,6 +38,18 @@ workspace this run created them in is discarded regardless — but every
 test still gets its own real saveRequest/deleteRequest round trip
 against a real, distinct item.
 
+Every request this suite makes Freeman send goes to a server it starts
+itself: three loopback listeners on OS-assigned ports — plain, TLS with
+a self-signed certificate, and TLS demanding a client certificate — that
+report back what they actually received (control_api.server). Nothing
+here touches the network, which is both why it can't flake on someone
+else's uptime and how it covers the request variations a public echo
+service can't: a certificate worth refusing, a server that demands one
+of yours, and an endpoint that is slow on purpose. The environment
+variable {{pyTestBase}} every check's URL is written against is set to
+that server's base URL at the start of the run, alongside {{pyCertDir}}
+for the client certificate pair.
+
 Two sections aren't about a UI action at all. test_api_guard asserts the
 API refuses the request shapes a web page can send cross-origin (see
 internal/httpapi/guard.go); it sits early, right after the read-only
@@ -86,6 +98,7 @@ from typing import Optional
 
 from control_api import ApiError, ControlAPI, Report, poll
 from control_api.fixtures import REQUEST_TEST_NAMES, find_item, find_item_by_id
+from control_api.server import CLIENT_CERT, TestServers, reachable
 from control_api.checks.chrome import test_help_modal, test_layout_comfort
 from control_api.checks.codegen import test_code_tab
 from control_api.checks.consistency import test_consistency
@@ -98,6 +111,12 @@ from control_api.checks.responses import (
     test_large_response_truncation,
     test_response_cache,
     test_ui_state_getter,
+)
+from control_api.checks.variations import (
+    test_auth_variations,
+    test_body_and_status_variations,
+    test_encoding_variations,
+    test_option_variations,
 )
 from control_api.checks.workspace import (
     test_collection_management,
@@ -161,7 +180,23 @@ def main() -> int:
     # thing at the Go level.
     original_root = api.get("/api/workspace").get("root")
     tmp_root = tempfile.mkdtemp(prefix="freeman-test-workspace-")
+
+    # Every request this run sends goes to these — three loopback
+    # listeners on OS-assigned ports (plain, TLS, and TLS demanding a
+    # client certificate), started here and shut down in the same
+    # `finally` that restores the workspace. See control_api.server.
+    servers = TestServers()
+    print(
+        f"Local test server on {servers.base_url} "
+        f"(TLS {servers.tls.base_url}, mutual TLS {servers.mtls.base_url})"
+    )
     try:
+        for name, server in (("plain", servers.plain), ("TLS", servers.tls), ("mutual-TLS", servers.mtls)):
+            if not reachable(server.base_url):
+                print(f"\n[ERROR] the {name} test server did not come up on {server.base_url}")
+                servers.close()
+                return 2
+
         r.section("Switching to a disposable temp workspace for this run")
         r.step(f"openWorkspace {{path: {tmp_root!r}}}  (a folder with nothing in it yet)")
         api.action("openWorkspace", {"path": tmp_root})
@@ -214,16 +249,21 @@ def main() -> int:
                 item_ids[key] = saved["id"]
 
         # Runs before test_request_editor/test_execute: it's what creates
-        # TEST_VAR_KEY, which the test request's URL substitutes.
-        test_environment_editor(api, r, environment_id)
+        # TEST_VAR_KEY = the test server's base URL, which every later
+        # request's {{pyTestBase}} substitutes.
+        test_environment_editor(api, r, environment_id, servers.base_url, str(CLIENT_CERT.parent))
         test_request_editor(api, r, collection_id, item_ids.get("request_editor"))
         test_execute(api, r, collection_id, environment_id, item_ids.get("execute"))
         test_ui_state_getter(api, r, collection_id, item_ids.get("ui_state_getter"))
         test_http_methods(api, r, collection_id, environment_id, item_ids)
         test_file_upload(api, r, collection_id, environment_id, item_ids.get("file_upload"))
+        test_auth_variations(api, r, collection_id, environment_id, item_ids.get("auth_variations"), servers)
+        test_body_and_status_variations(api, r, collection_id, environment_id, item_ids.get("body_variations"), servers)
+        test_option_variations(api, r, collection_id, environment_id, item_ids.get("option_variations"), servers)
+        test_encoding_variations(api, r, collection_id, environment_id, item_ids.get("encoding_variations"), servers)
         test_large_response_truncation(api, r, collection_id, environment_id, item_ids.get("large_response"))
         test_response_cache(api, r, collection_id, environment_id, item_ids.get("response_cache"))
-        test_code_tab(api, r, collection_id, environment_id, item_ids.get("code_tab"))
+        test_code_tab(api, r, collection_id, environment_id, item_ids.get("code_tab"), servers.base_url)
         test_delete_request(api, r, collection_id)
         test_collection_management(api, r, collection_id)
         test_settings_window(api, r)
@@ -276,6 +316,7 @@ def main() -> int:
             print(f"\n[WARN] failed to restore the real workspace ({original_root}): {e}")
         finally:
             shutil.rmtree(tmp_root, ignore_errors=True)
+            servers.close()
 
     return exit_code or r.summary()
 

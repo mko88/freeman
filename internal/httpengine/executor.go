@@ -55,11 +55,19 @@ func ResetCookies() {
 // everything saved before they existed, and anything nobody has touched.
 // Following redirects and keeping cookies are both on, which is what
 // every other HTTP client does and what the app did before this.
-func optionsOf(item domain.Item) domain.Options {
+//
+// The certificate paths get the same {{var}} substitution as the URL and
+// the headers: which certificate to present is a property of the
+// environment you're pointed at, so it has to be settable there rather
+// than baked into every request.
+func optionsOf(item domain.Item, vars map[string]string) domain.Options {
 	if item.Options == nil {
 		return domain.Options{FollowRedirects: true, StoreCookies: true}
 	}
-	return *item.Options
+	opts := *item.Options
+	opts.ClientCertFile = Substitute(opts.ClientCertFile, vars)
+	opts.ClientCertKeyFile = Substitute(opts.ClientCertKeyFile, vars)
+	return opts
 }
 
 // clientFor builds the client for one request. Transport is left nil so
@@ -137,7 +145,7 @@ func transportFor(opts domain.Options) (*http.Transport, error) {
 // and/or file fields, x-www-form-urlencoded, or a whole file as binary)
 // against vars — and runs it, capturing the response.
 func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Response, error) {
-	opts := optionsOf(item)
+	opts := optionsOf(item, vars)
 
 	// A per-request timeout overrides the app-wide default, and 0 still
 	// means "no deadline" for either.

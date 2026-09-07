@@ -79,7 +79,31 @@ script's own comments for the fix in `App.svelte` and
 The suite is a package, not one file: `scripts/test_control_api.py` is
 the entry point (argument parsing and the three-phase run order) and
 `scripts/control_api/` holds the rest — `client.py`, `report.py`,
-`fixtures.py`, and one module per group of checks under `checks/`.
+`fixtures.py`, `server.py`, and one module per group of checks under
+`checks/`.
+
+Every request the suite makes Freeman send goes to a server it starts
+itself (`scripts/control_api/server.py`): three loopback listeners on
+OS-assigned ports — plain, TLS with a self-signed certificate, and TLS
+demanding a client certificate — that report back what they actually
+received. It answers httpbin's shapes on the endpoints that predate it
+(`args`/`headers`/`data`/`json`/`form`/`files`), so nothing needs a
+network. **A new request capability needs an endpoint here that can
+prove it went out** — one that refuses the request until the feature
+works, rather than one that returns 200 either way. `checks/
+variations.py` is where the axes a request can differ along get
+exercised: auth types, body modes, status codes, and every Options-tab
+setting. The certificate pairs and the brotli sample the server needs
+are committed under `scripts/control_api/testdata/`, with that
+directory's README explaining how to regenerate them.
+
+The same server runs standalone, for driving the app by hand:
+`pwsh scripts/Start-TestServer.ps1` puts it on fixed ports (8100/8101/
+8102) and detaches, `pwsh scripts/Stop-TestServer.ps1` stops it, and
+`py scripts/seed_test_requests.py` fills a "Test Server" collection with
+one saved request per endpoint and option worth demonstrating. Those
+write to the real workspace on purpose, and never overwrite a request
+that's already there.
 
 **Whenever a `ui:action` is added, removed, or its payload shape
 changes, update the matching module under `scripts/control_api/checks/`

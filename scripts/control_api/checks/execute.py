@@ -59,19 +59,19 @@ def test_execute(api: ControlAPI, r: Report, collection_id: str, environment_id:
     )
     r.check("POST /api/execute -> 200", status == 200, f"status={status} body={resp}")
     if status == 200 and isinstance(resp, dict):
-        r.check("response statusCode is 200 (httpbin reachable)", resp.get("statusCode") == 200, str(resp))
+        r.check("response statusCode is 200 (the test server answered)", resp.get("statusCode") == 200, str(resp))
         body_text = resp.get("body", "")
         r.check(
             "{{pyTestBase}} was substituted into the URL before sending",
-            "httpbin.org" in body_text or '"url"' in body_text,
+            '"url"' in body_text,
             body_text[:200],
         )
-        r.check("posted body round-tripped through httpbin", "python-test-script" in body_text, body_text[:200])
-        # httpbin's /post echoes received query params under "args" —
-        # proves the Params tab's rows actually reach the wire, appended
-        # to the URL by internal/httpengine.buildURL.
+        r.check("posted body round-tripped through the server", "python-test-script" in body_text, body_text[:200])
+        # /post echoes received query params under "args" — proves the
+        # Params tab's rows actually reach the wire, appended to the URL
+        # by internal/httpengine.buildURL.
         r.check(
-            f"query param {TEST_PARAM_KEY}=fromtab reached httpbin (echoed in args)",
+            f"query param {TEST_PARAM_KEY}=fromtab reached the server (echoed in args)",
             f'"{TEST_PARAM_KEY}": "fromtab"' in body_text,
             body_text[:300],
         )
@@ -92,12 +92,14 @@ def test_http_methods(api: ControlAPI, r: Report, collection_id: str, environmen
     common methods, each against its own empty scratch request main()
     already created and saved (see REQUEST_TEST_NAMES) — selected,
     populated with its method/url, saved, and sent. See METHOD_ENDPOINT
-    for how each method is verified against real httpbin. Exhaustive
+    for how each method is verified against the local test server (see
+    control_api.server: /get, /post and friends answer only their own
+    method, so a 405 is what would show a method never went out).
+    Exhaustive
     method x body-mode coverage lives in Go
     (TestExecuteAllMethodsAndBodyTypes in
-    internal/httpengine/executor_test.go, deterministic, no network);
-    this is the thinner end-to-end slice proving it through the real UI
-    + control API + a real network call."""
+    internal/httpengine/executor_test.go); this is the thinner end-to-end
+    slice proving it through the real UI + control API + a real socket."""
     r.section("HTTP methods (GET / PUT / PATCH / DELETE / HEAD / OPTIONS via the real UI + network)")
 
     for method in HTTP_METHODS:
@@ -136,7 +138,7 @@ def test_http_methods(api: ControlAPI, r: Report, collection_id: str, environmen
             )
         else:
             r.check(
-                f"{method} {{{{{TEST_VAR_KEY}}}}}/{endpoint} -> 200 (httpbin only accepts {method} on that path)",
+                f"{method} {{{{{TEST_VAR_KEY}}}}}/{endpoint} -> 200 (that path only accepts {method})",
                 got_200,
                 f"status={status} body={resp}",
             )
@@ -149,8 +151,9 @@ def test_file_upload(api: ControlAPI, r: Report, collection_id: str, environment
     unchanged across runs (and by anyone poking at the app manually).
     Exercises both ways Freeman can send a file — a form-data file field
     alongside a plain text field, and the standalone binary body mode —
-    against httpbin, decoding its data:...;base64,... response back to
-    bytes each time for an exact comparison against the original file.
+    against the local test server, decoding its data:...;base64,...
+    response back to bytes each time for an exact comparison against the
+    original file.
     Populates the empty scratch request main() already created and saved
     for this test (see REQUEST_TEST_NAMES); main()'s final phase deletes
     it along with every other test's, so this function doesn't delete it
@@ -217,12 +220,12 @@ def test_file_upload(api: ControlAPI, r: Report, collection_id: str, environment
             parsed = {}
         received = decode_data_uri_bytes((parsed.get("files") or {}).get("blob", ""))
         r.check(
-            "httpbin received the file's exact bytes",
+            "the server received the file's exact bytes",
             received == original_bytes,
             f"{len(received)} bytes back, {len(original_bytes)} expected",
         )
         r.check(
-            "httpbin received the accompanying text field",
+            "the server received the accompanying text field",
             (parsed.get("form") or {}).get("caption") == "from python",
             str(parsed.get("form")),
         )
@@ -263,7 +266,7 @@ def test_file_upload(api: ControlAPI, r: Report, collection_id: str, environment
             parsed = {}
         received = decode_data_uri_bytes(parsed.get("data", ""))
         r.check(
-            "httpbin received the file's exact bytes as the whole body",
+            "the server received the file's exact bytes as the whole body",
             received == original_bytes,
             f"{len(received)} bytes back, {len(original_bytes)} expected",
         )

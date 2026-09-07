@@ -14,7 +14,9 @@ import (
 	"mime"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"freeman/internal/domain"
 	"freeman/internal/httpengine"
@@ -72,15 +74,27 @@ type request struct {
 	url     string
 	headers []kv
 	body    reqBody
-	// follow/maxRedirects mirror the request's Options, because the
-	// defaults differ from Freeman's: curl doesn't follow at all unless
-	// told, and Invoke-RestMethod follows up to five. Left implicit and
-	// the generated script would quietly do something else than Send.
+	// These mirror the request's Options, because the defaults differ
+	// from Freeman's: curl doesn't follow redirects at all unless told,
+	// Invoke-RestMethod follows up to five, and neither imposes a
+	// timeout the way Freeman's 30 seconds does. Left implicit and the
+	// generated script would quietly do something else than Send.
 	//
-	// The cookie jar has no equivalent here. A generated script is a
-	// standalone command; the session it would need belongs to the app.
+	// The cookie jar is the one option with no equivalent here. A
+	// generated script is a standalone command; the session it would
+	// need belongs to the app.
 	follow       bool
 	maxRedirects int
+	// timeout is the effective one — the request's own, or the app-wide
+	// default it inherits — rather than only an override, since there is
+	// nothing for it to fall back to in a script.
+	timeout time.Duration
+	// skipTLSVerify and the cert pair carry the transport options
+	// through. The pair is set only when both halves are, matching
+	// domain.Options.TLS and what Execute itself loads.
+	skipTLSVerify bool
+	certFile      string
+	certKeyFile   string
 	// oauth is set when the request authenticates with the
 	// client-credentials grant. A token can't be baked in — it expires,
 	// and the one Freeman holds is its own — so the script fetches its
@@ -136,7 +150,18 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 	if item.Options != nil {
 		opts = *item.Options
 	}
-	r := request{method: method, url: u.String(), follow: opts.FollowRedirects, maxRedirects: opts.MaxRedirects}
+	r := request{
+		method:        method,
+		url:           u.String(),
+		follow:        opts.FollowRedirects,
+		maxRedirects:  opts.MaxRedirects,
+		timeout:       effectiveTimeout(opts),
+		skipTLSVerify: opts.SkipTLSVerify,
+	}
+	if opts.ClientCertFile != "" && opts.ClientCertKeyFile != "" {
+		r.certFile = httpengine.Substitute(opts.ClientCertFile, vars)
+		r.certKeyFile = httpengine.Substitute(opts.ClientCertKeyFile, vars)
+	}
 	for _, h := range item.Headers {
 		if h.Enabled {
 			r.headers = append(r.headers, kv{
@@ -168,6 +193,16 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 		r.headers = append(r.headers, kv{"Content-Type", r.body.contentType})
 	}
 	return r, nil
+}
+
+// effectiveTimeout resolves what Execute would actually apply: the
+// request's own override, else the app-wide default. Zero means no
+// deadline at all, and neither renderer then emits one.
+func effectiveTimeout(opts domain.Options) time.Duration {
+	if opts.TimeoutMs > 0 {
+		return time.Duration(opts.TimeoutMs) * time.Millisecond
+	}
+	return httpengine.RequestTimeout
 }
 
 // binaryContentType mirrors the first half of
@@ -311,6 +346,10 @@ func renderBash(r request) string {
 	b.WriteString("#!/usr/bin/env bash\n")
 	b.WriteString("set -euo pipefail\n\n")
 	b.WriteString("url=" + shQuote(r.url) + "\n")
+	if r.certFile != "" {
+		b.WriteString("cert=" + shQuote(r.certFile) + "\n")
+		b.WriteString("key=" + shQuote(r.certKeyFile) + "\n")
+	}
 
 	if g := r.oauth; g != nil {
 		// sed rather than jq, so the script needs nothing installed.
@@ -371,6 +410,9 @@ func renderBash(r request) string {
 		}
 	}
 	lines := []string{head + ` "$url"`}
+	if t := curlTransportArgs(r); t != "" {
+		lines = append(lines, t)
+	}
 	if len(headerArgs) > 0 {
 		// The reference is omitted along with the array: expanding an
 		// empty one under `set -u` is an error on bash before 4.4.
@@ -379,6 +421,32 @@ func renderBash(r request) string {
 	lines = append(lines, bodyArgs...)
 	b.WriteString("\n" + strings.Join(lines, " \\\n  ") + "\n")
 	return b.String()
+}
+
+// curlTransportArgs is the timeout and TLS flags as one continuation
+// line, or "" when the request leaves all of them at their defaults.
+// curl has no timeout of its own, so Freeman's is always spelled out.
+func curlTransportArgs(r request) string {
+	var args []string
+	if r.timeout > 0 {
+		args = append(args, "--max-time "+secondsArg(r.timeout))
+	}
+	if r.skipTLSVerify {
+		args = append(args, "--insecure")
+	}
+	if r.certFile != "" {
+		args = append(args, `--cert "$cert" --key "$key"`)
+	}
+	return strings.Join(args, " ")
+}
+
+// secondsArg formats a duration the way curl's --max-time takes it:
+// seconds, fractional only when it has to be.
+func secondsArg(d time.Duration) string {
+	if d%time.Second == 0 {
+		return strconv.Itoa(int(d / time.Second))
+	}
+	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64)
 }
 
 // heredocDelimiter returns a word that doesn't appear on a line of its
@@ -450,6 +518,15 @@ func renderPowerShell(r request) string {
 
 	b.WriteString("$uri = " + psQuote(r.url) + "\n")
 
+	if r.certFile != "" {
+		// CreateFromPemFile gives the certificate an ephemeral key, which
+		// Windows' TLS stack won't use; a round trip through PKCS#12
+		// persists it, and is what makes -Certificate work there.
+		const x509 = "[System.Security.Cryptography.X509Certificates.X509Certificate2]"
+		b.WriteString("\n$cert = " + x509 + "::CreateFromPemFile(" + psQuote(r.certFile) + ", " + psQuote(r.certKeyFile) + ")\n")
+		b.WriteString("$cert = " + x509 + "::new($cert.Export('Pkcs12'))\n")
+	}
+
 	if g := r.oauth; g != nil {
 		b.WriteString("\n$token = (Invoke-RestMethod -Method POST -Uri " + psQuote(g.tokenURL) + " -Body @{\n")
 		b.WriteString("    grant_type = 'client_credentials'\n")
@@ -504,6 +581,19 @@ func renderPowerShell(r request) string {
 		params = append(params, "-MaximumRedirection 0")
 	} else if r.maxRedirects > 0 {
 		params = append(params, fmt.Sprintf("-MaximumRedirection %d", r.maxRedirects))
+	}
+	// -TimeoutSec is whole seconds and 0 means "wait forever", so a
+	// sub-second timeout rounds up to 1 rather than becoming no timeout
+	// at all.
+	if r.timeout > 0 {
+		secs := int((r.timeout + time.Second - 1) / time.Second)
+		params = append(params, fmt.Sprintf("-TimeoutSec %d", secs))
+	}
+	if r.skipTLSVerify {
+		params = append(params, "-SkipCertificateCheck")
+	}
+	if r.certFile != "" {
+		params = append(params, "-Certificate $cert")
 	}
 	if len(ps.headers) > 0 || r.oauth != nil {
 		params = append(params, "-Headers $headers")

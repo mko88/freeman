@@ -31,8 +31,9 @@ func TestGenerateGETWithParamsHeadersAndVars(t *testing.T) {
 		"url='https://api.example.com/users?active=true'",
 		"headers=(\n  -H 'Accept: application/json'\n)",
 		// -L because Freeman follows redirects and curl doesn't unless
-		// told — see TestGenerateMatchesRedirectOptions.
-		"curl -X GET -L \"$url\" \\\n  \"${headers[@]}\"",
+		// told, and --max-time because Freeman gives up after 30s and
+		// curl never does — see TestGenerateMatchesTransportOptions.
+		"curl -X GET -L \"$url\" \\\n  --max-time 30 \\\n  \"${headers[@]}\"",
 	} {
 		if !strings.Contains(bash, want) {
 			t.Fatalf("bash script missing %q:\n%s", want, bash)
@@ -45,7 +46,7 @@ func TestGenerateGETWithParamsHeadersAndVars(t *testing.T) {
 	ps := mustGen(t, item, vars, FormatPowerShell)
 	want := "$uri = 'https://api.example.com/users?active=true'\n\n" +
 		"$headers = @{\n    'Accept' = 'application/json'\n}\n\n" +
-		"Invoke-RestMethod `\n    -Method GET `\n    -Uri $uri `\n    -Headers $headers\n"
+		"Invoke-RestMethod `\n    -Method GET `\n    -Uri $uri `\n    -TimeoutSec 30 `\n    -Headers $headers\n"
 	if ps != want {
 		t.Fatalf("powershell script wrong:\ngot:\n%s\nwant:\n%s", ps, want)
 	}
@@ -351,6 +352,77 @@ func TestGenerateMatchesRedirectOptions(t *testing.T) {
 	}
 	if got := mustGen(t, item, nil, FormatPowerShell); !strings.Contains(got, "-MaximumRedirection 3") {
 		t.Fatalf("a redirect cap should carry into PowerShell:\n%s", got)
+	}
+}
+
+// Timeout and the TLS pair are the rest of what Options can say about
+// how a request is sent. Each has a direct equivalent in both tools, so
+// leaving any of them out would generate a script that reaches a
+// different server, or waits forever where Send would give up.
+func TestGenerateMatchesTransportOptions(t *testing.T) {
+	item := domain.Item{Method: "GET", URL: "https://api.example.com/thing"}
+
+	// Freeman's own 30s applies even with nothing set, and neither tool
+	// would impose it, so it's always spelled out.
+	if got := mustGen(t, item, nil, FormatBash); !strings.Contains(got, "--max-time 30") {
+		t.Fatalf("the app-wide timeout should carry into curl:\n%s", got)
+	}
+	if got := mustGen(t, item, nil, FormatPowerShell); !strings.Contains(got, "-TimeoutSec 30") {
+		t.Fatalf("the app-wide timeout should carry into PowerShell:\n%s", got)
+	}
+
+	item.Options = &domain.Options{FollowRedirects: true, StoreCookies: true, TimeoutMs: 2500}
+	if got := mustGen(t, item, nil, FormatBash); !strings.Contains(got, "--max-time 2.5") {
+		t.Fatalf("curl takes fractional seconds, so 2500ms should stay 2.5:\n%s", got)
+	}
+	// -TimeoutSec is whole seconds and 0 means forever, so it rounds up.
+	if got := mustGen(t, item, nil, FormatPowerShell); !strings.Contains(got, "-TimeoutSec 3") {
+		t.Fatalf("a sub-second-precision timeout should round up, not vanish:\n%s", got)
+	}
+	item.Options.TimeoutMs = 200
+	if got := mustGen(t, item, nil, FormatPowerShell); !strings.Contains(got, "-TimeoutSec 1") {
+		t.Fatalf("a sub-second timeout must not round down to no timeout:\n%s", got)
+	}
+
+	item.Options = &domain.Options{FollowRedirects: true, StoreCookies: true, SkipTLSVerify: true}
+	if got := mustGen(t, item, nil, FormatBash); !strings.Contains(got, "--insecure") {
+		t.Fatalf("skipping the certificate check should carry into curl:\n%s", got)
+	}
+	if got := mustGen(t, item, nil, FormatPowerShell); !strings.Contains(got, "-SkipCertificateCheck") {
+		t.Fatalf("skipping the certificate check should carry into PowerShell:\n%s", got)
+	}
+
+	item.Options = &domain.Options{
+		FollowRedirects:   true,
+		StoreCookies:      true,
+		ClientCertFile:    "/certs/client.pem",
+		ClientCertKeyFile: "/certs/client.key",
+	}
+	got := mustGen(t, item, nil, FormatBash)
+	for _, want := range []string{"cert='/certs/client.pem'", "key='/certs/client.key'", `--cert "$cert" --key "$key"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("bash client cert missing %q:\n%s", want, got)
+		}
+	}
+	got = mustGen(t, item, nil, FormatPowerShell)
+	for _, want := range []string{
+		"::CreateFromPemFile('/certs/client.pem', '/certs/client.key')",
+		"$cert.Export('Pkcs12')",
+		"-Certificate $cert",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("PowerShell client cert missing %q:\n%s", want, got)
+		}
+	}
+
+	// Half a pair is no pair — the same rule Execute applies before it
+	// loads them, so a script can't present a certificate Send wouldn't.
+	item.Options.ClientCertKeyFile = ""
+	if got := mustGen(t, item, nil, FormatBash); strings.Contains(got, "--cert") {
+		t.Fatalf("a certificate without its key should be ignored:\n%s", got)
+	}
+	if got := mustGen(t, item, nil, FormatPowerShell); strings.Contains(got, "-Certificate") {
+		t.Fatalf("a certificate without its key should be ignored:\n%s", got)
 	}
 }
 

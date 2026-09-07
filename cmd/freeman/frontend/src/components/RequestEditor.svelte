@@ -344,7 +344,8 @@
         <span>Client certificate</span>
         <InfoTip label="About client certificates">
           A PEM certificate and its key, presented to servers that ask for one (mutual TLS). Both or
-          neither.
+          neither. Both paths take {'{'}{'{'}variables{'}'}{'}'}, so which certificate to present can
+          belong to the environment.
         </InfoTip>
       </span>
       <div class="option-cert-fields">
