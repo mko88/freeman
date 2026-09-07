@@ -7,8 +7,20 @@ against `main` at the merge of `codegen-python-javascript`.
 **Goal, clarified after the first draft:** the target is third-party
 plugins that users download and install separately — not just built-in
 features with a checkbox. That moves the centre of gravity from Stage 1
-to Stage 3, so read the worked example at the end first; it costs the
-real thing rather than the cheap thing.
+to Stage 3.
+
+**Read it in this order.** The two sections at the end were written
+after the goal was clarified and carry the actual argument; everything
+before them is the survey they rest on.
+
+1. *Deciding the core* (last section) — what the host is, what a plugin
+   is given, and what it may ask for. The design that has to come first,
+   because everything core exposes becomes API.
+2. *Worked example* (second to last) — what one plugin point would
+   actually cost, measured against the code.
+3. The rest, for the import graph, the seams that already exist, and the
+   staged plan for plain enable/disable, which is still worth doing on
+   its own.
 
 ---
 
@@ -258,9 +270,10 @@ tag will rot within a month.
 
 ---
 
-## If plugins ever happen
+## Choosing the plugin mechanism
 
-Only after Stage 1 has shipped and someone has actually asked.
+Costed properly in the worked example below; this is the shortlist and
+what is ruled out.
 
 **Ruled out: Go's `plugin` package.** It has no Windows support at all,
 and Windows is this app's primary platform. It also requires exact
@@ -459,3 +472,199 @@ for the first author who picks Ruby.
 Steps 2 and 3 are the risky ones, they are where the standing
 control-API guarantee is either preserved or quietly lost, and they are
 worth doing on their own even if step 4 never happens.
+
+---
+
+## Deciding the core: what plugins are given, and what they may ask for
+
+The previous section costs one plugin point. This one is the design that
+has to come first, because everything core exposes becomes API that
+cannot change freely afterwards.
+
+### What "core" means
+
+Core is not "the important bits". **Core is whatever the plugin contract
+is written in terms of** — the moment a plugin can see a type, that type
+is frozen for a major version.
+
+| In core | Why |
+|---|---|
+| `domain` | The data model. Everything is expressed in it |
+| `store` | The workspace is the product: plain JSON on disk |
+| `httpengine` | Building and sending. The one thing that must never be extensible |
+| `core` | Workspace, collection and environment lifecycle |
+| Editor + response pane shell | The frame extensions hang off |
+| **The control API** | The app's defining property is being drivable headlessly. A plugin system that isn't drivable breaks it |
+
+| Not core | Becomes an extension point |
+|---|---|
+| Code generation | The worked example above |
+| Response viewers and body formatters | `contentType → renderer` |
+| Auth schemes above a floor (`none`/`bearer`/`basic`) | SigV4, digest, NTLM |
+| Import/export | Postman, OpenAPI, curl |
+| Scripting | Its own thing; overlaps the roadmap |
+
+### Four kinds of extension point, and only one of them is cheap
+
+The contract follows from the kind, so the kinds have to be named before
+the contract can be designed.
+
+| Kind | Examples | Contract | Cost |
+|---|---|---|---|
+| **Transformer** (pure) | codegen, importer, exporter, response viewer | value in → value out. No state, no side effects | **Low** |
+| **Request participant** | auth scheme, pre-request hook | May mutate the outgoing request; ordered; may fail the send | Medium |
+| **Observer** | logging, metrics, run history | Fire and forget; may never block or fail a send | Low–medium |
+| **UI contributor** | a new tab, a new pane | A component API, kept stable forever | **High — don't** |
+
+**v1 should be transformers only.** Everything actually being asked for
+— codegen first, viewers and importers next — is a transformer. The
+other three kinds each need their own design pass, and none of them is
+needed to prove the idea.
+
+### The contract is a projection of the domain, not the domain
+
+The single most important decision here, and the codebase has already
+made it once by accident.
+
+`internal/codegen` does not hand its renderers a `domain.Item`. It builds
+an internal `request` struct — its own comment calls it the "neutral
+intermediate form" — with `{{vars}}` already substituted, query params
+already folded into the URL, `Auth` already collapsed into a header, and
+the five body modes already normalised into one shape. That is 19 fields,
+and it is why a renderer is ~100 lines rather than ~400.
+
+**Publish that, versioned, as the plugin contract. Never publish
+`domain`.** Two reasons:
+
+1. `domain` stays free to change. `Options.StoreCookies` was added to it
+   this week; that freedom ends the day a plugin can read it.
+2. Plugins get less to do and fewer ways to be wrong. Substitution, auth
+   folding and body normalisation stay in one place, tested once.
+
+**Two projections, not one**, because different kinds want opposite
+things:
+
+| Projection | Given to | Contains |
+|---|---|---|
+| `ResolvedRequest` | codegen, request participants | What is about to go on the wire: variables substituted, auth as headers, body normalised |
+| `SavedRequest` | exporters, importers | What is on disk: `{{vars}}` intact, folders, descriptions, scripts |
+
+An exporter that received the resolved form would bake secrets into a
+Postman file. That is a bug the type system should make impossible, not
+a warning in the docs.
+
+### Push, don't pull
+
+The natural question — "how does a plugin ask the app for state?" —
+mostly answers itself: it shouldn't have to, because the host puts what
+it needs into the call.
+
+| What a plugin might want | How it arrives |
+|---|---|
+| The request being rendered | **Push** |
+| Environment variables, raw and resolved | **Push** — it's a small table |
+| The collection being exported | **Push** |
+| The response being viewed: bytes, content type, headers, status, timing | **Push** |
+| Its own settings | **Push** |
+| The palette, for a viewer that wants to match | **Push** — tiny |
+| Host version, API version, platform | **Push** |
+| The *previous* response for this request | Pull — unbounded, rarely wanted |
+| Some other collection's contents | Pull — and needs permission |
+
+Almost everything survives the push test, and push is better on four
+counts that matter here:
+
+- **Deterministic.** Same input, same output. A plugin becomes testable
+  against a JSON fixture with no host running at all — which is how the
+  suite would test its fixture plugin.
+- **No re-entrancy.** Codegen runs on every keystroke. A plugin calling
+  back into the host, while the host is inside a render, is a deadlock
+  waiting for a slow day.
+- **No permission model needed** for the common case. Nothing is
+  reachable that wasn't handed over.
+- **Cacheable.** Same input means the host can skip the call entirely.
+
+So **v1's host API is one function: `log`.** Possibly a second,
+`readAsset`, scoped to the plugin's own folder, for template files. Pull
+access to app state waits until something concrete needs it — and when it
+does, it arrives as a declared permission in the manifest, shown at
+install time.
+
+### Secrets: the part that cannot be sandboxed away
+
+A codegen plugin is handed a **resolved** request. The bearer token is
+sitting in the headers, because rendering it is the entire job.
+
+No sandbox changes that. A WASM plugin with no I/O still sees the token;
+it just can't phone home with it — which is worth something, but it is
+not "plugins can't see your secrets".
+
+Two things follow:
+
+1. **The projection marks provenance.** Fields whose value came from a
+   `secret: true` environment variable are flagged, so a plugin can choose
+   to emit `$API_TOKEN` instead of the literal — and so the host can say,
+   at install time, *"this plugin will see the resolved value of:
+   apiToken, clientSecret"* rather than a vague warning.
+2. **Consent names the disclosure, not the sandbox.** "This plugin runs
+   code on your machine and can read the secrets of any request you
+   generate code for" is the honest sentence. Anything softer is
+   marketing.
+
+Exporters get `SavedRequest` and never see resolved values at all, which
+is the other half of why there are two projections.
+
+### Plugins and each other
+
+**In v1: they don't see each other.** Composition happens in the host.
+Inter-plugin calls bring load order, dependency cycles, version matching
+between plugins, and a failure mode where plugin A breaks because plugin
+B updated — for a benefit nobody has asked for yet.
+
+Two cheap decisions now keep the door open:
+
+- **Every extension is addressable by a stable id**: `codegen:bash`,
+  `viewer:application/json`, `import:postman`. Namespaced by kind, so ids
+  can't collide across kinds.
+- **The manifest accepts `requires: []`** from day one — validated
+  against installed ids, and otherwise unused.
+
+If lookup ever lands, it is `host.invoke("codegen:bash", req)`: mediated
+by the host, permissioned in the manifest, and cycle-checked at load.
+Plugins still never hold a reference to each other.
+
+### Versioning the contract
+
+- The manifest declares `apiVersion: 1`. The host refuses a higher major
+  and warns on an unknown minor.
+- Within a major: add fields freely, never rename or remove one.
+- **The projection schema is committed to the repo** and a Go test
+  asserts the projection still matches it. A change to the plugin
+  contract then shows up as a diff in review — the same mechanical
+  enforcement `consistency.py` already gives the control API, which is
+  the house style for exactly this kind of promise.
+
+### What core must guarantee in return
+
+1. **A plugin cannot break the send path.** Transformers are not on it.
+   That is most of why v1 is transformers only.
+2. **Timeout and panic recovery per call**, with the failure surfaced
+   where the output would have been. A hanging plugin must not hang a
+   path that runs per keystroke.
+3. **A failed plugin is reported as present-but-broken**, never as a
+   missing feature. Same rule as a disabled module.
+4. **Everything a plugin adds still appears in `/api/agent` and the help
+   catalogue.** No exceptions — this is the standing rule, and plugins
+   are exactly where it would be tempting to make one.
+
+### The minimal v1, stated as a target
+
+- One kind: transformer.
+- **Two extension points, not one**: `codegen` and `viewer`. Designing a
+  plugin API against a single consumer produces an API shaped like that
+  consumer; the second point is what proves the contract generalises, and
+  it is cheap once the platform exists.
+- Push-only. Host API: `log`.
+- Two projections: `ResolvedRequest`, `SavedRequest`. Neither is `domain`.
+- No inter-plugin visibility. Stable ids and an unused `requires` field.
+- A folder and a manifest. No registry, no marketplace.
