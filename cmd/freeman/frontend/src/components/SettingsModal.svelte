@@ -7,6 +7,7 @@
   // dispatchUIAction — the state and the functions that change it have
   // to stay in one place, or a scripted selectEnvironment and a clicked
   // one would take different paths.
+  import InfoTip from './InfoTip.svelte'
   import type { core, domain } from '../../wailsjs/go/models'
 
   export let workspace: core.WorkspaceInfo
@@ -95,11 +96,13 @@
           </li>
           <li class="settings-setting">
             <div class="settings-setting-text">
-              <span class="settings-setting-name">Response cache</span>
-              <span class="muted"
-                >Each request's last response, kept in <code>.cache/responses</code> so reopening it shows what it
-                returned.</span
-              >
+              <span class="settings-setting-name"
+                >Response cache
+                <InfoTip label="About the response cache">
+                  Each request's last response, kept in <code>.cache/responses</code> so reopening it shows what it
+                  returned.
+                </InfoTip>
+              </span>
             </div>
             <button on:click={onClearResponseCache}>{responseCacheCleared ? 'Cleared' : 'Clear'}</button>
           </li>
@@ -339,6 +342,9 @@
   }
 
   .settings-setting-name {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
     font-size: 0.85rem;
   }
 

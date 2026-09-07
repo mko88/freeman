@@ -9,6 +9,7 @@
   // as a callback, so a click and a control-API action take the same
   // path.
   import CodeEditor from './CodeEditor.svelte'
+  import InfoTip from './InfoTip.svelte'
   import { methodColor } from '../lib/format'
   import { resolveBodyLanguage } from '../lib/responseFormat'
   import type { BodyLanguage } from '../lib/responseFormat'
@@ -252,7 +253,14 @@
       </label>
     {:else if draft.auth.type === 'oauth2'}
       <label class="auth-field">
-        <span>Token URL</span>
+        <span>
+          Token URL
+          <InfoTip label="About the client-credentials grant">
+            The token is fetched when the request is sent and reused until it expires. A request whose
+            token can't be fetched fails rather than going out unauthenticated. Generated scripts fetch
+            their own the same way.
+          </InfoTip>
+        </span>
         <input type="text" bind:value={draft.auth.tokenUrl} placeholder="https://auth.example.com/oauth/token" />
       </label>
       <label class="auth-field">
@@ -267,10 +275,6 @@
         <span>Scope</span>
         <input type="text" bind:value={draft.auth.scope} placeholder="space-separated, optional" />
       </label>
-      <p class="auth-note">
-        The token is fetched when the request is sent and reused until it expires. Generated scripts fetch
-        their own the same way.
-      </p>
     {/if}
   </div>
 {:else if activeTab === 'options'}
@@ -278,67 +282,70 @@
        what every other HTTP client does, so a request nobody has touched
        behaves the way it always did. -->
   <div class="options-tab">
-    <label class="option">
-      <input type="checkbox" bind:checked={draft.options.followRedirects} />
-      <span class="option-text">
-        Follow redirects
-        <span class="option-hint">
-          Off returns the 3xx itself, which is the only way to assert on its status or Location.
-        </span>
-      </span>
-    </label>
+    <div class="option">
+      <label class="option-label">
+        <input type="checkbox" bind:checked={draft.options.followRedirects} />
+        <span>Follow redirects</span>
+      </label>
+      <InfoTip label="About following redirects">
+        Off returns the 3xx itself, which is the only way to assert on its status or its Location header.
+      </InfoTip>
+    </div>
 
-    <label class="option" class:disabled={!draft.options.followRedirects}>
-      <input
-        type="number"
-        min="0"
-        max="50"
-        class="option-number"
-        disabled={!draft.options.followRedirects}
-        bind:value={draft.options.maxRedirects}
-      />
-      <span class="option-text">
-        Maximum redirects
-        <span class="option-hint">0 uses the default of 10.</span>
-      </span>
-    </label>
+    <div class="option" class:disabled={!draft.options.followRedirects}>
+      <label class="option-label">
+        <input
+          type="number"
+          min="0"
+          max="50"
+          class="option-number"
+          disabled={!draft.options.followRedirects}
+          bind:value={draft.options.maxRedirects}
+        />
+        <span>Maximum redirects</span>
+      </label>
+      <InfoTip label="About the redirect limit">0 uses the default of 10.</InfoTip>
+    </div>
 
-    <label class="option">
-      <input type="checkbox" bind:checked={draft.options.storeCookies} />
-      <span class="option-text">
-        Send and store cookies
-        <span class="option-hint">
-          Shares one cookie jar with every other request that has this on, so signing in on one
-          authenticates the next. Off isolates this request from that session. Generated scripts can't
-          carry it — the jar belongs to the app.
-        </span>
-      </span>
-    </label>
+    <div class="option">
+      <label class="option-label">
+        <input type="checkbox" bind:checked={draft.options.storeCookies} />
+        <span>Send and store cookies</span>
+      </label>
+      <InfoTip label="About the cookie jar">
+        Shares one cookie jar with every other request that has this on, so signing in on one
+        authenticates the next. Off isolates this request from that session. Generated scripts can't
+        carry it — the jar belongs to the app.
+      </InfoTip>
+    </div>
 
-    <label class="option">
-      <input type="number" min="0" step="100" class="option-number" bind:value={draft.options.timeoutMs} />
-      <span class="option-text">
-        Timeout (ms)
-        <span class="option-hint">0 uses the app's default of 30 seconds.</span>
-      </span>
-    </label>
+    <div class="option">
+      <label class="option-label">
+        <input type="number" min="0" step="100" class="option-number" bind:value={draft.options.timeoutMs} />
+        <span>Timeout (ms)</span>
+      </label>
+      <InfoTip label="About the timeout">0 uses the app's default of 30 seconds.</InfoTip>
+    </div>
 
-    <label class="option">
-      <input type="checkbox" bind:checked={draft.options.skipTlsVerify} />
-      <span class="option-text">
-        Skip TLS certificate check
-        <span class="option-hint">
-          Accepts any certificate the server presents — for a staging box with a self-signed one, which
-          can't be called otherwise. It stops verifying that the server is who it claims to be, so leave
-          it off for anything you don't control.
-        </span>
-      </span>
-    </label>
+    <div class="option">
+      <label class="option-label">
+        <input type="checkbox" bind:checked={draft.options.skipTlsVerify} />
+        <span>Skip TLS certificate check</span>
+      </label>
+      <InfoTip label="About skipping the certificate check">
+        Accepts any certificate the server presents — for a staging box with a self-signed one, which
+        can't be called otherwise. It stops verifying that the server is who it claims to be, so leave
+        it off for anything you don't control.
+      </InfoTip>
+    </div>
 
     <div class="option option-cert">
-      <span class="option-text">
-        Client certificate
-        <span class="option-hint">A PEM certificate and its key, presented to servers that ask for one (mutual TLS). Both or neither.</span>
+      <span class="option-label">
+        <span>Client certificate</span>
+        <InfoTip label="About client certificates">
+          A PEM certificate and its key, presented to servers that ask for one (mutual TLS). Both or
+          neither.
+        </InfoTip>
       </span>
       <div class="option-cert-fields">
         <input type="text" placeholder="certificate .pem" bind:value={draft.options.clientCertFile} />
@@ -382,7 +389,11 @@
       {#if bodyLanguage === 'auto'}
         <span class="body-language-detected">detected: {resolvedBodyLanguage}</span>
       {/if}
-      <span class="body-keys">Tab indents · Esc then Tab leaves</span>
+      <span class="body-keys">
+        <InfoTip label="About keyboard behaviour in the body editor" align="right">
+          Tab indents rather than moving to the next control. Press Escape and then Tab to leave the editor.
+        </InfoTip>
+      </span>
     </div>
 
     <CodeEditor bind:value={draft.bodyRaw} language={resolvedBodyLanguage} placeholder="Raw request body" />
@@ -473,40 +484,36 @@
      the way back out. */
   .body-keys {
     margin-left: auto;
-    font-size: 0.72rem;
-    color: var(--fm-text-muted);
   }
 
+  /* One line per setting now that the explanations are behind their own
+     control — the tab reads as a list of switches rather than a page of
+     prose with checkboxes in it. */
   .options-tab {
     display: flex;
     flex-direction: column;
-    gap: 0.9rem;
+    gap: 0.55rem;
     max-width: 46rem;
   }
 
-  /* The control leads, its name and explanation follow — so the column
-     of controls scans down the left the way the checkbox column does in
-     the header and param tables. */
   .option {
     display: flex;
-    align-items: flex-start;
-    gap: 0.6rem;
+    align-items: center;
+    gap: 0.4rem;
   }
 
   .option.disabled {
     opacity: 0.5;
   }
 
-  .option-text {
+  /* The control leads, its name follows — so the column of controls
+     scans down the left the way the checkbox column does in the header
+     and param tables. */
+  .option-label {
     display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
+    align-items: center;
+    gap: 0.6rem;
     font-size: 0.85rem;
-  }
-
-  .option-hint {
-    font-size: 0.75rem;
-    color: var(--fm-text-muted);
   }
 
   .option-number {
@@ -517,7 +524,9 @@
      leads the block instead of sitting beside a checkbox. */
   .option-cert {
     flex-direction: column;
+    align-items: flex-start;
     gap: 0.35rem;
+    margin-top: 0.35rem;
   }
 
   .option-cert-fields {
@@ -586,13 +595,6 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    max-width: 42rem;
-  }
-
-  .auth-note {
-    margin: 0;
-    font-size: 0.75rem;
-    color: var(--fm-text-muted);
     max-width: 42rem;
   }
 
