@@ -44,7 +44,14 @@
   // setRequestField accepts, so the mirror can't drift from what it
   // mirrors. See lib/requestDraft.ts.
   let draft: RequestDraft = emptyDraft()
-  import { ControlAPIAddr, GetHeaderCatalog, SelectFile, ReportUIState } from '../wailsjs/go/wailsapp/App.js'
+  import {
+    ControlAPIAddr,
+    GetHeaderCatalog,
+    SelectFile,
+    ReportUIState,
+    ReportControlAPIDocs,
+  } from '../wailsjs/go/wailsapp/App.js'
+  import { apiEndpoints, uiActions } from './lib/controlApiCatalog'
 
   // Common request headers (and, per header, common values) offered as
   // autocomplete in the header editor. Loaded from the desktop backend on
@@ -294,6 +301,12 @@
     // internal/wailsapp.DispatchUIAction).
     if ('runtime' in window) {
       controlApiAddr = await ControlAPIAddr()
+      // Hand Go the route/action catalogue so GET /api/agent can serve
+      // it. Reported once, since it's a constant — unlike the UI state
+      // beside it, which is re-reported on every change.
+      ReportControlAPIDocs(JSON.stringify({ apiEndpoints, uiActions })).catch((e) =>
+        logEvent(`reportControlAPIDocs failed: ${e}`),
+      )
       // Serialize ui:action events through one promise chain rather than
       // firing dispatchUIAction for each as it arrives: several actions
       // (saveRequest, sendRequest, saveEnvironment, selectEnvironment,

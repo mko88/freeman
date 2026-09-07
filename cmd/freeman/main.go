@@ -12,6 +12,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 
+	"freeman/internal/agentdocs"
 	"freeman/internal/httpapi"
 	"freeman/internal/wailsapp"
 )
@@ -95,6 +96,15 @@ func startControlAPI(app *wailsapp.App, addr string) {
 		// which would wrap it as a quoted JSON string literal instead of
 		// serving the object itself.
 		io.WriteString(w, app.UIState())
+	})
+	// The one endpoint written for a reader rather than a program: an
+	// agent points here first and gets Markdown telling it what this API
+	// is, what the guard refuses, and the act-then-read-state loop —
+	// followed by every action and route, from the same catalogue the
+	// in-app help modal renders (see internal/agentdocs).
+	mux.HandleFunc("GET /api/agent", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		io.WriteString(w, agentdocs.Render(agentdocs.Parse(app.ControlAPIDocs()), "http://"+addr))
 	})
 	mux.Handle("/", httpapi.NewHandler(app.App, nil))
 
