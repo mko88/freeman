@@ -1,16 +1,22 @@
 package core
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"freeman/internal/domain"
 	"freeman/internal/store"
 )
 
+// CollectionSummary is what the settings list and the top bar's picker
+// show for a collection they haven't opened: enough to name it and say
+// how much is in it, without loading its items.
 type CollectionSummary struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ItemCount int    `json:"itemCount"`
 }
 
 func (a *App) ListCollections() ([]CollectionSummary, error) {
@@ -30,9 +36,24 @@ func (a *App) listCollections() ([]CollectionSummary, error) {
 		if err != nil {
 			return nil, err
 		}
-		summaries = append(summaries, CollectionSummary{ID: id, Name: c.Name})
+		summaries = append(summaries, CollectionSummary{ID: id, Name: c.Name, ItemCount: countRequests(c.Items)})
 	}
 	return summaries, nil
+}
+
+// countRequests counts requests, not rows: a collection's tree nests, and
+// a folder isn't something the settings list is counting.
+func countRequests(items []domain.Item) int {
+	n := 0
+	for _, item := range items {
+		if len(item.Items) > 0 {
+			n += countRequests(item.Items)
+		}
+		if item.Type == domain.ItemTypeRequest {
+			n++
+		}
+	}
+	return n
 }
 
 func (a *App) GetCollection(id string) (*domain.Collection, error) {
@@ -95,6 +116,81 @@ func (a *App) DeleteRequest(collectionID, itemID string) error {
 	return store.SaveCollection(path, c)
 }
 
+// CreateCollection adds an empty collection to the open workspace.
+func (a *App) CreateCollection(name string) (*domain.Collection, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if err := a.requireWorkspace(); err != nil {
+		return nil, err
+	}
+	return a.createCollection(name)
+}
+
+// RenameCollection changes a collection's display name and moves its
+// directory to match, so the workspace stays browsable by name on disk —
+// the same courtesy saveEnvironment does for an environment's file. A
+// collection is a directory holding collection.json, so it's the
+// directory that carries the name.
+//
+// A failed move is not fatal: the name still changes, and the stale
+// directory keeps working because the path is tracked, not derived.
+func (a *App) RenameCollection(id, name string) (*domain.Collection, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if err := a.requireWorkspace(); err != nil {
+		return nil, err
+	}
+	path, ok := a.ws.CollectionPaths[id]
+	if !ok {
+		return nil, fmt.Errorf("collection %q not found", id)
+	}
+	c, err := store.LoadCollection(path)
+	if err != nil {
+		return nil, err
+	}
+	c.Name = name
+
+	dir := filepath.Dir(path)
+	if want := filepath.Join(a.ws.Root, "collections", slugify(name, id)); want != dir {
+		if err := os.Rename(dir, want); err == nil {
+			path = filepath.Join(want, "collection.json")
+			a.ws.CollectionPaths[id] = path
+		}
+	}
+	if err := store.SaveCollection(path, c); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// DeleteCollection removes a collection's directory and everything in
+// it. It refuses the last one — the app assumes a workspace always has
+// somewhere to put a request (see OpenWorkspace, which creates a default
+// when it finds none).
+func (a *App) DeleteCollection(id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if err := a.requireWorkspace(); err != nil {
+		return err
+	}
+	path, ok := a.ws.CollectionPaths[id]
+	if !ok {
+		return fmt.Errorf("collection %q not found", id)
+	}
+	if len(a.ws.CollectionPaths) <= 1 {
+		return errors.New("can't delete the last collection")
+	}
+	if err := os.RemoveAll(filepath.Dir(path)); err != nil {
+		return err
+	}
+	delete(a.ws.CollectionPaths, id)
+	return nil
+}
+
+// createCollection assumes a.mu is held (see the *Locked-helper note on App).
 func (a *App) createCollection(name string) (*domain.Collection, error) {
 	id := domain.NewID("c_")
 	c := &domain.Collection{

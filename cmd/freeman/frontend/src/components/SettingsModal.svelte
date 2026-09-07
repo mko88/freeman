@@ -17,9 +17,13 @@
   // edited here, and the variable rows below write straight into
   // `environment` — App.svelte's reportUIState mirrors all three, so the
   // changes have to travel back up.
-  export let settingsTab: 'workspace' | 'environments'
+  export let settingsTab: 'workspace' | 'collections' | 'environments'
   export let environmentId: string
   export let environment: domain.Environment | null
+  // Only the id: the list names every collection from
+  // workspace.collections, and uses this to mark which one the sidebar
+  // is showing.
+  export let collectionId: string
 
   export let onClose: () => void
   export let onOpenWorkspace: () => void
@@ -29,13 +33,19 @@
   // separate props. App.svelte holds one stable object so this doesn't
   // see a new prop value on every render.
   export let env: {
-    select: (id: string) => void
+    expand: (id: string) => void
     create: () => void
-    setName: (value: string) => void
-    confirmDelete: () => void
+    rename: (id: string, value: string) => void
+    commit: () => void
+    confirmDelete: (summary: core.EnvironmentSummary) => void
     addVariable: () => void
     removeVariable: (index: number) => void
-    save: () => void
+  }
+
+  export let coll: {
+    create: () => void
+    rename: (id: string, value: string) => void
+    confirmDelete: (summary: core.CollectionSummary) => void
   }
 </script>
 
@@ -62,6 +72,9 @@
 
     <div class="tabs">
       <button class:active={settingsTab === 'workspace'} on:click={() => (settingsTab = 'workspace')}>Workspace</button>
+      <button class:active={settingsTab === 'collections'} on:click={() => (settingsTab = 'collections')}
+        >Collections</button
+      >
       <button class:active={settingsTab === 'environments'} on:click={() => (settingsTab = 'environments')}
         >Environments</button
       >
@@ -69,63 +82,119 @@
 
     <div class="settings-body">
       {#if settingsTab === 'workspace'}
-        <p class="prose">Collections and environments are read from this folder.</p>
-        <div class="row">
-          <code class="workspace-path">{workspace.root}</code>
-          <button on:click={onOpenWorkspace}>Change…</button>
-        </div>
+        <!-- Setting, value, action — the same row rhythm as the two
+             lists beside it, rather than paragraphs with buttons after
+             them. -->
+        <ul class="settings-list">
+          <li class="settings-setting">
+            <div class="settings-setting-text">
+              <span class="settings-setting-name">Folder</span>
+              <code class="workspace-path">{workspace.root}</code>
+            </div>
+            <button on:click={onOpenWorkspace}>Change…</button>
+          </li>
+          <li class="settings-setting">
+            <div class="settings-setting-text">
+              <span class="settings-setting-name">Response cache</span>
+              <span class="muted"
+                >Each request's last response, kept in <code>.cache/responses</code> so reopening it shows what it
+                returned.</span
+              >
+            </div>
+            <button on:click={onClearResponseCache}>{responseCacheCleared ? 'Cleared' : 'Clear'}</button>
+          </li>
+        </ul>
         {#if openError}<p class="error">{openError}</p>{/if}
-
-        <p class="prose">
-          Every request's last response is cached under this workspace (<code>.cache/responses</code>), so reopening it
-          later shows what it last returned.
-        </p>
-        <div class="row">
-          <button on:click={onClearResponseCache}>Clear response cache</button>
-          {#if responseCacheCleared}<span class="muted">Cleared.</span>{/if}
-        </div>
+      {:else if settingsTab === 'collections'}
+        <!-- A row per collection, not a picker and a form: this tab
+             manages the set, and every name is editable where it sits.
+             The rail marks the one the sidebar is showing — read-only
+             here, since the top bar is what changes it. -->
+        <ul class="settings-list">
+          {#each workspace.collections as c (c.id)}
+            <li class:current={c.id === collectionId}>
+              <!-- on:change, not on:input: renaming moves the
+                   collection's folder, so it commits when you leave the
+                   field or press Enter, not once per keystroke. -->
+              <input
+                class="settings-list-name"
+                type="text"
+                value={c.name}
+                on:change={(e) => coll.rename(c.id, e.currentTarget.value)}
+                aria-label="Collection name"
+              />
+              <span class="settings-list-count"
+                >{c.itemCount || 'empty'}{c.itemCount ? ` request${c.itemCount === 1 ? '' : 's'}` : ''}</span
+              >
+              <button
+                class="icon-btn"
+                title="Delete collection"
+                disabled={workspace.collections.length <= 1}
+                on:click={() => coll.confirmDelete(c)}>×</button
+              >
+            </li>
+          {/each}
+        </ul>
+        <button class="settings-list-add" on:click={coll.create}>+ New collection</button>
       {:else}
-        <div class="row env-fields">
-          <select bind:value={environmentId} on:change={() => env.select(environmentId)}>
-            {#each workspace.environments as e (e.id)}
-              <option value={e.id}>{e.name}</option>
-            {/each}
-          </select>
-          <input
-            class="env-name"
-            type="text"
-            value={environment ? environment.name : ''}
-            on:input={(e) => env.setName(e.currentTarget.value)}
-            placeholder="Environment name"
-            disabled={!environment}
-          />
-        </div>
+        <!-- The same list, with each environment's variables opening
+             under the row they belong to. Opening one is not selecting
+             it: the rail still marks whichever the top bar has active. -->
+        <ul class="settings-list">
+          {#each workspace.environments as e (e.id)}
+            <li class:current={e.id === environmentId} class:open={environment?.id === e.id}>
+              <!-- The same disclosure the request editor, the response
+                   pane and the control API log use. Expanding is its own
+                   control, so the name stays a name — editable whether
+                   the row is open or not, exactly like a collection's. -->
+              <button
+                class="disclosure"
+                title={environment?.id === e.id ? 'Hide variables' : 'Show variables'}
+                aria-expanded={environment?.id === e.id}
+                on:click={() => env.expand(e.id)}>{environment?.id === e.id ? '▾' : '▸'}</button
+              >
+              <input
+                class="settings-list-name"
+                type="text"
+                value={e.name}
+                on:change={(ev) => env.rename(e.id, ev.currentTarget.value)}
+                aria-label="Environment name"
+              />
+              <span class="settings-list-count">{e.variableCount || 'empty'}{e.variableCount ? ' variables' : ''}</span>
+              <button
+                class="icon-btn"
+                title="Delete environment"
+                disabled={workspace.environments.length <= 1}
+                on:click={() => env.confirmDelete(e)}>×</button
+              >
+            </li>
 
-        <div class="row env-actions">
-          <button on:click={env.create}>New</button>
-          <button on:click={env.confirmDelete} disabled={workspace.environments.length <= 1}>Delete</button>
-          <button class="env-actions-split" on:click={env.addVariable} disabled={!environment}>Add variable</button>
-          <button class="primary" on:click={env.save} disabled={!environment}>Save environment</button>
-        </div>
-
-        {#if environment}
-          <table class="kv-table">
-            <thead>
-              <tr><th></th><th>Key</th><th>Value</th><th>Secret</th><th></th></tr>
-            </thead>
-            <tbody>
-              {#each environment.variables as v, i}
-                <tr>
-                  <td><input type="checkbox" bind:checked={v.enabled} /></td>
-                  <td><input type="text" bind:value={v.key} placeholder="key" /></td>
-                  <td><input type="text" bind:value={v.value} placeholder="value" /></td>
-                  <td><input type="checkbox" bind:checked={v.secret} /></td>
-                  <td><button class="icon-btn kv-remove-btn" on:click={() => env.removeVariable(i)}>×</button></td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {/if}
+            {#if environment?.id === e.id}
+              <li class="settings-list-detail">
+                <table class="kv-table">
+                  <thead>
+                    <tr><th></th><th>Key</th><th>Value</th><th>Secret</th><th></th></tr>
+                  </thead>
+                  <tbody>
+                    {#each environment.variables as v, i}
+                      <tr>
+                        <td><input type="checkbox" bind:checked={v.enabled} on:change={env.commit} /></td>
+                        <td><input type="text" bind:value={v.key} placeholder="key" on:change={env.commit} /></td>
+                        <td><input type="text" bind:value={v.value} placeholder="value" on:change={env.commit} /></td>
+                        <td><input type="checkbox" bind:checked={v.secret} on:change={env.commit} /></td>
+                        <td>
+                          <button class="icon-btn kv-remove-btn" on:click={() => env.removeVariable(i)}>×</button>
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+                <button class="settings-list-add" on:click={env.addVariable}>+ Add variable</button>
+              </li>
+            {/if}
+          {/each}
+        </ul>
+        <button class="settings-list-add" on:click={env.create}>+ New environment</button>
       {/if}
     </div>
   </div>
@@ -152,10 +221,19 @@
     margin-bottom: 0.75rem;
   }
 
+  /* overflow-y makes this a scroll container, and a scroll container
+     clips at its own edges — including horizontally, since overflow-x
+     computes to auto alongside it. Anything flush against the left edge
+     then loses part of its focus ring, which sits 3px outside the box
+     (a 2px outline at 1px offset). The padding gives the ring room and
+     the matching negative margin puts the content back where it was;
+     both fit inside .modal's own 1.25rem padding. */
   .settings-body {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    padding-inline: 4px;
+    margin-inline: -4px;
   }
 
   .workspace-path {
@@ -166,23 +244,102 @@
     white-space: nowrap;
   }
 
-  /* The two fields at the top of the Environments tab — the active-env
-     picker and its rename box — share the row evenly. */
-  .env-fields > select,
-  .env-name {
+  /* One row per thing, across all three tabs: what it is on the left,
+     what's in it in the middle, what you can do to it on the right. The
+     tabs then differ in content rather than in shape. */
+  .settings-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--fm-border-subtle);
+    border-radius: var(--fm-radius);
+    overflow: hidden;
+  }
+
+  .settings-list > li {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.4rem 0.6rem;
+  }
+
+  .settings-list > li + li {
+    border-top: 1px solid var(--fm-border-subtle);
+  }
+
+  /* The leading rail marks what's active — the same mark the request
+     list and the switcher menu use. It's shown, not set: the top bar is
+     what changes it, and having two controls for one choice was the
+     reason this tab was rebuilt. */
+  .settings-list > li.current {
+    box-shadow: inset 2px 0 0 var(--fm-accent);
+  }
+
+  .settings-list > li.open {
+    background: var(--fm-bg-hover);
+  }
+
+  /* Reads as text until focused, so a list of names looks like a list of
+     names rather than a stack of form fields. */
+  .settings-list-name {
     flex: 1;
     min-width: 0;
+    background: none;
+    border-color: transparent;
+    text-align: left;
   }
 
-  /* One toolbar for both environment-level (New/Delete) and
-     variable-level (Add/Save) actions; the split pushes the
-     variable pair to the right edge. */
-  .env-actions {
-    flex-wrap: wrap;
+  .settings-list-name:hover {
+    border-color: var(--fm-border);
   }
 
-  .env-actions-split {
-    margin-left: auto;
+  .settings-list-name:focus {
+    background: var(--fm-bg-elevated);
+    border-color: var(--fm-accent);
+  }
+
+  .settings-list-count {
+    flex: none;
+    font-size: 0.78rem;
+    color: var(--fm-text-muted);
+  }
+
+  .settings-list-add {
+    margin-top: 0.5rem;
+    background: none;
+    border-color: transparent;
+    color: var(--fm-text-muted);
+    font-size: 0.8rem;
+  }
+
+  .settings-list-add:hover {
+    color: var(--fm-text);
+    border-color: var(--fm-border);
+  }
+
+  /* An environment's variables, under the environment they belong to.
+     Indented to the name column — the row's own padding, plus the
+     chevron and the gap after it — so the table starts where the name
+     above it does. */
+  .settings-list-detail {
+    display: block;
+    padding: 0 0.6rem 0.6rem 2.85rem;
+    background: var(--fm-bg-hover);
+  }
+
+  /* A setting rather than a named thing: its explanation sits under its
+     name instead of a count sitting beside it. */
+  .settings-setting-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-size: 0.8rem;
+  }
+
+  .settings-setting-name {
+    font-size: 0.85rem;
   }
 
   /* The Environments tab's table has a second narrow (checkbox) column —

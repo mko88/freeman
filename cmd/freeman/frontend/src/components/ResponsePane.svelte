@@ -350,48 +350,6 @@
     position: relative;
   }
 
-  .menu-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 5;
-  }
-
-  .dropdown-menu {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    z-index: 10;
-    display: flex;
-    flex-direction: column;
-    min-width: 12rem;
-    overflow: hidden;
-    /* Opaque fill so the menu doesn't read as part of the response body
-       it floats over: the base colour with the elevated overlay painted
-       on top of it, a touch lighter than the page. */
-    background-color: var(--fm-bg);
-    background-image: linear-gradient(var(--fm-bg-elevated), var(--fm-bg-elevated));
-    border: 1px solid var(--fm-border);
-    border-radius: var(--fm-radius);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-  }
-
-  .dropdown-menu button {
-    justify-content: flex-start;
-    background: none;
-    border: none;
-    border-radius: 0;
-    padding: 0.5rem 0.75rem;
-    text-align: left;
-  }
-
-  .dropdown-menu button + button {
-    border-top: 1px solid var(--fm-border-subtle);
-  }
-
-  .dropdown-menu button:hover {
-    background: var(--fm-bg-hover);
-  }
-
   /* Marks a body that hit httpengine.MaxResponseBytes — the number next
      to it is what was kept, not what the server sent. */
   .size-capped {

@@ -15,6 +15,13 @@
     { method: 'GET', path: '/api/workspace', desc: 'Current workspace (collection/environment summaries).' },
     { method: 'GET', path: '/api/collections', desc: 'List collections.' },
     { method: 'GET', path: '/api/collections/{id}', desc: 'Get a collection, including its requests.' },
+    { method: 'POST', path: '/api/collections', desc: 'Create a collection. Body: {name}.' },
+    { method: 'PATCH', path: '/api/collections/{id}', desc: 'Rename a collection. Body: {name}.' },
+    {
+      method: 'DELETE',
+      path: '/api/collections/{id}',
+      desc: 'Delete a collection and every request in it. Refused for the last one.',
+    },
     { method: 'POST', path: '/api/collections/{id}/requests', desc: 'Save a request. Body: a domain.Item.' },
     { method: 'DELETE', path: '/api/collections/{id}/requests/{itemId}', desc: 'Delete a saved request.' },
     { method: 'GET', path: '/api/environments', desc: 'List environments.' },
@@ -50,13 +57,31 @@
   ]
 
   const uiActions = [
-    { action: 'toggleSettings', payload: '—', desc: 'Open/close the settings window (workspace folder, environments).' },
+    {
+      action: 'toggleSettings',
+      payload: '—',
+      desc: 'Open/close the settings window (workspace folder, collections, environments).',
+    },
     {
       action: 'selectSettingsTab',
       payload: '{ tab }',
-      desc: "Switch the settings window tab. tab is 'workspace' or 'environments'.",
+      desc: "Switch the settings window tab. tab is 'workspace', 'collections' or 'environments'.",
     },
-    { action: 'selectEnvironment', payload: '{ id }', desc: 'Switch the active environment.' },
+    { action: 'selectEnvironment', payload: '{ id }', desc: 'Switch the active environment (and open it in settings).' },
+    {
+      action: 'renameEnvironment',
+      payload: '{ name, id? }',
+      desc:
+        'Rename an environment (default: the active one). Works whether or not it is open in settings — ' +
+        "the settings list's name field uses this.",
+    },
+    {
+      action: 'expandEnvironment',
+      payload: '{ id? }',
+      desc:
+        "Open an environment's variables in the settings list without making it the active one. " +
+        'No id closes whichever is open. The environment actions below all act on the open one.',
+    },
     { action: 'newEnvironment', payload: '—', desc: 'Create a new environment and switch to it.' },
     {
       action: 'setEnvironmentField',
@@ -66,9 +91,32 @@
     {
       action: 'deleteEnvironment',
       payload: '{ id? }',
-      desc: 'Delete an environment by id (default: the one in the editor). Refused for the last one; no confirmation.',
+      desc: 'Delete an environment by id (default: the active one). Refused for the last one; no confirmation.',
     },
     { action: 'selectCollection', payload: '{ id }', desc: 'Switch the active collection.' },
+    { action: 'newCollection', payload: '{ name }', desc: 'Create a collection and switch to it.' },
+    {
+      action: 'renameCollection',
+      payload: '{ name, id? }',
+      desc: 'Rename a collection (default: the open one). Renames its folder on disk to match.',
+    },
+    {
+      action: 'deleteCollection',
+      payload: '{ id? }',
+      desc:
+        'Delete a collection and every request in it (default: the open one). ' +
+        'Refused for the last one; no confirmation.',
+    },
+    {
+      action: 'toggleCollectionMenu',
+      payload: '—',
+      desc: "Open/close the top bar's collection picker (picking only — the rest is the settings window).",
+    },
+    {
+      action: 'toggleEnvironmentMenu',
+      payload: '—',
+      desc: "Open/close the top bar's environment picker.",
+    },
     { action: 'selectRequest', payload: '{ id }', desc: 'Select a request in the sidebar.' },
     {
       action: 'deleteRequest',

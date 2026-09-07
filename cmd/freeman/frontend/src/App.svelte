@@ -5,6 +5,9 @@
     OpenWorkspace,
     SelectWorkspaceFolder,
     GetCollection,
+    CreateCollection,
+    RenameCollection,
+    DeleteCollection,
     SaveRequest,
     DeleteRequest,
     GetEnvironment,
@@ -28,6 +31,7 @@
   import RequestEditor from './components/RequestEditor.svelte'
   import ResponsePane from './components/ResponsePane.svelte'
   import SettingsModal from './components/SettingsModal.svelte'
+  import Switcher from './components/Switcher.svelte'
   import { formatBytes, formatDuration, methodColor, reasonPhrase, statusTone } from './lib/format'
   import { detectResponseKind, formatResponse } from './lib/responseFormat'
   import type { BodyLanguage, ResponseView } from './lib/responseFormat'
@@ -57,10 +61,20 @@
   let collection: domain.Collection | null = null
   let selectedItemId: string | null = null
 
+  // The two top-bar switchers' open state.
+  let showCollectionMenu = false
+  let showEnvironmentMenu = false
+
   let environmentId = ''
   let environment: domain.Environment | null = null
   let showSettings = false
-  let settingsTab: 'workspace' | 'environments' = 'workspace'
+  // The settings window's tabs: the workspace folder, and the two things
+  // it holds many of. Collections and environments are managed there
+  // rather than from the top bar's switchers, which only pick one —
+  // creating and deleting are occasional, and don't belong a slip away
+  // from a control used several times an hour.
+  type SettingsTab = 'workspace' | 'collections' | 'environments'
+  let settingsTab: SettingsTab = 'workspace'
 
   let response: httpengine.Response | null = null
   let sending = false
@@ -229,6 +243,10 @@
   $: if ('runtime' in window) {
     const state = {
       workspaceRoot: workspace?.root ?? '',
+      collections: workspace?.collections ?? [],
+      collectionName: collection?.name ?? '',
+      showCollectionMenu,
+      showEnvironmentMenu,
       collectionId,
       environmentId,
       selectedItemId,
@@ -329,7 +347,7 @@
         break
       case 'selectSettingsTab': {
         const tab = payload?.tab
-        if (tab === 'workspace' || tab === 'environments') settingsTab = tab
+        if (tab === 'workspace' || tab === 'collections' || tab === 'environments') settingsTab = tab
         break
       }
       case 'selectEnvironment':
@@ -343,6 +361,15 @@
           setEnvironmentField('name', payload.value)
         }
         break
+      case 'expandEnvironment':
+        await expandEnvironment(payload?.id ? String(payload.id) : '')
+        break
+      case 'renameEnvironment': {
+        const name = String(payload?.name ?? '').trim()
+        const id = payload?.id ? String(payload.id) : environmentId
+        if (name && id) await renameEnvironmentById(id, name)
+        break
+      }
       case 'deleteEnvironment': {
         const id = payload?.id ? String(payload.id) : environmentId
         if (id) await deleteEnvironment(id)
@@ -350,6 +377,25 @@
       }
       case 'selectCollection':
         if (payload?.id) await selectCollection(String(payload.id))
+        break
+      case 'newCollection': {
+        const name = String(payload?.name ?? '').trim()
+        if (name) await newCollection(name)
+        break
+      }
+      case 'renameCollection': {
+        const name = String(payload?.name ?? '').trim()
+        if (name) await renameCollection(name, payload?.id ? String(payload.id) : collectionId)
+        break
+      }
+      case 'deleteCollection':
+        await deleteCollection(payload?.id ? String(payload.id) : collectionId)
+        break
+      case 'toggleCollectionMenu':
+        showCollectionMenu = !showCollectionMenu
+        break
+      case 'toggleEnvironmentMenu':
+        showEnvironmentMenu = !showEnvironmentMenu
         break
       case 'selectRequest': {
         const item = (collection?.items ?? []).find((i) => i.id === payload?.id)
@@ -644,6 +690,72 @@
     }
   }
 
+  // --- collections -----------------------------------------------------
+  //
+  // The three that change the workspace's shape rather than its contents.
+  // Each refreshes the workspace afterwards, since the switcher's list
+  // comes from it.
+
+  async function newCollection(name: string) {
+    const created = await CreateCollection(name)
+    await refreshWorkspace()
+    await selectCollection(created.id)
+  }
+
+  async function renameCollection(name: string, id = collectionId) {
+    await RenameCollection(id, name)
+    await refreshWorkspace()
+    if (id === collectionId) collection = await GetCollection(id)
+  }
+
+  // Deleting the open collection leaves nothing selected, so it moves to
+  // whichever is left rather than showing an empty sidebar for a
+  // collection that no longer exists.
+  async function deleteCollection(id = collectionId) {
+    await DeleteCollection(id)
+    const ws = await refreshWorkspace()
+    if (id === collectionId && ws.collections.length) {
+      await selectCollection(ws.collections[0].id)
+    }
+  }
+
+  async function refreshWorkspace(): Promise<core.WorkspaceInfo> {
+    workspace = await CurrentWorkspace()
+    return workspace
+  }
+
+  // The switchers' "Edit …" item: open the settings window on the tab
+  // that manages that kind of thing.
+  function openSettingsTab(tab: SettingsTab) {
+    settingsTab = tab
+    showSettings = true
+  }
+
+  // A backend call from a click, with its error surfaced rather than
+  // left as an unhandled rejection. The control API path reports through
+  // dispatchUIAction's own handling instead.
+  async function guard(action: () => Promise<void>) {
+    try {
+      await action()
+    } catch (e) {
+      openError = String(e)
+    }
+  }
+
+  // Deleting asks first, the way deleting a request does — it takes every
+  // request in it with it.
+  // Named and counted in the prompt, because the row you clicked isn't
+  // necessarily the collection you're working in — the settings list
+  // deletes any of them.
+  function confirmDeleteCollection(summary: core.CollectionSummary) {
+    const detail = summary.itemCount
+      ? ` and its ${summary.itemCount} request${summary.itemCount === 1 ? '' : 's'}`
+      : ''
+    if (confirm(`Delete "${summary.name}"${detail}? This can't be undone from the app.`)) {
+      void guard(() => deleteCollection(summary.id))
+    }
+  }
+
   async function selectRequest(item: domain.Item) {
     selectedItemId = item.id
     draft = {
@@ -922,15 +1034,65 @@
     }
   }
 
+  // The active environment: the one {{vars}} resolve against, picked in
+  // the top bar and sent to ExecuteRequest. It also opens in the
+  // settings list, since selecting one is a reason to want to look at
+  // it.
   async function selectEnvironment(id: string) {
     environmentId = id
     environment = await GetEnvironment(id)
   }
 
-  async function newEnvironment() {
-    const draft = { formatVersion: '1', id: '', name: 'New environment', variables: [] }
+  // Open an environment's variables in the settings list *without*
+  // making it the active one — the whole point of the list is that
+  // reading an environment and using it are different acts. `environment`
+  // is therefore "the one open in settings", which is why every
+  // environment ui:action operates on it. No id collapses whatever's
+  // open.
+  async function expandEnvironment(id: string) {
+    if (!id || environment?.id === id) {
+      environment = null
+      return
+    }
+    environment = await GetEnvironment(id)
+  }
+
+  // Renames any row in the settings list, open or not — the same reach
+  // coll.rename has. It loads the environment rather than editing
+  // `environment`, because that only holds the open one; every edit
+  // commits on blur, so there's never unsaved state to clobber.
+  async function renameEnvironmentById(id: string, name: string) {
+    const loaded = await GetEnvironment(id)
+    const saved = await SaveEnvironment({ ...loaded, name } as domain.Environment)
+    if (workspace) {
+      workspace.environments = workspace.environments.map((e) => (e.id === id ? { ...e, name: saved.name } : e))
+    }
+    if (environment?.id === id) environment = saved
+  }
+
+  // Edits commit when you leave the field, not on every keystroke — one
+  // rule across both settings lists, and the only one a collection
+  // rename could use anyway, since it moves a directory.
+  async function commitEnvironment() {
+    if (!environment) return
+    const saved = await SaveEnvironment(environment)
+    environment = saved
+    if (workspace) {
+      workspace.environments = workspace.environments.map((e) =>
+        e.id === saved.id ? { ...e, name: saved.name, variableCount: saved.variables.length } : e,
+      )
+    }
+  }
+
+  async function newEnvironment(name = 'New environment') {
+    const draft = { formatVersion: '1', id: '', name, variables: [] }
     const saved = await SaveEnvironment(draft as unknown as domain.Environment)
-    if (workspace) workspace.environments = [...workspace.environments, { id: saved.id, name: saved.name }]
+    if (workspace) {
+      workspace.environments = [
+        ...workspace.environments,
+        { id: saved.id, name: saved.name, variableCount: saved.variables?.length ?? 0 },
+      ]
+    }
     await selectEnvironment(saved.id)
   }
 
@@ -955,10 +1117,9 @@
     }
   }
 
-  function confirmDeleteEnvironment() {
-    if (!environment) return
-    if (confirm(`Delete environment "${environment.name}"? This can't be undone from the app.`)) {
-      deleteEnvironment(environmentId)
+  function confirmDeleteEnvironment(summary: core.EnvironmentSummary) {
+    if (confirm(`Delete "${summary.name}"? This can't be undone from the app.`)) {
+      void guard(() => deleteEnvironment(summary.id))
     }
   }
 
@@ -968,14 +1129,27 @@
   // functions themselves stay here: dispatchUIAction drives the same
   // ones, so a scripted selectEnvironment and a clicked one take
   // exactly the same path.
+  // Both lists take the same shape: act on the row you're pointing at,
+  // identified by id, rather than on whatever a picker elsewhere in the
+  // dialog happens to hold.
   const environmentActions = {
-    select: selectEnvironment,
-    create: newEnvironment,
-    setName: (value: string) => setEnvironmentField('name', value),
+    expand: (id: string) => guard(() => expandEnvironment(id)),
+    create: () => guard(async () => void (await newEnvironment())),
+    rename: (id: string, value: string) => guard(() => renameEnvironmentById(id, value)),
+    commit: () => guard(commitEnvironment),
     confirmDelete: confirmDeleteEnvironment,
     addVariable: () => addEnvironmentVariable(),
-    removeVariable: removeEnvironmentVariable,
-    save: saveEnvironment,
+    removeVariable: (index: number) =>
+      guard(async () => {
+        removeEnvironmentVariable(index)
+        await commitEnvironment()
+      }),
+  }
+
+  const collectionActions = {
+    create: () => guard(() => newCollection('New collection')),
+    rename: (id: string, value: string) => guard(() => renameCollection(value, id)),
+    confirmDelete: confirmDeleteCollection,
   }
 
   function addEnvironmentVariable(initial?: Partial<domain.Variable>) {
@@ -1087,13 +1261,45 @@
 <div class="app-shell" class:is-resizing={draggingSplitter !== null}>
   <header class="top-bar">
     <span class="top-bar-title">Freeman</span>
-    <span class="top-bar-actions">
+    <!-- What you're working in and what you're resolving {{vars}}
+         against — the two workspace-level choices. They belong here
+         rather than in Settings: a collection is what fills the sidebar
+         all day, and reaching either through a preferences window meant
+         opening a dialog to change what you're looking at. -->
+    <!-- Everything that isn't the app's name is grouped right, so the
+         two pickers sit with the buttons rather than floating between
+         them — .top-bar is space-between, which would otherwise spread
+         four children across the whole width. -->
+    <div class="top-bar-right">
       {#if workspace}
-        <button class="icon-btn top-bar-btn" title="Settings" on:click={() => (showSettings = true)}>⚙</button>
+        <Switcher
+          label="Collection"
+          items={workspace.collections}
+          selectedId={collectionId}
+          emptyName="No collection"
+          bind:open={showCollectionMenu}
+          onSelect={(id) => void guard(() => selectCollection(id))}
+          onEdit={() => openSettingsTab('collections')}
+        />
+        <Switcher
+          label="Environment"
+          items={workspace.environments}
+          selectedId={environmentId}
+          emptyName="No environment"
+          bind:open={showEnvironmentMenu}
+          onSelect={(id) => void guard(() => selectEnvironment(id))}
+          onEdit={() => openSettingsTab('environments')}
+        />
       {/if}
-      <button class="icon-btn top-bar-btn" title="Control API help" on:click={() => (showHelp = true)}>?</button>
-    </span>
+      <span class="top-bar-actions">
+        {#if workspace}
+          <button class="icon-btn top-bar-btn" title="Settings" on:click={() => (showSettings = true)}>⚙</button>
+        {/if}
+        <button class="icon-btn top-bar-btn" title="Control API help" on:click={() => (showHelp = true)}>?</button>
+      </span>
+    </div>
   </header>
+
 {#if !workspace}
   <main class="welcome">
     <h1>Freeman</h1>
@@ -1204,7 +1410,9 @@
       bind:settingsTab
       bind:environmentId
       bind:environment
+      bind:collectionId
       env={environmentActions}
+      coll={collectionActions}
       onClose={() => (showSettings = false)}
       onOpenWorkspace={openWorkspace}
       onClearResponseCache={clearResponseCache}
@@ -1236,6 +1444,12 @@
   .top-bar-title {
     font-weight: 600;
     letter-spacing: -0.01em;
+  }
+
+  .top-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .top-bar-actions {
