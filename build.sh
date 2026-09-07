@@ -63,10 +63,22 @@ fi
 
 mkdir -p bin
 
+# Stamped into internal/version at link time, so the app can show which
+# build it is. `git describe` gives "v0.1.0" on a tag, "v0.1.0-4-g94b2835"
+# past one, and a "-dirty" suffix with uncommitted changes. Outside a git
+# checkout the defaults in the package stand ("dev").
+version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+commit=$(git rev-parse --short HEAD 2>/dev/null || echo "")
+date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+ldflags="-X freeman/internal/version.Version=$version"
+ldflags="$ldflags -X freeman/internal/version.Commit=$commit"
+ldflags="$ldflags -X freeman/internal/version.Date=$date"
+echo "Version: $version"
+
 if [ "$build_linux" = 1 ]; then
 	if command -v wails &> /dev/null; then
 		echo "Building GUI (linux/amd64)..."
-		(cd cmd/freeman && wails build)
+		(cd cmd/freeman && wails build -ldflags "$ldflags")
 		cp cmd/freeman/build/bin/freeman bin/
 	else
 		echo "wails CLI not found — skipping Linux build (see README for setup)"
@@ -78,7 +90,7 @@ if [ "$build_windows" = 1 ]; then
 		echo "Building GUI (windows/amd64)..."
 		(cd cmd/freeman && GOOS=windows GOARCH=amd64 CGO_ENABLED=1 \
 			CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ \
-			wails build -platform windows/amd64)
+			wails build -platform windows/amd64 -ldflags "$ldflags")
 		cp cmd/freeman/build/bin/freeman.exe bin/
 	else
 		echo "wails CLI or mingw-w64 not found — skipping Windows cross-compile (see README)"
@@ -94,7 +106,7 @@ if [ "$build_server" = 1 ]; then
 	cp -r cmd/freeman/frontend/dist-web/. cmd/freeman-server/web/
 
 	echo "Building freeman-server (linux/amd64)..."
-	(cd cmd/freeman-server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../bin/freeman-server .)
+	(cd cmd/freeman-server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$ldflags" -o ../../bin/freeman-server .)
 fi
 
 echo "Done."

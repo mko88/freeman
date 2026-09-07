@@ -18,6 +18,13 @@ def test_read_only_routes(api: ControlAPI, r: Report) -> dict:
         "open a workspace with at least one of each before running this script",
     )
 
+    version = api.get("/api/version")
+    r.check(
+        "GET /api/version reports a build",
+        isinstance(version, dict) and bool(version.get("version")),
+        str(version),
+    )
+
     theme = api.get("/api/theme")
     r.check("GET /api/theme returns a palette", isinstance(theme, dict) and "accent" in theme, str(theme))
 

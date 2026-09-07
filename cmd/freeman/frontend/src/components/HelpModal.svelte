@@ -8,6 +8,9 @@
   import { apiEndpoints, uiActions } from '../lib/controlApiCatalog'
 
   export let controlApiAddr: string
+  // Which build is running. Shown beside the title because this modal is
+  // the closest thing the app has to an About box.
+  export let appVersion = ''
   export let onClose: () => void
 </script>
 
@@ -29,6 +32,7 @@
   >
     <div class="modal-header">
       <h2 id="help-title">Control API</h2>
+      {#if appVersion}<span class="help-version">Freeman {appVersion}</span>{/if}
       <button class="icon-btn" title="Close" on:click={() => onClose()}>×</button>
     </div>
     <p class="hint prose">
@@ -70,6 +74,16 @@
 </div>
 
 <style>
+  /* .modal-header is space-between with two children; a third would sit
+     marooned in the middle. margin-right: auto keeps it next to the
+     title and leaves the close button on the right where it belongs. */
+  .help-version {
+    margin-right: auto;
+    padding-left: 0.6rem;
+    font-size: 0.75rem;
+    color: var(--fm-text-muted);
+  }
+
   /* Wider (more room for Path/Description before either wraps) and a
      taller cap — with the two reference tables below sized to their own
      content instead of fighting the layout, this fits without scrolling

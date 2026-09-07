@@ -43,6 +43,8 @@ export function GetResponseCachePath(arg1:string):Promise<string>;
 
 export function GetTheme():Promise<Record<string, string>>;
 
+export function GetVersion():Promise<Record<string, string>>;
+
 export function ListCollections():Promise<Array<core.CollectionSummary>>;
 
 export function ListEnvironments():Promise<Array<core.EnvironmentSummary>>;

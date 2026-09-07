@@ -17,6 +17,7 @@ import (
 	"freeman/internal/domain"
 	"freeman/internal/headercatalog"
 	"freeman/internal/theme"
+	"freeman/internal/version"
 )
 
 // executeRequest is POST /api/execute's body shape.
@@ -214,6 +215,13 @@ func NewHandler(app *core.App, static fs.FS) http.Handler {
 	// appdata.Dir() — a per-user OS config dir has no durable meaning
 	// inside a container. See internal/wailsapp.GetTheme for desktop's
 	// appdata-based equivalent.
+	// Which build is running. No workspace needed, so it answers before
+	// one is open — the first thing worth asking a process you just
+	// found on a port.
+	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, version.Get())
+	})
+
 	mux.HandleFunc("GET /api/theme", func(w http.ResponseWriter, r *http.Request) {
 		palette := theme.Resolve(theme.Load(app.WorkspaceRoot()))
 		writeJSON(w, http.StatusOK, palette)
