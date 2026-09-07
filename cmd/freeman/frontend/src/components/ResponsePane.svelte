@@ -125,9 +125,14 @@
 
       <!-- No labels: each value says what it is by its own shape — a
            bare number coloured by class, a duration with a unit, a size
-           with a unit, a type name. The labels were repeating that in
-           words. Where a value is rounded for reading, the exact figure
-           is a tooltip. -->
+           with a unit. Where a value is rounded for reading, the exact
+           figure is a tooltip.
+--
+           No content type either. It named what the pretty view already
+           demonstrates, and Content-Type itself is one click away on the
+           Headers tab, spelled out properly rather than reduced to a
+           word. formatted.kind still decides how the body renders and is
+           still reported in GET /api/ui/state as responseKind. -->
       <div class="response-meta">
         <span
           class="response-stat status status-{statusTone(response.statusCode)}"
@@ -146,7 +151,6 @@
         >
           {formatBytes(response.sizeBytes)}{#if response.capped}<span class="size-capped">capped</span>{/if}
         </span>
-        <span class="response-stat">{formatted.kind.toUpperCase()}</span>
       </div>
 
       {#if !collapsed}
