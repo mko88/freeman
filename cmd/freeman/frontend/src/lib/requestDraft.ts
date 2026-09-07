@@ -20,12 +20,20 @@ export type RequestOptions = {
   followRedirects: boolean
   maxRedirects: number
   storeCookies: boolean
+  timeoutMs: number
+  skipTlsVerify: boolean
+  clientCertFile: string
+  clientCertKeyFile: string
 }
 
 export const defaultOptions = (): RequestOptions => ({
   followRedirects: true,
   maxRedirects: 0,
   storeCookies: true,
+  timeoutMs: 0,
+  skipTlsVerify: false,
+  clientCertFile: '',
+  clientCertKeyFile: '',
 })
 
 // Which settings differ from the defaults — the Options tab's badge, so
@@ -33,11 +41,7 @@ export const defaultOptions = (): RequestOptions => ({
 // that has.
 export function changedOptionCount(o: RequestOptions): number {
   const d = defaultOptions()
-  return (
-    Number(o.followRedirects !== d.followRedirects) +
-    Number(o.maxRedirects !== d.maxRedirects) +
-    Number(o.storeCookies !== d.storeCookies)
-  )
+  return (Object.keys(d) as (keyof RequestOptions)[]).filter((k) => o[k] !== d[k]).length
 }
 export type AuthType = 'none' | 'bearer' | 'basic' | 'apikey'
 export type CodeFormat = 'bash' | 'powershell'

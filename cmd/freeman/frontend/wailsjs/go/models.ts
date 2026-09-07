@@ -153,6 +153,10 @@ export namespace domain {
 	    followRedirects: boolean;
 	    maxRedirects?: number;
 	    storeCookies: boolean;
+	    timeoutMs?: number;
+	    skipTlsVerify?: boolean;
+	    clientCertFile?: string;
+	    clientCertKeyFile?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Options(source);
@@ -163,6 +167,10 @@ export namespace domain {
 	        this.followRedirects = source["followRedirects"];
 	        this.maxRedirects = source["maxRedirects"];
 	        this.storeCookies = source["storeCookies"];
+	        this.timeoutMs = source["timeoutMs"];
+	        this.skipTlsVerify = source["skipTlsVerify"];
+	        this.clientCertFile = source["clientCertFile"];
+	        this.clientCertKeyFile = source["clientCertKeyFile"];
 	    }
 	}
 	export class Header {

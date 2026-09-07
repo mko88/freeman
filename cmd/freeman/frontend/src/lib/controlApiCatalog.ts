@@ -244,8 +244,11 @@ export const uiActions: UiAction[] = [
     desc:
       'Set how the request is sent, as opposed to what is sent. ' +
       "field is 'followRedirects' (boolean — off returns the 3xx itself, the only way to assert on a " +
-      "redirect), 'maxRedirects' (number, 0 for the default of 10), or 'storeCookies' (boolean — the " +
-      'shared cookie jar, so signing in on one request authenticates the next). Persisted by saveRequest.',
+      "redirect), 'maxRedirects' (number, 0 for the default of 10), 'storeCookies' (boolean — the " +
+      "shared cookie jar, so signing in on one request authenticates the next), 'timeoutMs' (number, " +
+      "0 for the app default of 30s), 'skipTlsVerify' (boolean — accept any server certificate), or " +
+      "'clientCertFile'/'clientCertKeyFile' (paths to a PEM pair for mutual TLS; both or neither). " +
+      'Persisted by saveRequest.',
   },
   {
     action: 'setRequestField',
