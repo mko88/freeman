@@ -7,6 +7,10 @@
 package core
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -139,4 +143,49 @@ func slugify(name, id string) string {
 		return id
 	}
 	return s
+}
+
+// uniquePath picks where a newly named collection or environment goes:
+// pathFor(slug), or pathFor(slug-2), pathFor(slug-3), … if something is
+// already there.
+//
+// Two things called "New environment" slugify to the same name, and
+// without this they shared one file. The second silently overwrote the
+// first, and deleting either then left the other's entry pointing at a
+// file that was gone: unreadable, so listing the workspace failed, and
+// undeletable, because os.Remove errored before the entry could be
+// dropped. Both halves are fixed — this one, and treating an
+// already-missing file as deleted.
+//
+// `taken` is the id→path map the caller keeps, and `self` is the id
+// being saved, so renaming something to the name it already has doesn't
+// count as a collision with itself.
+func uniquePath(slug string, pathFor func(string) string, taken map[string]string, self string) string {
+	for n := 1; ; n++ {
+		candidate := slug
+		if n > 1 {
+			candidate = fmt.Sprintf("%s-%d", slug, n)
+		}
+		path := pathFor(candidate)
+		if pathIsFree(path, taken, self) {
+			return path
+		}
+	}
+}
+
+func pathIsFree(path string, taken map[string]string, self string) bool {
+	for id, p := range taken {
+		if id != self && p == path {
+			return false
+		}
+	}
+	_, err := os.Stat(path)
+	return errors.Is(err, fs.ErrNotExist)
+}
+
+// removedOrMissing reports whether a path is gone after the attempt —
+// a file that was already missing counts, so an entry whose file
+// vanished can still be deleted rather than being stuck forever.
+func removedOrMissing(err error) bool {
+	return err == nil || errors.Is(err, fs.ErrNotExist)
 }

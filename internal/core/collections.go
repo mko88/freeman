@@ -183,7 +183,7 @@ func (a *App) DeleteCollection(id string) error {
 	if len(a.ws.CollectionPaths) <= 1 {
 		return errors.New("can't delete the last collection")
 	}
-	if err := os.RemoveAll(filepath.Dir(path)); err != nil {
+	if err := os.RemoveAll(filepath.Dir(path)); !removedOrMissing(err) {
 		return err
 	}
 	delete(a.ws.CollectionPaths, id)
@@ -203,7 +203,9 @@ func (a *App) createCollection(name string) (*domain.Collection, error) {
 		// collection.json.
 		Items: []domain.Item{},
 	}
-	path := filepath.Join(a.ws.Root, "collections", slugify(name, id), "collection.json")
+	path := uniquePath(slugify(name, id), func(slug string) string {
+		return filepath.Join(a.ws.Root, "collections", slug, "collection.json")
+	}, a.ws.CollectionPaths, id)
 	if err := store.SaveCollection(path, c); err != nil {
 		return nil, err
 	}
