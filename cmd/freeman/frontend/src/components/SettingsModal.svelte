@@ -35,7 +35,7 @@
   export let env: {
     expand: (id: string) => void
     create: () => void
-    setName: (value: string) => void
+    rename: (id: string, value: string) => void
     commit: () => void
     confirmDelete: (summary: core.EnvironmentSummary) => void
     addVariable: () => void
@@ -143,19 +143,23 @@
         <ul class="settings-list">
           {#each workspace.environments as e (e.id)}
             <li class:current={e.id === environmentId} class:open={environment?.id === e.id}>
-              {#if environment?.id === e.id}
-                <input
-                  class="settings-list-name"
-                  type="text"
-                  value={environment.name}
-                  on:input={(ev) => env.setName(ev.currentTarget.value)}
-                  on:change={env.commit}
-                  aria-label="Environment name"
-                />
-              {:else}
-                <button class="settings-list-name settings-list-open" on:click={() => env.expand(e.id)}>{e.name}</button
-                >
-              {/if}
+              <!-- The same disclosure the request editor, the response
+                   pane and the control API log use. Expanding is its own
+                   control, so the name stays a name — editable whether
+                   the row is open or not, exactly like a collection's. -->
+              <button
+                class="disclosure"
+                title={environment?.id === e.id ? 'Hide variables' : 'Show variables'}
+                aria-expanded={environment?.id === e.id}
+                on:click={() => env.expand(e.id)}>{environment?.id === e.id ? '▾' : '▸'}</button
+              >
+              <input
+                class="settings-list-name"
+                type="text"
+                value={e.name}
+                on:change={(ev) => env.rename(e.id, ev.currentTarget.value)}
+                aria-label="Environment name"
+              />
               <span class="settings-list-count">{e.variableCount || 'empty'}{e.variableCount ? ' variables' : ''}</span>
               <button
                 class="icon-btn"
@@ -304,10 +308,13 @@
     border-color: var(--fm-border);
   }
 
-  /* An environment's variables, under the environment they belong to. */
+  /* An environment's variables, under the environment they belong to.
+     Indented to the name column — the row's own padding, plus the
+     chevron and the gap after it — so the table starts where the name
+     above it does. */
   .settings-list-detail {
     display: block;
-    padding: 0 0.6rem 0.6rem 1.2rem;
+    padding: 0 0.6rem 0.6rem 2.85rem;
     background: var(--fm-bg-hover);
   }
 

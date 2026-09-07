@@ -69,6 +69,13 @@
     },
     { action: 'selectEnvironment', payload: '{ id }', desc: 'Switch the active environment (and open it in settings).' },
     {
+      action: 'renameEnvironment',
+      payload: '{ name, id? }',
+      desc:
+        'Rename an environment (default: the active one). Works whether or not it is open in settings — ' +
+        "the settings list's name field uses this.",
+    },
+    {
       action: 'expandEnvironment',
       payload: '{ id? }',
       desc:

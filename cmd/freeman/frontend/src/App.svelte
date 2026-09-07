@@ -364,6 +364,12 @@
       case 'expandEnvironment':
         await expandEnvironment(payload?.id ? String(payload.id) : '')
         break
+      case 'renameEnvironment': {
+        const name = String(payload?.name ?? '').trim()
+        const id = payload?.id ? String(payload.id) : environmentId
+        if (name && id) await renameEnvironmentById(id, name)
+        break
+      }
       case 'deleteEnvironment': {
         const id = payload?.id ? String(payload.id) : environmentId
         if (id) await deleteEnvironment(id)
@@ -1051,6 +1057,19 @@
     environment = await GetEnvironment(id)
   }
 
+  // Renames any row in the settings list, open or not — the same reach
+  // coll.rename has. It loads the environment rather than editing
+  // `environment`, because that only holds the open one; every edit
+  // commits on blur, so there's never unsaved state to clobber.
+  async function renameEnvironmentById(id: string, name: string) {
+    const loaded = await GetEnvironment(id)
+    const saved = await SaveEnvironment({ ...loaded, name } as domain.Environment)
+    if (workspace) {
+      workspace.environments = workspace.environments.map((e) => (e.id === id ? { ...e, name: saved.name } : e))
+    }
+    if (environment?.id === id) environment = saved
+  }
+
   // Edits commit when you leave the field, not on every keystroke — one
   // rule across both settings lists, and the only one a collection
   // rename could use anyway, since it moves a directory.
@@ -1116,7 +1135,7 @@
   const environmentActions = {
     expand: (id: string) => guard(() => expandEnvironment(id)),
     create: () => guard(async () => void (await newEnvironment())),
-    setName: (value: string) => setEnvironmentField('name', value),
+    rename: (id: string, value: string) => guard(() => renameEnvironmentById(id, value)),
     commit: () => guard(commitEnvironment),
     confirmDelete: confirmDeleteEnvironment,
     addVariable: () => addEnvironmentVariable(),

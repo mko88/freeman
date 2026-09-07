@@ -104,6 +104,27 @@ def test_environment_editor(api: ControlAPI, r: Report, environment_id: str) -> 
     r.check("expandEnvironment with no id closes it", state.get("environment") is None, str(state.get("environment")))
     r.check("closing it left the active one alone", state.get("environmentId") == scratch_env_id, str(state.get("environmentId")))
 
+    # The settings list lets you rename any row, open or not — so this
+    # renames one with nothing open at all, which the two-step
+    # setEnvironmentField/saveEnvironment can't reach.
+    closed_name = scratch_env_name + "-closed"
+    original_env_name = next(
+        (e.get("name") for e in api.get("/api/environments") if e.get("id") == environment_id), ""
+    )
+    r.step(f"renameEnvironment {{id: {environment_id}, name: {closed_name!r}}}  (a row that isn't open)")
+    api.action("renameEnvironment", {"id": environment_id, "name": closed_name})
+    envs = poll(lambda: api.get("/api/environments"), lambda es: any(e.get("name") == closed_name for e in es))
+    r.check(
+        "renameEnvironment renames one that isn't open",
+        any(e.get("id") == environment_id and e.get("name") == closed_name for e in envs),
+        str(envs),
+    )
+    state = api.state()
+    r.check("renaming a closed one opened nothing", state.get("environment") is None, str(state.get("environment")))
+    r.step(f"renameEnvironment  (put {environment_id} back)")
+    api.action("renameEnvironment", {"id": environment_id, "name": original_env_name})
+    poll(lambda: api.get("/api/environments"), lambda es: any(e.get("name") == original_env_name for e in es))
+
     r.step("deleteEnvironment  (no id — deletes the active one)")
     api.action("deleteEnvironment")
     envs = poll(lambda: api.get("/api/environments"), lambda es: all(e.get("id") != scratch_env_id for e in es))
