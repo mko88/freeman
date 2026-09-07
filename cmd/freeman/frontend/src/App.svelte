@@ -92,6 +92,10 @@
     inlineResponseBytes: 1 << 20,
     maxResponseBytes: 64 << 20,
   }
+  // The saved item the editor is showing, or undefined for a new draft.
+  // Duplicate and delete act on this rather than on a sidebar row.
+  $: selectedItem = collection?.items?.find((i) => i.id === selectedItemId)
+
   $: workspaceDefaults = {
     maxRedirects: workspaceSettings.maxRedirects,
     requestTimeoutMs: workspaceSettings.requestTimeoutMs,
@@ -1542,8 +1546,6 @@
       bind:filter={requestFilter}
       onNew={newRequest}
       onSelect={selectRequest}
-      onDuplicate={(item) => void guard(() => duplicateRequest(item))}
-      onDelete={confirmDeleteRequest}
     />
 
     <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -1569,8 +1571,15 @@
           {headerCatalog}
           {sending}
           onSave={saveRequest}
+          saved={selectedItemId !== null}
           onSend={sendRequest}
           onCancel={() => void guard(cancelRequest)}
+          onDuplicate={() => {
+            if (selectedItem) void guard(() => duplicateRequest(selectedItem))
+          }}
+          onDelete={() => {
+            if (selectedItem) confirmDeleteRequest(selectedItem)
+          }}
           onCopyCode={copyRequestCode}
           rows={requestRowActions}
         />

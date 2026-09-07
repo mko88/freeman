@@ -28,8 +28,6 @@
 
   export let onNew: () => void
   export let onSelect: (item: domain.Item) => void
-  export let onDuplicate: (item: domain.Item) => void
-  export let onDelete: (item: domain.Item) => void
 
   // Matched against the name and the method, because "post" is as
   // likely a search as a word in a name. Case-insensitive, no globbing:
@@ -63,17 +61,13 @@
   <ul class="request-list scroll-pane">
     {#each shown as item (item.id)}
       <li class:active={item.id === selectedItemId} style="--m: {methodColor(item.method || 'GET')}">
+        <!-- The whole row selects. Duplicating and deleting live in the
+             editor, beside the name they act on, so this list is a list
+             of names and nothing else. -->
         <button class="request-select" title="{item.method || 'GET'} {item.name}" on:click={() => onSelect(item)}>
           <span class="method-tag">{methodLabel(item.method)}</span>
           <span class="truncate">{item.name}</span>
         </button>
-        <!-- Over the end of the row rather than in it: at rest the name
-             gets the whole width, and these two only take space back
-             when the row is the one being pointed at. -->
-        <span class="row-actions">
-          <button class="icon-btn" title="Duplicate request" on:click={() => onDuplicate(item)}>⧉</button>
-          <button class="icon-btn" title="Delete request" on:click={() => onDelete(item)}>×</button>
-        </span>
       </li>
     {/each}
   </ul>
@@ -142,7 +136,6 @@
      both the left accent bar and the method tag text — one method, one
      color, everywhere it's shown. */
   .request-list li {
-    position: relative;
     display: flex;
     align-items: center;
     border-left: 2px solid var(--m, transparent);
@@ -163,7 +156,7 @@
     background: none;
     border: none;
     color: inherit;
-    padding: 0.5rem 1rem;
+    padding: 0.35rem 0.75rem;
     cursor: pointer;
     display: flex;
     gap: 0.5rem;
@@ -174,36 +167,21 @@
     background: var(--fm-bg-hover);
   }
 
-  /* Hidden until the row is pointed at, keyboard-focused, or selected —
-     but still in the accessibility tree and still tabbable, so this is
-     opacity rather than display. The fade on the left keeps a long name
-     from running into them. */
-  .row-actions {
-    position: absolute;
-    right: 0.35rem;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    gap: 0.15rem;
-    padding-left: 1.25rem;
-    background: linear-gradient(to right, transparent, var(--fm-bg-hover) 1.25rem);
-    opacity: 0;
-  }
-
-  .request-list li:hover .row-actions,
-  .request-list li.active .row-actions,
-  .row-actions:focus-within {
-    opacity: 1;
-  }
-
-  /* Every badge the same width, so the names start in a column. 4ch
-     plus a little, because methodLabel caps the text at four characters
-     (see lib/format.ts). */
+  /* Turned on its side, so the method costs one line of text across the
+     row instead of a whole column — which is most of why the name has
+     room. The four-character cap in methodLabel (lib/format.ts) is what
+     bounds the height: a longer word here would make every row taller.
+     grid + place-items centres it regardless of the writing mode, which
+     swaps the axes the usual alignment properties refer to. */
   .method-tag {
-    font-size: 0.7rem;
+    writing-mode: vertical-rl;
+    font-size: 0.6rem;
     font-weight: 600;
+    letter-spacing: 0.08em;
     color: var(--m, var(--fm-text-muted));
-    width: 2.6rem;
-    flex-shrink: 0;
+    flex: none;
+    height: 2.9rem;
+    display: grid;
+    place-items: center;
   }
 </style>

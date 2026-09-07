@@ -32,10 +32,16 @@
   export let headerCatalog: HeaderCatalogEntry[]
   export let sending: boolean
 
+  // Whether the request in the editor is one that exists in the
+  // collection: an unsaved draft has nothing to duplicate or delete.
+  export let saved: boolean
+
   export let onSave: () => void
   export let onSend: () => void
   export let onCancel: () => void
   export let onCopyCode: () => void
+  export let onDuplicate: () => void
+  export let onDelete: () => void
 
   // Row add/remove and the native file pickers. Grouped into one prop,
   // built once in App.svelte, for the same reason as SettingsModal's
@@ -119,6 +125,14 @@
 
 <div class="request-name">
   <input type="text" bind:value={draft.name} placeholder="Request name" />
+  <!-- Beside the name they act on, rather than in the sidebar: the list
+       is then a list of names, and these two are where the rest of what
+       you can do to this request already is. Hidden for an unsaved
+       draft, which has nothing to copy or remove yet. -->
+  {#if saved}
+    <button class="icon-btn" title="Duplicate request" on:click={onDuplicate}>⧉</button>
+    <button class="icon-btn" title="Delete request" on:click={onDelete}>×</button>
+  {/if}
 </div>
 
 <div class="url-bar">
@@ -460,6 +474,12 @@
 {/if}
 
 <style>
+  .request-name {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
   .request-name input {
     font-size: 1.15rem;
     font-weight: 600;
@@ -467,7 +487,8 @@
     background: none;
     border: none;
     color: inherit;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
   }
 
   .url-bar {
