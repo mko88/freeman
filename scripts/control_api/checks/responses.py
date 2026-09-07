@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import http.server
 import json
 import os
@@ -240,6 +241,25 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     r.check("an image endpoint answers with an image content type", "image/png" in response_content_type(state), response_content_type(state))
     png_path = os.path.join(state.get("workspaceRoot") or "", ".cache", "responses", f"{item_id}.body.png")
     r.check("the cached body file got a .png extension from its Content-Type", os.path.exists(png_path), png_path)
+
+    # A PNG's bytes are not valid UTF-8, and JSON would replace every
+    # invalid one with U+FFFD — so the response carries them base64'd
+    # instead, and `body` stays empty rather than holding a corrupted
+    # copy. See httpengine.Response.MarshalJSON.
+    resp = state.get("response") or {}
+    encoded = resp.get("bodyBase64") or ""
+    r.check("a binary response carries its bytes as bodyBase64", bool(encoded), f"keys={sorted(resp)}")
+    r.check("...and leaves body empty rather than a corrupted copy", not resp.get("body"), repr(resp.get("body", ""))[:80])
+    r.check(
+        "...decoding bodyBase64 gives back a real PNG",
+        base64.b64decode(encoded or "").startswith(b"\x89PNG\r\n\x1a\n"),
+        repr(base64.b64decode(encoded or "")[:12]),
+    )
+    r.check(
+        "...and it matches the bytes cached on disk",
+        os.path.exists(png_path) and base64.b64decode(encoded or "") == open(png_path, "rb").read(),
+        png_path,
+    )
 
     r.step("setRequestField url -> /brotli, saveRequest, sendRequest  (Content-Encoding: br, decoded to JSON)")
     api.action("setRequestField", {"field": "url", "value": f"{{{{{TEST_VAR_KEY}}}}}/brotli"})

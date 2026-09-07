@@ -17,20 +17,25 @@ export type ResponseKind = 'json' | 'xml' | 'html' | 'image' | 'text'
 // as text, 'hex' the bytes.
 export type ResponseView = 'pretty' | 'raw' | 'hex'
 
-// The bytes behind a data: URI. CodeMirror has no hex or binary mode —
-// it's a text editor — so the dump below is built here and handed to it
-// as plain text.
-function bytesFromDataUri(uri: string): Uint8Array | null {
-  const comma = uri.indexOf(',')
-  if (comma < 0) return null
+// CodeMirror has no hex or binary mode — it's a text editor — so the
+// dump below is built here and handed to it as plain text.
+function bytesFromBase64(b64: string): Uint8Array | null {
   try {
-    const binary = atob(uri.slice(comma + 1))
+    const binary = atob(b64)
     const out = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i)
     return out
   } catch {
     return null
   }
+}
+
+// Accepts either a bare base64 payload (httpengine.Response.bodyBase64)
+// or a full data: URI (the response cache's), which is the same thing
+// behind a prefix.
+function bytesFrom(b64OrDataUri: string): Uint8Array | null {
+  const comma = b64OrDataUri.indexOf(',')
+  return bytesFromBase64(comma < 0 ? b64OrDataUri : b64OrDataUri.slice(comma + 1))
 }
 
 // `hexdump -C` layout: offset, sixteen bytes in two groups of eight,
@@ -111,19 +116,25 @@ export function formatResponse(
   const kind = detectResponseKind(r)
   const inRange = !!r && !r.truncated && body.length <= RESPONSE_PRETTY_MAX
 
-  // Both the hex view and an image's payload need the bytes as they
-  // arrived, and response.body can't carry them: Wails marshals Body as
-  // JSON, and JSON replaces every byte that isn't valid UTF-8 with
-  // U+FFFD, so response.body for a PNG is a wall of replacement
-  // characters. The data URI is read back from the response cache file,
-  // so it's byte-faithful.
+  // A binary body arrives as bodyBase64 rather than body — see
+  // httpengine.Response.MarshalJSON. Prefer it over the cache's data
+  // URI: it's the same bytes without a round trip to disk, and it's
+  // there in the web build too, which has no response cache.
+  const encoded = r?.bodyBase64 || dataUri || ''
+
   if (view === 'hex') {
-    const bytes = dataUri ? bytesFromDataUri(dataUri) : null
+    const bytes = encoded ? bytesFrom(encoded) : new TextEncoder().encode(body)
     return { kind, text: bytes ? hexDump(bytes) : 'Reading the cached response…' }
   }
 
   if (kind === 'image') {
     return { kind, text: dataUri ?? '' }
+  }
+
+  // Binary that isn't an image — a PDF, an octet-stream. There's no text
+  // to show, so show the payload it did arrive as.
+  if (!body && r?.bodyBase64) {
+    return { kind, text: r.bodyBase64 }
   }
 
   if (inRange && kind === 'json') {
