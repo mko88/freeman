@@ -121,9 +121,26 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
             "process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'",
         ],
     }
-    r.step(f"setRequestOption {options!r}, then re-read the code for each format")
+    # The options are set while a format is *already* selected, and the
+    # first check reads that same format back without switching. That
+    # ordering is the regression: codeKey once left draft.options out, so
+    # setRequestOption regenerated nothing and state.code stayed stale —
+    # invisible by hand, since changing an option means leaving the Code
+    # tab and coming back, but not to a script. Switching format first
+    # would hide it again.
+    r.step(f"selectCodeFormat 'bash', then setRequestOption {options!r}  (no format switch after)")
+    api.action("selectCodeFormat", {"format": "bash"})
+    poll(api.state, lambda s: s.get("codeFormat") == "bash")
     for field, value in options.items():
         api.action("setRequestOption", {"field": field, "value": value})
+    state = poll(api.state, lambda s: all(x in (s.get("code") or "") for x in option_checks["bash"]))
+    r.check(
+        "setRequestOption alone regenerates the code, with no format switch to force it",
+        all(x in (state.get("code") or "") for x in option_checks["bash"]),
+        f"code={(state.get('code') or '')[:400]!r}",
+    )
+
+    r.step("re-read the code for each of the other formats")
     for fmt, needles in option_checks.items():
         api.action("selectCodeFormat", {"format": fmt})
         state = poll(

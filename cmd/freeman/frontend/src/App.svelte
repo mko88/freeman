@@ -1279,6 +1279,12 @@
           draft.headers,
           draft.formFields,
           draft.auth,
+          // The Options tab feeds the generated script too — the
+          // redirect, timeout, TLS and cookie-jar flags. Leaving it out
+          // is invisible by hand (you have to leave the Code tab to
+          // change an option, and coming back regenerates) but not to a
+          // script: setRequestOption would leave state.code stale.
+          draft.options,
           environmentId,
         ])
       : ''
