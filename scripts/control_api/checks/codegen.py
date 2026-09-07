@@ -9,7 +9,7 @@ from ..fixtures import TEST_VAR_KEY
 def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id: str, item_id: str, test_base: str) -> None:
     """The Code tab renders the draft request as a runnable command via
     POST /api/codegen (backend: internal/codegen). Configures the scratch
-    request main() created for this test, then checks both formats
+    request main() created for this test, then checks all four formats
     through selectCodeFormat + GET /api/ui/state's `code`, that the
     Options tab's settings reach the script, plus a direct /api/codegen
     call and copyRequestCode. Exhaustive format/body-mode coverage is in
@@ -39,8 +39,8 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
 
     # {{pyTestBase}} is the local test server (set by
     # test_environment_editor), so the substituted URL is what the
-    # generated script has to contain. Both formats pull the parts out as
-    # variables, so the command at the bottom of each reads as a list of
+    # generated script has to contain. Every format pulls the parts out
+    # as variables, so the call at the bottom of each reads as a list of
     # names. See internal/codegen.
     checks = {
         "bash": [
@@ -50,15 +50,33 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
             "-H 'Authorization: Bearer t0ken'",
             # -L because the request follows redirects and curl doesn't
             # unless told, --max-time because Freeman gives up after 30s
-            # and curl never would — the generated script has to send
-            # what Send sends. See the Options tab.
-            'curl -X POST -L "$url" \\\n  --max-time 30 \\\n  "${headers[@]}"',
+            # and curl never would, -b/-c because the request is on the
+            # cookie jar — the generated script has to send what Send
+            # sends. See the Options tab.
+            'curl -X POST -L "$url" \\\n  -b \'cookies.txt\' -c \'cookies.txt\' --max-time 30 \\\n  "${headers[@]}"',
         ],
         "powershell": [
             f"$uri = '{test_base}/post'",
             "$headers = @{",
             "'Authorization' = 'Bearer t0ken'",
-            "Invoke-RestMethod `\n    -Method POST `\n    -Uri $uri `\n    -TimeoutSec 30 `\n    -Headers $headers",
+            "Invoke-RestMethod `\n    -Method POST `\n    -Uri $uri `\n    -TimeoutSec 30 `"
+            "\n    -SessionVariable session `\n    -Headers $headers",
+        ],
+        "python": [
+            "import requests",
+            f"url = '{test_base}/post'",
+            "session = requests.Session()",
+            "MozillaCookieJar('cookies-python.txt')",
+            "'Authorization': 'Bearer t0ken',",
+            "allow_redirects=True",
+            "timeout=30",
+        ],
+        "javascript": [
+            f"const url = '{test_base}/post'",
+            "Authorization: 'Bearer t0ken',",
+            "const response = await fetch(url, {",
+            "redirect: 'follow',",
+            "signal: AbortSignal.timeout(30000),",
         ],
     }
     for fmt, needles in checks.items():
@@ -75,10 +93,10 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
             f"codeFormat={state.get('codeFormat')} code={code[:200]!r}",
         )
 
-    # Every Options-tab setting that a standalone script can express has
-    # to reach the script, or the Code tab would hand back a command that
-    # talks to a different server than Send does. The cookie jar is the
-    # one that can't: it belongs to the app, not to one command.
+    # Every Options-tab setting a language can express has to reach the
+    # script, or the Code tab would hand back a command that talks to a
+    # different server than Send does. What a language genuinely can't
+    # express is left out — see the javascript list below.
     options = {
         "maxRedirects": 3,
         "timeoutMs": 2500,
@@ -89,6 +107,19 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
     option_checks = {
         "bash": ["--max-redirs 3", "--max-time 2.5", "--insecure", '--cert "$cert" --key "$key"'],
         "powershell": ["-MaximumRedirection 3", "-TimeoutSec 3", "-SkipCertificateCheck", "-Certificate $cert"],
+        "python": [
+            "session.max_redirects = 3",
+            "timeout=2.5",
+            "verify=False",
+            "cert=('/certs/client.pem', '/certs/client.key')",
+        ],
+        # fetch can express the timeout and, process-wide, the
+        # certificate check. The redirect cap, the cookie jar and the
+        # client certificate have no equivalent and don't appear at all.
+        "javascript": [
+            "AbortSignal.timeout(2500)",
+            "process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'",
+        ],
     }
     r.step(f"setRequestOption {options!r}, then re-read the code for each format")
     for field, value in options.items():

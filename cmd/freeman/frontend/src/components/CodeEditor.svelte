@@ -5,16 +5,19 @@
   // (readOnly), so both get the same grammar-driven highlighting,
   // folding, and viewport rendering from one theme.
   //
-  // The Code tab keeps its own highlighter: it shows sh and PowerShell,
-  // and neither CodeMirror's legacy shell mode nor highlight.js models a
-  // quoted heredoc — both tokenise the JSON body inside `<<'BODY'` as
-  // shell, which is exactly the case that tab exists to show.
+  // The Code tab uses the same grammars, one per format it can
+  // generate. They come from @codemirror/legacy-modes rather than the
+  // lang- packages: those grammars are already a dependency, and none of
+  // these four needs the extra fidelity — a generated script is short
+  // and its shape is known.
   import { onDestroy, onMount } from 'svelte'
   import { indentWithTab, temporarilySetTabFocusMode } from '@codemirror/commands'
   import { json } from '@codemirror/lang-json'
   import { xml } from '@codemirror/lang-xml'
   import { HighlightStyle, StreamLanguage, syntaxHighlighting } from '@codemirror/language'
+  import { javascript } from '@codemirror/legacy-modes/mode/javascript'
   import { powerShell } from '@codemirror/legacy-modes/mode/powershell'
+  import { python } from '@codemirror/legacy-modes/mode/python'
   import { shell } from '@codemirror/legacy-modes/mode/shell'
   import { Compartment, EditorState } from '@codemirror/state'
   import { EditorView, keymap, placeholder as placeholderExt } from '@codemirror/view'
@@ -22,7 +25,7 @@
   import { basicSetup } from 'codemirror'
 
   export let value: string
-  export let language: 'json' | 'xml' | 'shell' | 'powershell' | 'plain' = 'plain'
+  export let language: 'json' | 'xml' | 'shell' | 'powershell' | 'python' | 'javascript' | 'plain' = 'plain'
   export let placeholder = ''
   // Read-only mode is the response pane and the Code tab: same
   // highlighting, same theme, plus folding and viewport rendering, which
@@ -101,6 +104,8 @@
     if (lang === 'xml') return xml()
     if (lang === 'shell') return StreamLanguage.define(shell)
     if (lang === 'powershell') return StreamLanguage.define(powerShell)
+    if (lang === 'python') return StreamLanguage.define(python)
+    if (lang === 'javascript') return StreamLanguage.define(javascript)
     return []
   }
 

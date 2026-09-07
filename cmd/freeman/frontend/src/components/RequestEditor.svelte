@@ -86,7 +86,12 @@
   // No sniffing needed for the Code tab — the format that generated the
   // snippet says what language it is. CodeEditor calls bash 'shell',
   // after the grammar it loads for it, which covers sh and bash alike.
-  const codeLanguages = { bash: 'shell', powershell: 'powershell' } as const
+  const codeLanguages = {
+    bash: 'shell',
+    powershell: 'powershell',
+    python: 'python',
+    javascript: 'javascript',
+  } as const
 
   $: codeLanguage = codeLanguages[codeFormat]
 
@@ -314,8 +319,9 @@
       </label>
       <InfoTip label="About the cookie jar">
         Shares one cookie jar with every other request that has this on, so signing in on one
-        authenticates the next. Off isolates this request from that session. Generated scripts can't
-        carry it — the jar belongs to the app.
+        authenticates the next. Off isolates this request from that session. Generated scripts keep a
+        jar of their own where the language has one — on disk for bash and python, for the shell's
+        lifetime in powershell — starting empty rather than inheriting this one.
       </InfoTip>
     </div>
 
