@@ -47,7 +47,8 @@ else's uptime and how it covers the request variations a public echo
 service can't: a certificate worth refusing, a server that demands one
 of yours, and an endpoint that is slow on purpose. The environment
 variable {{pyTestBase}} every check's URL is written against is set to
-that server's base URL at the start of the run.
+that server's base URL at the start of the run, alongside {{pyCertDir}}
+for the client certificate pair.
 
 Two sections aren't about a UI action at all. test_api_guard asserts the
 API refuses the request shapes a web page can send cross-origin (see
@@ -97,7 +98,7 @@ from typing import Optional
 
 from control_api import ApiError, ControlAPI, Report, poll
 from control_api.fixtures import REQUEST_TEST_NAMES, find_item, find_item_by_id
-from control_api.server import TestServers, reachable
+from control_api.server import CLIENT_CERT, TestServers, reachable
 from control_api.checks.chrome import test_help_modal, test_layout_comfort
 from control_api.checks.codegen import test_code_tab
 from control_api.checks.consistency import test_consistency
@@ -250,7 +251,7 @@ def main() -> int:
         # Runs before test_request_editor/test_execute: it's what creates
         # TEST_VAR_KEY = the test server's base URL, which every later
         # request's {{pyTestBase}} substitutes.
-        test_environment_editor(api, r, environment_id, servers.base_url)
+        test_environment_editor(api, r, environment_id, servers.base_url, str(CLIENT_CERT.parent))
         test_request_editor(api, r, collection_id, item_ids.get("request_editor"))
         test_execute(api, r, collection_id, environment_id, item_ids.get("execute"))
         test_ui_state_getter(api, r, collection_id, item_ids.get("ui_state_getter"))

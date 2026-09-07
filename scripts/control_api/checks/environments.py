@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Optional
 
 from .. import ControlAPI, Report, poll
-from ..fixtures import TEST_VAR_KEY, SCRATCH_VAR_KEY, find_variable_index
+from ..fixtures import TEST_CERT_VAR_KEY, TEST_VAR_KEY, SCRATCH_VAR_KEY, find_variable_index
 
 
-def test_environment_editor(api: ControlAPI, r: Report, environment_id: str, test_base: str) -> None:
+def test_environment_editor(api: ControlAPI, r: Report, environment_id: str, test_base: str, cert_dir: str) -> None:
     """Adds TEST_VAR_KEY = test_base (the local test server's base URL,
     on a port the OS picked this run), left in place for the rest of the run — every
     later section that needs {{pyTestBase}} substituted relies on it
@@ -35,6 +35,10 @@ def test_environment_editor(api: ControlAPI, r: Report, environment_id: str, tes
     r.step(f"addEnvironmentVariable {{key: {TEST_VAR_KEY!r}, value: {test_base!r}}}")
     api.action("addEnvironmentVariable", {"key": TEST_VAR_KEY, "value": test_base})
     poll(api.state, lambda s: env_var(s, TEST_VAR_KEY) is not None)
+
+    r.step(f"addEnvironmentVariable {{key: {TEST_CERT_VAR_KEY!r}, value: {cert_dir!r}}}")
+    api.action("addEnvironmentVariable", {"key": TEST_CERT_VAR_KEY, "value": cert_dir})
+    poll(api.state, lambda s: env_var(s, TEST_CERT_VAR_KEY) is not None)
 
     r.step(f"addEnvironmentVariable {{key: {SCRATCH_VAR_KEY!r}, secret: true}}  (scratch)")
     api.action("addEnvironmentVariable", {"key": SCRATCH_VAR_KEY, "value": "temp", "secret": True})

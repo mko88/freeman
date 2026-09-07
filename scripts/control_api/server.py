@@ -433,10 +433,14 @@ def _disposition_param(disposition: str, name: str) -> Optional[str]:
 
 class _ThreadingServer(http.server.ThreadingHTTPServer):
     daemon_threads = True
-    # Without this a check that makes the app give up mid-response (the
-    # timeout one) leaves the port in TIME_WAIT and the next run picks a
-    # different one — harmless, but it also silences the noise.
-    allow_reuse_address = True
+    # SO_REUSEADDR clears a TIME_WAIT left by a check that made the app
+    # give up mid-response. On Windows it does more than that: it lets a
+    # second process bind a port another one is already serving, with no
+    # error and no way to tell which of the two a connection reaches. So
+    # it's set per instance instead of here — on when the OS picks the
+    # port, off when the caller names one and a clash has to be heard
+    # about. See TestServer.
+    allow_reuse_address = False
 
 
 class TestServer:
@@ -446,8 +450,21 @@ class TestServer:
     point calls in its `finally` so a failed run doesn't leave a
     listener behind."""
 
-    def __init__(self, scheme: str = "http", client_certs: bool = False) -> None:
-        self.server = _ThreadingServer(("127.0.0.1", 0), _Handler)
+    def __init__(self, scheme: str = "http", client_certs: bool = False, port: int = 0, host: str = "127.0.0.1") -> None:
+        # Port 0 lets the OS pick, which is what the suite wants: no
+        # clash with whatever else is listening, and nothing to clean
+        # up. scripts/test_server.py passes fixed ones instead, so a
+        # request saved against it still works tomorrow — and there a
+        # port already in use has to raise rather than quietly become a
+        # second listener on it (see _ThreadingServer).
+        self.server = _ThreadingServer((host, port), _Handler, bind_and_activate=False)
+        self.server.allow_reuse_address = port == 0
+        try:
+            self.server.server_bind()
+            self.server.server_activate()
+        except OSError:
+            self.server.server_close()
+            raise
         if scheme == "https":
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             ctx.load_cert_chain(SERVER_CERT, SERVER_KEY)
@@ -459,7 +476,7 @@ class TestServer:
                 ctx.load_verify_locations(cafile=str(CLIENT_CERT))
             self.server.socket = ctx.wrap_socket(self.server.socket, server_side=True)
         self.port = self.server.server_address[1]
-        self.base_url = f"{scheme}://127.0.0.1:{self.port}"
+        self.base_url = f"{scheme}://{host}:{self.port}"
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
@@ -478,10 +495,20 @@ class TestServer:
 class TestServers:
     """The three of them, started together and closed together."""
 
-    def __init__(self) -> None:
-        self.plain = TestServer()
-        self.tls = TestServer("https")
-        self.mtls = TestServer("https", client_certs=True)
+    def __init__(self, ports: tuple = (0, 0, 0), host: str = "127.0.0.1") -> None:
+        started = []
+        try:
+            self.plain = TestServer(port=ports[0], host=host)
+            started.append(self.plain)
+            self.tls = TestServer("https", port=ports[1], host=host)
+            started.append(self.tls)
+            self.mtls = TestServer("https", client_certs=True, port=ports[2], host=host)
+        except OSError:
+            # A named port being taken is a normal way for this to fail;
+            # the ones that did come up must not be left listening.
+            for server in started:
+                server.close()
+            raise
 
     @property
     def base_url(self) -> str:

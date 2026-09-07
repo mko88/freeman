@@ -21,9 +21,29 @@ func cookiesOn(v bool) *domain.Options {
 // A request that predates Options behaves exactly as it did before them:
 // redirects followed, cookies kept.
 func TestOptionsDefaultWhenUnset(t *testing.T) {
-	got := optionsOf(domain.Item{})
+	got := optionsOf(domain.Item{}, nil)
 	if !got.FollowRedirects || !got.StoreCookies {
 		t.Fatalf("an unset Options should follow and store, got %+v", got)
+	}
+}
+
+// Which client certificate to present belongs to the environment you're
+// pointed at — staging's is not production's — so the paths take the
+// same {{var}} substitution as the URL. Without this the file is opened
+// under its literal name and every mutual-TLS request fails.
+func TestOptionsSubstituteClientCertPaths(t *testing.T) {
+	item := domain.Item{Options: &domain.Options{
+		FollowRedirects:   true,
+		StoreCookies:      true,
+		ClientCertFile:    "{{certDir}}/client.pem",
+		ClientCertKeyFile: "{{certDir}}/client.key",
+	}}
+	got := optionsOf(item, map[string]string{"certDir": "/etc/freeman/certs"})
+	if got.ClientCertFile != "/etc/freeman/certs/client.pem" {
+		t.Errorf("certificate path not substituted: %q", got.ClientCertFile)
+	}
+	if got.ClientCertKeyFile != "/etc/freeman/certs/client.key" {
+		t.Errorf("key path not substituted: %q", got.ClientCertKeyFile)
 	}
 }
 

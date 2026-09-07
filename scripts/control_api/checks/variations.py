@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 
 from .. import ControlAPI, Report, poll
-from ..fixtures import find_item_by_id
+from ..fixtures import TEST_CERT_VAR_KEY, find_item_by_id
 from ..server import (
     BASIC_PASSWORD,
     BASIC_USER,
@@ -435,10 +435,18 @@ def test_option_variations(
         f"status={status} resp={str(resp)[:200]}",
     )
 
-    r.step("...the same request with clientCertFile/clientCertKeyFile set to the test pair")
+    # Written as {{pyCertDir}}/… rather than a literal path: which
+    # certificate to present belongs to the environment, so these fields
+    # take substitution like the URL does — and for a while didn't, so
+    # every mutual-TLS request opened a file named "{{pyCertDir}}".
+    r.step("...the same request with clientCertFile/clientCertKeyFile set to {{pyCertDir}}/client.pem and .key")
     run.configure(
         f"{servers.mtls.base_url}/client-cert",
-        options={"skipTlsVerify": True, "clientCertFile": str(CLIENT_CERT), "clientCertKeyFile": str(CLIENT_KEY)},
+        options={
+            "skipTlsVerify": True,
+            "clientCertFile": f"{{{{{TEST_CERT_VAR_KEY}}}}}/{CLIENT_CERT.name}",
+            "clientCertKeyFile": f"{{{{{TEST_CERT_VAR_KEY}}}}}/{CLIENT_KEY.name}",
+        },
     )
     status, resp = run.send()
     body = _body_json(resp)

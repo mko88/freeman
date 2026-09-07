@@ -48,6 +48,12 @@ SCRATCH_FIELD_KEY = "scratchField"
 TEST_VAR_KEY = "pyTestBase"
 
 
+# The directory holding the client certificate pair. A second variable
+# rather than a literal path in the check, because the certificate paths
+# take {{var}} substitution too — and once didn't.
+TEST_CERT_VAR_KEY = "pyCertDir"
+
+
 # There is no TEST_VAR_VALUE constant to go with TEST_VAR_KEY: the value
 # is the local test server's base URL (see control_api.server), and the
 # OS picks its port, so it's passed down from the entry point instead.
