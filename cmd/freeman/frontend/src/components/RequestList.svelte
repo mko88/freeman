@@ -4,10 +4,22 @@
   // control-API actions, and deleting asks for confirmation there.
   import type { domain } from '../../wailsjs/go/models'
   import { methodColor } from '../lib/format'
+  import Switcher from './Switcher.svelte'
 
   export let collection: domain.Collection | null
   export let selectedItemId: string | null
   export let width: number
+
+  // The collection picker sits above the list it fills, in place of the
+  // name that used to be there — the same choice, one control instead of
+  // a label in the top bar and a heading here saying the same thing.
+  export let collections: { id: string; name: string }[] = []
+  export let collectionId = ''
+  // Bound: App.svelte mirrors it in GET /api/ui/state and
+  // toggleCollectionMenu drives it.
+  export let collectionMenuOpen = false
+  export let onSelectCollection: (id: string) => void
+  export let onEditCollections: () => void
 
   export let onNew: () => void
   export let onSelect: (item: domain.Item) => void
@@ -16,8 +28,18 @@
 
 <aside class="sidebar" style="width: {width}px">
   <div class="sidebar-header">
-    <span>{collection?.name ?? ''}</span>
-    <button class="icon-btn" title="New request" on:click={onNew}>+</button>
+    <Switcher
+      label="Collection"
+      items={collections}
+      selectedId={collectionId}
+      emptyName="No collection"
+      align="left"
+      block
+      bind:open={collectionMenuOpen}
+      onSelect={onSelectCollection}
+      onEdit={onEditCollections}
+    />
+    <button class="icon-btn sidebar-new" title="New request" on:click={onNew}>+</button>
   </div>
   <ul class="request-list">
     {#each collection?.items ?? [] as item (item.id)}
@@ -43,13 +65,21 @@
     text-align: left;
   }
 
+  /* The picker takes the width and the + stays at the right edge. Less
+     left padding than before: the switcher is a button with its own
+     hover fill, and indenting it would leave that fill floating away
+     from the panel edge. */
   .sidebar-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 0.75rem 1rem;
+    gap: 0.25rem;
+    padding: 0.5rem 0.6rem 0.5rem 1rem;
     font-weight: 600;
     border-bottom: 1px solid var(--fm-border-subtle);
+  }
+
+  .sidebar-new {
+    flex: none;
   }
 
   .request-list {

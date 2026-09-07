@@ -125,7 +125,7 @@ export const uiActions: UiAction[] = [
   {
     action: 'toggleCollectionMenu',
     payload: '—',
-    desc: "Open/close the top bar's collection picker (picking only — the rest is the settings window).",
+    desc: "Open/close the collection picker above the request list (picking only — the rest is the settings window).",
   },
   {
     action: 'toggleEnvironmentMenu',
