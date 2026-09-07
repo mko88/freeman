@@ -35,7 +35,7 @@
       {#if appVersion}<span class="help-version">Freeman {appVersion}</span>{/if}
       <button class="icon-btn" title="Close" on:click={() => onClose()}>×</button>
     </div>
-    <p class="hint prose">
+    <p class="prose">
       {#if controlApiAddr}
         Base URL: <code>http://{controlApiAddr}</code> — no auth, loopback-only. Requests with a body must
         send <code>Content-Type: application/json</code>, and anything a browser marks as coming from

@@ -255,3 +255,84 @@ is the workflow for this repo.
 ### 9. SOAP (low priority)
 - [ ] Surface a raw-XML body mode with envelope scaffold.
 - [ ] (Optional) WSDL import.
+
+---
+
+## Frontend duplication review (2026-09-08)
+
+Prompted by the InfoTip popup being clipped: the same bug had already
+been fixed once in the settings list, which suggested the primitives
+underneath were duplicated rather than shared. They were.
+
+### What was found
+
+**Five floating layers, three positioning strategies, no shared
+primitive.** `.modal` (fixed, z 10), `.dropdown-menu` (**absolute**,
+z 10) and `.info-pop` (fixed, z 60) each carried their own backdrop and
+dismiss code. The z-scale was 5/10/60 with no ladder, and two of the five
+— the collection switcher's menu and the response pane's `⋯` — didn't
+close on Escape at all. `.dropdown-menu` being `position: absolute` meant
+it carried the exact bug InfoTip had just been fixed for, latent: it
+works only while it sits outside a scroll container, and the switcher had
+moved house that same day.
+
+**Scroll containers clipping focus rings.** A container with
+`overflow-y: auto` computes `overflow-x` to `auto` with it, so it clips
+on all four sides, and a focus ring sits 3px outside its control. Six
+containers, two patched by hand, one at a time. On measurement only three
+ever needed it — `.modal`, `.status-log` and the response panes all have
+padding of their own — so the real count was three, two done, one
+(`.request-list`, `padding: 0`, a focusable button per row) still broken.
+
+**Four hand-written key/value tables** — params, headers, form fields,
+environment variables. The same `<th></th><th>Key</th><th>Value</th>
+<th></th>` header and checkbox/key/value/× row four times; params and
+headers differ only by a `list=` attribute. Twelve of the fifty-six
+`ui:action`s exist to serve this one pattern.
+
+**Five disclosure implementations** for one ▸/▾ affordance. Four share
+`button.disclosure` but each repeats the glyph ternary, the `title` and
+the `aria-expanded`; the help modal uses native `<details>` with a CSS
+`content:` instead, and says so in a comment rather than sharing the
+code.
+
+**Smaller:** adding a row is a default button in the request editor
+(`Add param`) and a ghost with a leading `+` in settings
+(`+ Add variable`) — same action, two treatments and two label
+conventions. Six quiet-button variants each redefine
+background/border/hover. Truncation was written three times.
+`class="hint prose"` in the help modal referenced a `.hint` that doesn't
+exist.
+
+Not a finding: `.tabs` vs `.option-row` are genuinely different roles —
+underline tabs and pill toggles — and the stylesheet says why.
+
+### Done
+
+- [x] `components/Popover.svelte` — owns fixed placement measured from an
+      anchor, the backdrop, Escape, and dismiss-on-scroll for every
+      floating panel. Callers supply the panel's own markup, because
+      Svelte scopes styles to whoever writes them: a menu's item styling
+      belongs with the menu, placement doesn't. InfoTip, the switcher
+      menu and the response `⋯` menu all go through it, so Escape now
+      closes all three.
+- [x] `.dropdown-menu` keeps only what a menu looks like; `.menu-backdrop`
+      is gone.
+- [x] `.scroll-pane` in `style.css` — the overflow, the ring padding and
+      `scroll-padding` in one place. Applied to `.request-pane`,
+      `.settings-body` and `.request-list`. The comment says which
+      containers deliberately don't want it and why.
+- [x] `.truncate` replaces the three copies.
+- [x] The dead `.hint` class.
+
+### Left
+
+- [ ] `<KeyValueTable>` for the four tables. Markup only — the twelve
+      actions keep their distinct names, because CLAUDE.md's naming rule
+      requires them to.
+- [ ] `<Disclosure>` owning the glyph, title and aria, including the help
+      modal's `<details>`.
+- [ ] One add-a-row button. The ghost `+ Add …` is the better of the two:
+      it sits under a list and shouldn't compete with Save/Send.
+- [ ] Fold the six quiet-button variants into one ghost modifier with
+      size variants.

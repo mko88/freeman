@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Popover from './Popover.svelte'
+
   // A picker for one of the two things a workspace holds many of: the
   // open collection, above the request list it fills, and the active
   // environment, in the top bar. Both are the same shape — a named list
@@ -31,6 +33,8 @@
   export let align: 'left' | 'right' = 'right'
   export let block = false
 
+  let button: HTMLButtonElement
+
   $: current = items.find((i) => i.id === selectedId)
 </script>
 
@@ -38,16 +42,20 @@
   <!-- The name alone, no label beside it: two of these sit together and
        the tooltip says which is which, rather than spending bar width on
        a word that never changes. -->
-  <button class="switcher-button" title={label} aria-label={label} aria-expanded={open} on:click={() => (open = !open)}>
-    <span class="switcher-name">{current?.name ?? emptyName}</span>
+  <button
+    class="switcher-button"
+    bind:this={button}
+    title={label}
+    aria-label={label}
+    aria-expanded={open}
+    on:click={() => (open = !open)}
+  >
+    <span class="switcher-name truncate">{current?.name ?? emptyName}</span>
     <span class="switcher-caret">▾</span>
   </button>
 
-  {#if open}
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <div class="menu-backdrop" on:click={() => (open = false)}></div>
-    <div class="dropdown-menu" class:left={align === 'left'}>
+  <Popover bind:open anchor={button} align={align === 'left' ? 'start' : 'end'}>
+    <div class="dropdown-menu">
       <!-- The way out, before the list: it leaves this menu for the
            settings window rather than doing something to it, so it reads
            first and is fenced off below. -->
@@ -72,12 +80,12 @@
         </button>
       {/each}
     </div>
-  {/if}
+  </Popover>
 </div>
 
 <style>
   .switcher {
-    position: relative;
+    display: inline-flex;
   }
 
   /* Fills its container rather than sizing to the name — the sidebar
@@ -93,14 +101,6 @@
     padding-left: 0;
   }
 
-  /* .dropdown-menu hangs from the right, which is what the top bar
-     wants; under a full-width button it has to line up with the left
-     edge instead. */
-  .dropdown-menu.left {
-    left: 0;
-    right: auto;
-  }
-
   .switcher-button {
     display: flex;
     align-items: baseline;
@@ -114,14 +114,6 @@
   .switcher-button:hover {
     background: var(--fm-bg-hover);
     border-color: transparent;
-  }
-
-  /* Truncates rather than widening its container: a collection can be
-     called anything, and the sidebar is resizable down to 180px. */
-  .switcher-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .switcher-caret {

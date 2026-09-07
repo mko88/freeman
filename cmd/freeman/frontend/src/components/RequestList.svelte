@@ -41,12 +41,12 @@
     />
     <button class="icon-btn sidebar-new" title="New request" on:click={onNew}>+</button>
   </div>
-  <ul class="request-list">
+  <ul class="request-list scroll-pane">
     {#each collection?.items ?? [] as item (item.id)}
       <li class:active={item.id === selectedItemId} style="--m: {methodColor(item.method || 'GET')}">
         <button class="request-select" on:click={() => onSelect(item)}>
           <span class="method-tag">{item.method || 'GET'}</span>
-          <span class="request-select-name">{item.name}</span>
+          <span class="truncate">{item.name}</span>
         </button>
         <button class="icon-btn" title="Delete request" on:click={() => onDelete(item)}>×</button>
       </li>
@@ -82,12 +82,13 @@
     flex: none;
   }
 
+  /* .scroll-pane (style.css) supplies the overflow, the padding and the
+     margin — including the ul reset the padding would otherwise need,
+     since it sets both. Redeclaring either here would win on specificity
+     and quietly switch the utility off. */
   .request-list {
     list-style: none;
-    margin: 0;
-    padding: 0;
     flex: 1;
-    overflow-y: auto;
   }
 
   /* --m (set inline per-row from methodColor()) reads the same hue in
@@ -123,12 +124,6 @@
 
   .request-list li.active .request-select {
     background: var(--fm-bg-hover);
-  }
-
-  .request-select-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .request-list li .icon-btn {
