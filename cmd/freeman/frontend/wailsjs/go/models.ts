@@ -3,6 +3,7 @@ export namespace core {
 	export class CollectionSummary {
 	    id: string;
 	    name: string;
+	    itemCount: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new CollectionSummary(source);
@@ -12,11 +13,13 @@ export namespace core {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	        this.itemCount = source["itemCount"];
 	    }
 	}
 	export class EnvironmentSummary {
 	    id: string;
 	    name: string;
+	    variableCount: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new EnvironmentSummary(source);
@@ -26,6 +29,7 @@ export namespace core {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	        this.variableCount = source["variableCount"];
 	    }
 	}
 	export class WorkspaceInfo {

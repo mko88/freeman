@@ -361,6 +361,9 @@
           setEnvironmentField('name', payload.value)
         }
         break
+      case 'expandEnvironment':
+        await expandEnvironment(payload?.id ? String(payload.id) : '')
+        break
       case 'deleteEnvironment': {
         const id = payload?.id ? String(payload.id) : environmentId
         if (id) await deleteEnvironment(id)
@@ -735,12 +738,15 @@
 
   // Deleting asks first, the way deleting a request does — it takes every
   // request in it with it.
-  function confirmDeleteCollection() {
-    const name = collection?.name ?? 'this collection'
-    const count = collection?.items?.length ?? 0
-    const detail = count ? ` and its ${count} request${count === 1 ? '' : 's'}` : ''
-    if (confirm(`Delete "${name}"${detail}? This can't be undone from the app.`)) {
-      void guard(() => deleteCollection())
+  // Named and counted in the prompt, because the row you clicked isn't
+  // necessarily the collection you're working in — the settings list
+  // deletes any of them.
+  function confirmDeleteCollection(summary: core.CollectionSummary) {
+    const detail = summary.itemCount
+      ? ` and its ${summary.itemCount} request${summary.itemCount === 1 ? '' : 's'}`
+      : ''
+    if (confirm(`Delete "${summary.name}"${detail}? This can't be undone from the app.`)) {
+      void guard(() => deleteCollection(summary.id))
     }
   }
 
@@ -1022,15 +1028,52 @@
     }
   }
 
+  // The active environment: the one {{vars}} resolve against, picked in
+  // the top bar and sent to ExecuteRequest. It also opens in the
+  // settings list, since selecting one is a reason to want to look at
+  // it.
   async function selectEnvironment(id: string) {
     environmentId = id
     environment = await GetEnvironment(id)
   }
 
+  // Open an environment's variables in the settings list *without*
+  // making it the active one — the whole point of the list is that
+  // reading an environment and using it are different acts. `environment`
+  // is therefore "the one open in settings", which is why every
+  // environment ui:action operates on it. No id collapses whatever's
+  // open.
+  async function expandEnvironment(id: string) {
+    if (!id || environment?.id === id) {
+      environment = null
+      return
+    }
+    environment = await GetEnvironment(id)
+  }
+
+  // Edits commit when you leave the field, not on every keystroke — one
+  // rule across both settings lists, and the only one a collection
+  // rename could use anyway, since it moves a directory.
+  async function commitEnvironment() {
+    if (!environment) return
+    const saved = await SaveEnvironment(environment)
+    environment = saved
+    if (workspace) {
+      workspace.environments = workspace.environments.map((e) =>
+        e.id === saved.id ? { ...e, name: saved.name, variableCount: saved.variables.length } : e,
+      )
+    }
+  }
+
   async function newEnvironment(name = 'New environment') {
     const draft = { formatVersion: '1', id: '', name, variables: [] }
     const saved = await SaveEnvironment(draft as unknown as domain.Environment)
-    if (workspace) workspace.environments = [...workspace.environments, { id: saved.id, name: saved.name }]
+    if (workspace) {
+      workspace.environments = [
+        ...workspace.environments,
+        { id: saved.id, name: saved.name, variableCount: saved.variables?.length ?? 0 },
+      ]
+    }
     await selectEnvironment(saved.id)
   }
 
@@ -1055,10 +1098,9 @@
     }
   }
 
-  function confirmDeleteEnvironment() {
-    if (!environment) return
-    if (confirm(`Delete environment "${environment.name}"? This can't be undone from the app.`)) {
-      deleteEnvironment(environmentId)
+  function confirmDeleteEnvironment(summary: core.EnvironmentSummary) {
+    if (confirm(`Delete "${summary.name}"? This can't be undone from the app.`)) {
+      void guard(() => deleteEnvironment(summary.id))
     }
   }
 
@@ -1068,26 +1110,26 @@
   // functions themselves stay here: dispatchUIAction drives the same
   // ones, so a scripted selectEnvironment and a clicked one take
   // exactly the same path.
+  // Both lists take the same shape: act on the row you're pointing at,
+  // identified by id, rather than on whatever a picker elsewhere in the
+  // dialog happens to hold.
   const environmentActions = {
-    select: selectEnvironment,
-    create: () => newEnvironment(),
+    expand: (id: string) => guard(() => expandEnvironment(id)),
+    create: () => guard(async () => void (await newEnvironment())),
     setName: (value: string) => setEnvironmentField('name', value),
+    commit: () => guard(commitEnvironment),
     confirmDelete: confirmDeleteEnvironment,
     addVariable: () => addEnvironmentVariable(),
-    removeVariable: removeEnvironmentVariable,
-    save: saveEnvironment,
+    removeVariable: (index: number) =>
+      guard(async () => {
+        removeEnvironmentVariable(index)
+        await commitEnvironment()
+      }),
   }
 
-  // The same shape for collections, minus the variables — a collection
-  // is only its name here; its requests are edited in the sidebar. So
-  // there's nothing for a Save button to batch, and `rename` commits on
-  // its own. It's wired to the field's change event, not its input
-  // event: renaming moves a directory on disk, and doing that once per
-  // keystroke would leave a trail of them across a typed word.
   const collectionActions = {
-    select: (id: string) => guard(() => selectCollection(id)),
     create: () => guard(() => newCollection('New collection')),
-    rename: (value: string) => guard(() => renameCollection(value)),
+    rename: (id: string, value: string) => guard(() => renameCollection(value, id)),
     confirmDelete: confirmDeleteCollection,
   }
 
@@ -1350,7 +1392,6 @@
       bind:environmentId
       bind:environment
       bind:collectionId
-      {collection}
       env={environmentActions}
       coll={collectionActions}
       onClose={() => (showSettings = false)}

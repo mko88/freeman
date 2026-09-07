@@ -67,7 +67,14 @@
       payload: '{ tab }',
       desc: "Switch the settings window tab. tab is 'workspace', 'collections' or 'environments'.",
     },
-    { action: 'selectEnvironment', payload: '{ id }', desc: 'Switch the active environment.' },
+    { action: 'selectEnvironment', payload: '{ id }', desc: 'Switch the active environment (and open it in settings).' },
+    {
+      action: 'expandEnvironment',
+      payload: '{ id? }',
+      desc:
+        "Open an environment's variables in the settings list without making it the active one. " +
+        'No id closes whichever is open. The environment actions below all act on the open one.',
+    },
     { action: 'newEnvironment', payload: '—', desc: 'Create a new environment and switch to it.' },
     {
       action: 'setEnvironmentField',
@@ -77,7 +84,7 @@
     {
       action: 'deleteEnvironment',
       payload: '{ id? }',
-      desc: 'Delete an environment by id (default: the one in the editor). Refused for the last one; no confirmation.',
+      desc: 'Delete an environment by id (default: the active one). Refused for the last one; no confirmation.',
     },
     { action: 'selectCollection', payload: '{ id }', desc: 'Switch the active collection.' },
     { action: 'newCollection', payload: '{ name }', desc: 'Create a collection and switch to it.' },

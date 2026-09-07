@@ -10,9 +10,13 @@ import (
 	"freeman/internal/store"
 )
 
+// EnvironmentSummary is what the settings list shows for an environment
+// it hasn't opened: enough to name it and say how much is in it, without
+// loading its variables.
 type EnvironmentSummary struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	VariableCount int    `json:"variableCount"`
 }
 
 func (a *App) ListEnvironments() ([]EnvironmentSummary, error) {
@@ -32,7 +36,7 @@ func (a *App) listEnvironments() ([]EnvironmentSummary, error) {
 		if err != nil {
 			return nil, err
 		}
-		summaries = append(summaries, EnvironmentSummary{ID: id, Name: e.Name})
+		summaries = append(summaries, EnvironmentSummary{ID: id, Name: e.Name, VariableCount: len(e.Variables)})
 	}
 	return summaries, nil
 }

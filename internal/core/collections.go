@@ -10,9 +10,13 @@ import (
 	"freeman/internal/store"
 )
 
+// CollectionSummary is what the settings list and the top bar's picker
+// show for a collection they haven't opened: enough to name it and say
+// how much is in it, without loading its items.
 type CollectionSummary struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ItemCount int    `json:"itemCount"`
 }
 
 func (a *App) ListCollections() ([]CollectionSummary, error) {
@@ -32,9 +36,24 @@ func (a *App) listCollections() ([]CollectionSummary, error) {
 		if err != nil {
 			return nil, err
 		}
-		summaries = append(summaries, CollectionSummary{ID: id, Name: c.Name})
+		summaries = append(summaries, CollectionSummary{ID: id, Name: c.Name, ItemCount: countRequests(c.Items)})
 	}
 	return summaries, nil
+}
+
+// countRequests counts requests, not rows: a collection's tree nests, and
+// a folder isn't something the settings list is counting.
+func countRequests(items []domain.Item) int {
+	n := 0
+	for _, item := range items {
+		if len(item.Items) > 0 {
+			n += countRequests(item.Items)
+		}
+		if item.Type == domain.ItemTypeRequest {
+			n++
+		}
+	}
+	return n
 }
 
 func (a *App) GetCollection(id string) (*domain.Collection, error) {
