@@ -3,7 +3,7 @@
   // method. Selecting and deleting go back to App.svelte — both are also
   // control-API actions, and deleting asks for confirmation there.
   import type { domain } from '../../wailsjs/go/models'
-  import { methodColor } from '../lib/format'
+  import { methodColor, methodLabel } from '../lib/format'
   import Switcher from './Switcher.svelte'
 
   export let collection: domain.Collection | null
@@ -63,12 +63,17 @@
   <ul class="request-list scroll-pane">
     {#each shown as item (item.id)}
       <li class:active={item.id === selectedItemId} style="--m: {methodColor(item.method || 'GET')}">
-        <button class="request-select" on:click={() => onSelect(item)}>
-          <span class="method-tag">{item.method || 'GET'}</span>
+        <button class="request-select" title="{item.method || 'GET'} {item.name}" on:click={() => onSelect(item)}>
+          <span class="method-tag">{methodLabel(item.method)}</span>
           <span class="truncate">{item.name}</span>
         </button>
-        <button class="icon-btn" title="Duplicate request" on:click={() => onDuplicate(item)}>⧉</button>
-        <button class="icon-btn" title="Delete request" on:click={() => onDelete(item)}>×</button>
+        <!-- Over the end of the row rather than in it: at rest the name
+             gets the whole width, and these two only take space back
+             when the row is the one being pointed at. -->
+        <span class="row-actions">
+          <button class="icon-btn" title="Duplicate request" on:click={() => onDuplicate(item)}>⧉</button>
+          <button class="icon-btn" title="Delete request" on:click={() => onDelete(item)}>×</button>
+        </span>
       </li>
     {/each}
   </ul>
@@ -137,6 +142,7 @@
      both the left accent bar and the method tag text — one method, one
      color, everywhere it's shown. */
   .request-list li {
+    position: relative;
     display: flex;
     align-items: center;
     border-left: 2px solid var(--m, transparent);
@@ -168,16 +174,36 @@
     background: var(--fm-bg-hover);
   }
 
-  .request-list li .icon-btn {
-    flex-shrink: 0;
-    margin-right: 0.5rem;
+  /* Hidden until the row is pointed at, keyboard-focused, or selected —
+     but still in the accessibility tree and still tabbable, so this is
+     opacity rather than display. The fade on the left keeps a long name
+     from running into them. */
+  .row-actions {
+    position: absolute;
+    right: 0.35rem;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 0.15rem;
+    padding-left: 1.25rem;
+    background: linear-gradient(to right, transparent, var(--fm-bg-hover) 1.25rem);
+    opacity: 0;
   }
 
+  .request-list li:hover .row-actions,
+  .request-list li.active .row-actions,
+  .row-actions:focus-within {
+    opacity: 1;
+  }
+
+  /* Every badge the same width, so the names start in a column. 4ch
+     plus a little, because methodLabel caps the text at four characters
+     (see lib/format.ts). */
   .method-tag {
     font-size: 0.7rem;
     font-weight: 600;
     color: var(--m, var(--fm-text-muted));
-    width: 3.5rem;
+    width: 2.6rem;
     flex-shrink: 0;
   }
 </style>
