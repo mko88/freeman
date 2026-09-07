@@ -3,7 +3,7 @@
 Overview of what's implemented and what to build next. Status as of
 2026-09-04.
 
-Legend: ✅ done · 🟡 partial · ⬜ not started
+Legend: ✅ done · 🟡 partial · ⬜ not started · ❌ won't do
 
 ---
 
@@ -188,21 +188,13 @@ there's a test-results pane that error has nowhere to go that doesn't
 make a good response read as a failed request. The plan stays here in
 prose; git history keeps the interfaces.
 
-Still open from that review: CI, and no root README.
+Both items from that review are now closed.
 
-CI was written and then dropped before merging, because three Go tests
-execute real requests against httpbin.org — `core.TestExecuteRequestCommonMethods` (all five common methods), `core.TestVerticalSlice`, and
-`httpapi.TestVerticalSliceOverHTTP`. They're fast (~1.4s) and valuable
-locally, but on a shared runner they make the build red whenever httpbin
-is down or rate-limiting, which is how a team learns to ignore CI.
-Guard them with `testing.Short()` and run `go test -short -race ./...`
-in CI, and the rest is straightforward: no apt dependencies are needed,
-because the only cgo in the whole dependency graph is wails'
-`signal_linux.go` and it includes libc headers only — no GTK, no WebKit.
-Node must be pinned to 22 (same reason `.devcontainer/setup.sh` pins
-it). The suite's `--consistency-only` section is the part that runs
-without a GUI; the other 156 checks drive a real webview and have to
-stay local.
+**Root README — ✅ done (2026-09-07).** `README.md` at the repo root.
+
+**CI — ❌ won't do.** Decided 2026-09-07: not building it. Tests are run
+locally (`build.sh --full`, `py scripts/test_control_api.py`) and that
+is the workflow for this repo.
 
 ---
 
