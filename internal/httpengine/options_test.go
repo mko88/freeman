@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"freeman/internal/domain"
 )
@@ -152,5 +154,76 @@ func TestResetCookiesForgetsTheSession(t *testing.T) {
 	}
 	if resp.Body != "forgotten" {
 		t.Fatalf("the jar should be empty after a reset, got %q", resp.Body)
+	}
+}
+
+// httptest.NewTLSServer uses a certificate no system root signed, which
+// is exactly the shape of a staging box with a self-signed cert: without
+// the switch it can't be called at all.
+func TestExecuteSkipTLSVerify(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "secure")
+	}))
+	defer srv.Close()
+
+	item := domain.Item{Method: "GET", URL: srv.URL}
+	if _, err := Execute(context.Background(), item, nil); err == nil {
+		t.Fatal("expected an untrusted certificate to be refused by default")
+	}
+
+	item.Options = &domain.Options{FollowRedirects: true, StoreCookies: true, SkipTLSVerify: true}
+	resp, err := Execute(context.Background(), item, nil)
+	if err != nil {
+		t.Fatalf("Execute with SkipTLSVerify: %v", err)
+	}
+	if resp.Body != "secure" {
+		t.Fatalf("got %q", resp.Body)
+	}
+}
+
+// A bad certificate path has to say so, not fail as some opaque
+// transport error later on.
+func TestExecuteReportsUnreadableClientCert(t *testing.T) {
+	item := domain.Item{
+		Method: "GET",
+		URL:    "https://example.invalid",
+		Options: &domain.Options{
+			FollowRedirects:   true,
+			StoreCookies:      true,
+			ClientCertFile:    filepath.Join(t.TempDir(), "nope.pem"),
+			ClientCertKeyFile: filepath.Join(t.TempDir(), "nope.key"),
+		},
+	}
+	_, err := Execute(context.Background(), item, nil)
+	if err == nil || !strings.Contains(err.Error(), "client certificate") {
+		t.Fatalf("expected a client-certificate error, got %v", err)
+	}
+}
+
+// The per-request timeout overrides the app-wide default, in both
+// directions — this one is shorter than a slow endpoint.
+func TestExecutePerRequestTimeout(t *testing.T) {
+	original := RequestTimeout
+	RequestTimeout = 0 // no app-wide deadline, so only the option can stop it
+	defer func() { RequestTimeout = original }()
+
+	done := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-done
+	}))
+	defer srv.Close()
+	defer close(done)
+
+	item := domain.Item{
+		Method:  "GET",
+		URL:     srv.URL,
+		Options: &domain.Options{FollowRedirects: true, StoreCookies: true, TimeoutMs: 100},
+	}
+	start := time.Now()
+	if _, err := Execute(context.Background(), item, nil); err == nil {
+		t.Fatal("expected the per-request timeout to fire")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("should have given up in ~100ms, took %s", elapsed)
 	}
 }

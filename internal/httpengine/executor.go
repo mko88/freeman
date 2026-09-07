@@ -6,7 +6,9 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -67,8 +69,24 @@ func optionsOf(item domain.Item) domain.Options {
 // No Client.Timeout: Execute applies RequestTimeout as a context
 // deadline instead, so the caller's own cancellation still composes with
 // it rather than being shadowed.
-func clientFor(opts domain.Options) *http.Client {
+func clientFor(opts domain.Options) (*http.Client, func(), error) {
 	c := &http.Client{}
+	release := func() {}
+
+	if opts.TLS() {
+		tr, err := transportFor(opts)
+		if err != nil {
+			return nil, nil, err
+		}
+		c.Transport = tr
+		// This transport serves one request, so its idle connections
+		// would otherwise sit open with nothing able to reuse them —
+		// only a request with the same TLS settings could, and each one
+		// builds its own. Execute has read the body by the time this
+		// runs, so there's nothing in flight to cut off.
+		release = tr.CloseIdleConnections
+	}
+
 	if opts.StoreCookies {
 		c.Jar = cookies
 	}
@@ -77,7 +95,7 @@ func clientFor(opts domain.Options) *http.Client {
 		c.CheckRedirect = func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		}
-		return c
+		return c, release, nil
 	}
 	max := opts.MaxRedirects
 	if max <= 0 {
@@ -89,7 +107,28 @@ func clientFor(opts domain.Options) *http.Client {
 		}
 		return nil
 	}
-	return c
+	return c, release, nil
+}
+
+// transportFor clones the default transport so a request with its own
+// TLS settings still inherits everything else about it — proxy handling
+// from the environment, timeouts, HTTP/2.
+func transportFor(opts domain.Options) (*http.Transport, error) {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, errors.New("default transport is not an *http.Transport")
+	}
+	tr := base.Clone()
+	cfg := &tls.Config{InsecureSkipVerify: opts.SkipTLSVerify} //nolint:gosec // the point of the option
+	if opts.ClientCertFile != "" && opts.ClientCertKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(opts.ClientCertFile, opts.ClientCertKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("client certificate: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+	tr.TLSClientConfig = cfg
+	return tr, nil
 }
 
 // Execute builds an HTTP request from item — substituting {{var}} in the
@@ -98,9 +137,17 @@ func clientFor(opts domain.Options) *http.Client {
 // and/or file fields, x-www-form-urlencoded, or a whole file as binary)
 // against vars — and runs it, capturing the response.
 func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Response, error) {
-	if RequestTimeout > 0 {
+	opts := optionsOf(item)
+
+	// A per-request timeout overrides the app-wide default, and 0 still
+	// means "no deadline" for either.
+	timeout := RequestTimeout
+	if opts.TimeoutMs > 0 {
+		timeout = time.Duration(opts.TimeoutMs) * time.Millisecond
+	}
+	if timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, RequestTimeout)
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
 
@@ -154,8 +201,14 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 		}
 	}
 
+	httpClient, release, err := clientFor(opts)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	start := time.Now()
-	resp, err := clientFor(optionsOf(item)).Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -245,40 +245,48 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str, item_id:
     api.action("selectRequestTab", {"tab": "options"})
     state = poll(api.state, lambda s: s.get("tab") == "options")
     r.check("state.tab reflects selectRequestTab 'options'", state.get("tab") == "options", str(state.get("tab")))
-    r.check(
-        "options start at the defaults",
-        (state.get("options") or {}) == {"followRedirects": True, "maxRedirects": 0, "storeCookies": True},
-        str(state.get("options")),
-    )
+    defaults = {
+        "followRedirects": True,
+        "maxRedirects": 0,
+        "storeCookies": True,
+        "timeoutMs": 0,
+        "skipTlsVerify": False,
+        "clientCertFile": "",
+        "clientCertKeyFile": "",
+    }
+    r.check("options start at the defaults", (state.get("options") or {}) == defaults, str(state.get("options")))
 
-    r.step("setRequestOption followRedirects=false / maxRedirects=3 / storeCookies=false, saveRequest")
-    api.action("setRequestOption", {"field": "followRedirects", "value": False})
-    api.action("setRequestOption", {"field": "maxRedirects", "value": 3})
-    api.action("setRequestOption", {"field": "storeCookies", "value": False})
-    state = poll(api.state, lambda s: (s.get("options") or {}).get("maxRedirects") == 3)
-    r.check(
-        "state.options reflects setRequestOption",
-        (state.get("options") or {}) == {"followRedirects": False, "maxRedirects": 3, "storeCookies": False},
-        str(state.get("options")),
-    )
+    changed = {
+        "followRedirects": False,
+        "maxRedirects": 3,
+        "storeCookies": False,
+        "timeoutMs": 2500,
+        "skipTlsVerify": True,
+        "clientCertFile": "/tmp/client.pem",
+        "clientCertKeyFile": "/tmp/client.key",
+    }
+    r.step("setRequestOption for every field, saveRequest")
+    for field, value in changed.items():
+        api.action("setRequestOption", {"field": field, "value": value})
+    state = poll(api.state, lambda s: (s.get("options") or {}) == changed)
+    r.check("state.options reflects setRequestOption", (state.get("options") or {}) == changed, str(state.get("options")))
     api.action("saveRequest")
     collection = poll(
         lambda: api.get(f"/api/collections/{collection_id}"),
         lambda c: (find_item(c, TEST_REQUEST_NAME) or {}).get("options") is not None,
     )
     saved_options = (find_item(collection, TEST_REQUEST_NAME) or {}).get("options") or {}
+    # Go omits the zero-valued keys, so compare only what was set to
+    # something non-zero — the rest is absent by design.
     r.check(
         "options round-tripped to the collection file",
-        saved_options.get("followRedirects") is False
-        and saved_options.get("maxRedirects") == 3
-        and saved_options.get("storeCookies") is False,
+        all(saved_options.get(k) == v for k, v in changed.items() if v not in (0, "", False)),
         str(saved_options),
     )
 
     r.step("setRequestOption back to the defaults, saveRequest  (the key should disappear again)")
-    api.action("setRequestOption", {"field": "followRedirects", "value": True})
-    api.action("setRequestOption", {"field": "maxRedirects", "value": 0})
-    api.action("setRequestOption", {"field": "storeCookies", "value": True})
+    for field, value in defaults.items():
+        api.action("setRequestOption", {"field": field, "value": value})
     api.action("saveRequest")
     collection = poll(
         lambda: api.get(f"/api/collections/{collection_id}"),

@@ -48,6 +48,7 @@
     removeFormField: (index: number) => void
     pickFormFieldFile: (index: number) => void
     pickBinaryFile: () => void
+    pickClientCert: (which: 'cert' | 'key') => void
   }
 
   // Common values for a header the user has typed, matched
@@ -291,6 +292,41 @@
         </span>
       </span>
     </label>
+
+    <label class="option">
+      <input type="number" min="0" step="100" class="option-number" bind:value={draft.options.timeoutMs} />
+      <span class="option-text">
+        Timeout (ms)
+        <span class="option-hint">0 uses the app's default of 30 seconds.</span>
+      </span>
+    </label>
+
+    <label class="option">
+      <input type="checkbox" bind:checked={draft.options.skipTlsVerify} />
+      <span class="option-text">
+        Skip TLS certificate check
+        <span class="option-hint">
+          Accepts any certificate the server presents — for a staging box with a self-signed one, which
+          can't be called otherwise. It stops verifying that the server is who it claims to be, so leave
+          it off for anything you don't control.
+        </span>
+      </span>
+    </label>
+
+    <div class="option option-cert">
+      <span class="option-text">
+        Client certificate
+        <span class="option-hint">A PEM certificate and its key, presented to servers that ask for one (mutual TLS). Both or neither.</span>
+      </span>
+      <div class="option-cert-fields">
+        <input type="text" placeholder="certificate .pem" bind:value={draft.options.clientCertFile} />
+        <button on:click={() => rows.pickClientCert('cert')}>Choose…</button>
+      </div>
+      <div class="option-cert-fields">
+        <input type="text" placeholder="key .pem" bind:value={draft.options.clientCertKeyFile} />
+        <button on:click={() => rows.pickClientCert('key')}>Choose…</button>
+      </div>
+    </div>
   </div>
 {:else if activeTab === 'code'}
   <div class="code-tab">
@@ -452,7 +488,26 @@
   }
 
   .option-number {
-    width: 4.5rem;
+    width: 6rem;
+  }
+
+  /* The cert pair is two paths rather than one control, so its label
+     leads the block instead of sitting beside a checkbox. */
+  .option-cert {
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .option-cert-fields {
+    display: flex;
+    gap: 0.4rem;
+    width: 100%;
+    max-width: 34rem;
+  }
+
+  .option-cert-fields input {
+    flex: 1;
+    min-width: 0;
   }
 
   .body-mode-picker {

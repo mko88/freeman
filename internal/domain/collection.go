@@ -67,6 +67,24 @@ type Options struct {
 	// log-in-then-call-something flow possible. Off isolates the
 	// request from that session entirely.
 	StoreCookies bool `json:"storeCookies"`
+	// TimeoutMs overrides how long this request may take. 0 uses
+	// httpengine.RequestTimeout, the app-wide default.
+	TimeoutMs int `json:"timeoutMs,omitempty"`
+	// SkipTLSVerify accepts any server certificate — the switch for a
+	// staging box with a self-signed cert, which otherwise can't be
+	// called at all. It disables the check that the server is who it
+	// says it is, so it belongs to one request rather than the app.
+	SkipTLSVerify bool `json:"skipTlsVerify,omitempty"`
+	// ClientCertFile/ClientCertKeyFile are a PEM pair presented to the
+	// server: mutual TLS. Both are needed, or neither is used.
+	ClientCertFile    string `json:"clientCertFile,omitempty"`
+	ClientCertKeyFile string `json:"clientCertKeyFile,omitempty"`
+}
+
+// TLS reports whether any option needs a transport of its own — the
+// default one can't carry per-request TLS settings.
+func (o Options) TLS() bool {
+	return o.SkipTLSVerify || (o.ClientCertFile != "" && o.ClientCertKeyFile != "")
 }
 
 // AuthType selects how an Auth's fields become a request header at

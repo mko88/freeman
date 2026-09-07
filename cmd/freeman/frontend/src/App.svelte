@@ -534,11 +534,13 @@
       }
       case 'setRequestOption': {
         const field = payload?.field
-        if (field === 'followRedirects' || field === 'storeCookies') {
+        if (field === 'followRedirects' || field === 'storeCookies' || field === 'skipTlsVerify') {
           if (typeof payload?.value === 'boolean') draft.options[field] = payload.value
-        } else if (field === 'maxRedirects') {
+        } else if (field === 'maxRedirects' || field === 'timeoutMs') {
           const n = Number(payload?.value)
-          if (!Number.isNaN(n)) draft.options.maxRedirects = Math.max(0, Math.trunc(n))
+          if (!Number.isNaN(n)) draft.options[field] = Math.max(0, Math.trunc(n))
+        } else if (field === 'clientCertFile' || field === 'clientCertKeyFile') {
+          if (typeof payload?.value === 'string') draft.options[field] = payload.value
         }
         draft = draft
         break
@@ -890,6 +892,7 @@
     removeFormField: removeRequestFormField,
     pickFormFieldFile: pickRequestFormFieldFile,
     pickBinaryFile,
+    pickClientCert,
   }
 
   // Opens the native file picker (desktop only) and writes the chosen
@@ -905,6 +908,14 @@
   async function pickBinaryFile() {
     const path = await SelectFile()
     if (path) draft.binaryFilePath = path
+  }
+
+  async function pickClientCert(which: 'cert' | 'key') {
+    const path = await SelectFile()
+    if (!path) return
+    if (which === 'cert') draft.options.clientCertFile = path
+    else draft.options.clientCertKeyFile = path
+    draft = draft
   }
 
   // The draft editor state as a domain.Item — shared by saveRequest and
