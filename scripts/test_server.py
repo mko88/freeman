@@ -16,8 +16,14 @@ endpoint below answers on all three servers.
 request per endpoint, so there's something to click on rather than a
 list of paths to retype.
 
-Ctrl-C stops it. Nothing is written to disk and nothing listens off
-loopback unless you pass --host.
+Ctrl-C stops it. To keep your terminal instead, run it through
+`pwsh scripts/Start-TestServer.ps1`, which detaches it and waits until
+all three ports answer; `pwsh scripts/Stop-TestServer.ps1` stops it
+again.
+
+Nothing is written to disk except the small state file those two scripts
+read (see STATE_FILE), and nothing listens off loopback unless you pass
+--host.
 
 Requires Python 3.8+, standard library only.
 """
@@ -25,7 +31,10 @@ Requires Python 3.8+, standard library only.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -44,6 +53,13 @@ from control_api.server import (  # noqa: E402 - after the sys.path line above
 DEFAULT_PORT = 8100
 DEFAULT_TLS_PORT = 8101
 DEFAULT_MTLS_PORT = 8102
+
+# Written on startup and deleted on the way out, so Stop-TestServer.ps1
+# knows what to stop and on which ports without either side having to
+# repeat the defaults above. The pid in it is this process's own: `py`
+# is a launcher that spawns python as a child, so the pid the caller
+# sees when it starts us is the wrong one to signal.
+STATE_FILE = Path(tempfile.gettempdir()) / "freeman-test-server.json"
 
 # path, what it's for. Printed on startup so the window you leave this
 # running in doubles as the reference.
@@ -84,6 +100,11 @@ def main() -> int:
         help="interface to listen on (default: 127.0.0.1 — loopback only; anything else exposes it to your network)",
     )
     parser.add_argument("--quiet", action="store_true", help="don't print the endpoint list")
+    parser.add_argument(
+        "--state-file",
+        default=str(STATE_FILE),
+        help=f"where to record the pid and ports for Stop-TestServer.ps1 (default: {STATE_FILE})",
+    )
     args = parser.parse_args()
 
     try:
@@ -92,6 +113,24 @@ def main() -> int:
         print(f"[ERROR] couldn't listen: {e}")
         print("        something else is probably on one of those ports — pass --port/--tls-port/--mtls-port")
         return 2
+
+    state_file = Path(args.state_file)
+    state_file.write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "host": args.host,
+                "plain": servers.plain.port,
+                "tls": servers.tls.port,
+                "mtls": servers.mtls.port,
+                "baseUrl": servers.plain.base_url,
+                "tlsBaseUrl": servers.tls.base_url,
+                "mtlsBaseUrl": servers.mtls.base_url,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     print(f"  plain        {servers.plain.base_url}")
     print(f"  TLS          {servers.tls.base_url}   (self-signed: needs 'Skip TLS certificate check')")
@@ -106,7 +145,7 @@ def main() -> int:
         for path, desc in ENDPOINTS:
             print(f"  {path.ljust(width)}   {desc}")
 
-    print("\nCtrl-C to stop.")
+    print("\nCtrl-C to stop  (or: pwsh scripts/Stop-TestServer.ps1)")
     try:
         # Wait on an event rather than the serving threads: they're
         # daemons, and joining them would swallow Ctrl-C on Windows.
@@ -115,6 +154,7 @@ def main() -> int:
         print("\nStopping.")
     finally:
         servers.close()
+        state_file.unlink(missing_ok=True)
     return 0
 
 

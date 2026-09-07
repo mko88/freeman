@@ -97,6 +97,14 @@ setting. The certificate pairs and the brotli sample the server needs
 are committed under `scripts/control_api/testdata/`, with that
 directory's README explaining how to regenerate them.
 
+The same server runs standalone, for driving the app by hand:
+`pwsh scripts/Start-TestServer.ps1` puts it on fixed ports (8100/8101/
+8102) and detaches, `pwsh scripts/Stop-TestServer.ps1` stops it, and
+`py scripts/seed_test_requests.py` fills a "Test Server" collection with
+one saved request per endpoint and option worth demonstrating. Those
+write to the real workspace on purpose, and never overwrite a request
+that's already there.
+
 **Whenever a `ui:action` is added, removed, or its payload shape
 changes, update the matching module under `scripts/control_api/checks/`
 in the same change** — it's the regression suite for the rule above, not

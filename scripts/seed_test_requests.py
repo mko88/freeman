@@ -8,8 +8,13 @@ body modes, redirects, cookies, timeouts, TLS and mutual TLS — all
 already configured, and a "Test Server" environment holding the URLs
 they're written against.
 
-    py scripts/test_server.py            # in one terminal, leave running
-    py scripts/seed_test_requests.py     # in another, once
+    pwsh scripts/Start-TestServer.ps1    # detached; leaves your terminal
+    py scripts/seed_test_requests.py     # once
+    ...
+    pwsh scripts/Stop-TestServer.ps1     # when you're done
+
+(or `py scripts/test_server.py` in its own terminal, if you'd rather
+watch it.)
 
 Everything is created through the control API, the same path a click
 takes, so what lands on disk is exactly what the app would have saved.
@@ -367,7 +372,7 @@ def main() -> int:
 
     print(f"\n{created} created, {skipped} left alone.")
     print(f"The app is now on the {COLLECTION_NAME!r} collection and environment — switch back in the top bar.")
-    print("Start the server they point at with:  py scripts/test_server.py")
+    print("Start the server they point at with:  pwsh scripts/Start-TestServer.ps1")
     return 0
 
 
