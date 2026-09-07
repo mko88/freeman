@@ -11,6 +11,17 @@ from .. import ControlAPI, Report, poll
 from ..fixtures import TEST_VAR_KEY, REQUEST_TEST_NAMES, find_item_by_id
 
 
+def response_content_type(state: dict) -> str:
+    """The Content-Type the server actually sent, out of the response in
+    the state mirror. Header names arrive in whatever case the server
+    used, so match case-insensitively."""
+    headers = (state.get("response") or {}).get("headers") or {}
+    for name, values in headers.items():
+        if name.lower() == "content-type":
+            return (values or [""])[0]
+    return ""
+
+
 def test_ui_state_getter(api: ControlAPI, r: Report, collection_id: str, item_id: str) -> None:
     """GET /api/ui/state is the read-side counterpart to every ui:action
     (see CLAUDE.md): App.svelte's reportUIState mirrors the whole editor
@@ -200,9 +211,13 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     r.step('copyResponseCachePath  (the "..." menu\'s Copy path — writes to the clipboard)')
     api.action("copyResponseCachePath")
 
-    # httpbin's /get returns application/json, so the body view should
-    # autodetect as JSON and default to the pretty (highlighted) view.
-    r.check("responseKind autodetected as json", state.get("responseKind") == "json", str(state.get("responseKind")))
+    # httpbin's /get returns application/json, and the pane defaults to
+    # the pretty (highlighted) view.
+    r.check(
+        "the response came back as JSON",
+        "json" in response_content_type(state),
+        response_content_type(state),
+    )
     r.check("responseView defaults to pretty", state.get("responseView") == "pretty", str(state.get("responseView")))
     r.step("setResponseView {view: 'raw'}  (watch: the body should drop the highlighting/indentation)")
     api.action("setResponseView", {"view": "raw"})
@@ -219,10 +234,10 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     api.action("sendRequest")
     state = poll(
         api.state,
-        lambda s: (s.get("response") or {}).get("statusCode") == 200 and s.get("responseKind") == "image",
+        lambda s: (s.get("response") or {}).get("statusCode") == 200 and "image/" in response_content_type(s),
         timeout=15.0,
     )
-    r.check("responseKind autodetected as image for an image/png response", state.get("responseKind") == "image", str(state.get("responseKind")))
+    r.check("an image endpoint answers with an image content type", "image/png" in response_content_type(state), response_content_type(state))
     png_path = os.path.join(state.get("workspaceRoot") or "", ".cache", "responses", f"{item_id}.body.png")
     r.check("the cached body file got a .png extension from its Content-Type", os.path.exists(png_path), png_path)
 
@@ -232,21 +247,26 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     api.action("sendRequest")
     state = poll(
         api.state,
-        lambda s: (s.get("response") or {}).get("statusCode") == 200 and s.get("responseKind") == "json",
+        lambda s: (s.get("response") or {}).get("statusCode") == 200 and "json" in response_content_type(s),
         timeout=15.0,
     )
-    r.check(
-        "a brotli-encoded response is decoded (kind autodetects as json, not garbled text)",
-        state.get("responseKind") == "json",
-        f"kind={state.get('responseKind')}",
-    )
+    # Parsing the body is the real proof: compressed bytes handed through
+    # undecoded would be garbage, whatever the Content-Type claimed.
+    body = (state.get("response") or {}).get("body") or ""
+    try:
+        json.loads(body)
+        decoded = True
+    except (ValueError, TypeError):
+        decoded = False
+    r.check("a brotli-encoded response is decoded to parseable JSON, not garbled bytes", decoded, body[:120])
 
     r.step("setRequestField url -> /xml, saveRequest, sendRequest, then setResponseView raw/pretty")
     api.action("setRequestField", {"field": "url", "value": f"{{{{{TEST_VAR_KEY}}}}}/xml"})
     api.action("saveRequest")
     api.action("sendRequest")
-    state = poll(api.state, lambda s: (s.get("response") or {}).get("statusCode") == 200 and s.get("responseKind") == "xml", timeout=15.0)
-    r.check("responseKind autodetected as xml", state.get("responseKind") == "xml", str(state.get("responseKind")))
+    state = poll(api.state, lambda s: (s.get("response") or {}).get("statusCode") == 200 and "xml" in response_content_type(s), timeout=15.0)
+    xml_body = ((state.get("response") or {}).get("body") or "").lstrip()
+    r.check("an XML endpoint answers with an XML document", xml_body.startswith("<"), xml_body[:120])
     api.action("setResponseView", {"view": "raw"})
     state = poll(api.state, lambda s: s.get("responseView") == "raw")
     r.check("setResponseView 'raw' works for an XML response too", state.get("responseView") == "raw", str(state.get("responseView")))

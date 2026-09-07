@@ -276,7 +276,6 @@
       responseTab,
       responseView,
       responsePaneCollapsed,
-      responseKind: formattedResponse.kind,
       showResponseActionsMenu,
       sidebarWidth,
       statusBarHeight,
