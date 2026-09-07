@@ -1,0 +1,156 @@
+package httpengine
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"freeman/internal/domain"
+)
+
+func follow(v bool) *domain.Options { return &domain.Options{FollowRedirects: v, StoreCookies: true} }
+func cookiesOn(v bool) *domain.Options {
+	return &domain.Options{FollowRedirects: true, StoreCookies: v}
+}
+
+// A request that predates Options behaves exactly as it did before them:
+// redirects followed, cookies kept.
+func TestOptionsDefaultWhenUnset(t *testing.T) {
+	got := optionsOf(domain.Item{})
+	if !got.FollowRedirects || !got.StoreCookies {
+		t.Fatalf("an unset Options should follow and store, got %+v", got)
+	}
+}
+
+// Not following is the whole point of the switch: it's the only way to
+// see a 3xx at all, and so the only way to assert on its Location.
+func TestExecuteCanReturnTheRedirectItself(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/moved" {
+			http.Redirect(w, r, "/here", http.StatusMovedPermanently)
+			return
+		}
+		fmt.Fprint(w, "arrived")
+	}))
+	defer srv.Close()
+
+	item := domain.Item{Method: "GET", URL: srv.URL + "/moved", Options: follow(false)}
+	resp, err := Execute(context.Background(), item, nil)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if resp.StatusCode != http.StatusMovedPermanently {
+		t.Fatalf("expected the 301 itself, got %d", resp.StatusCode)
+	}
+	if loc := resp.Headers["Location"]; len(loc) == 0 || loc[0] != "/here" {
+		t.Fatalf("the Location header should survive, got %v", resp.Headers["Location"])
+	}
+
+	item.Options = follow(true)
+	resp, err = Execute(context.Background(), item, nil)
+	if err != nil {
+		t.Fatalf("Execute following: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK || resp.Body != "arrived" {
+		t.Fatalf("following should land on the target, got %d %q", resp.StatusCode, resp.Body)
+	}
+}
+
+// A redirect loop has to end somewhere, and the message has to say why.
+func TestExecuteStopsAtMaxRedirects(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/again", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	item := domain.Item{
+		Method:  "GET",
+		URL:     srv.URL,
+		Options: &domain.Options{FollowRedirects: true, MaxRedirects: 3, StoreCookies: true},
+	}
+	_, err := Execute(context.Background(), item, nil)
+	if err == nil {
+		t.Fatal("expected an error once the cap was hit")
+	}
+	if !strings.Contains(err.Error(), "stopped after 3 redirects") {
+		t.Fatalf("the error should say what stopped it, got %v", err)
+	}
+}
+
+// The reason the jar exists: sign in on one request, be signed in on the
+// next. Both requests are separate Execute calls, as they are in the app.
+func TestExecuteCarriesCookiesBetweenRequests(t *testing.T) {
+	ResetCookies()
+	defer ResetCookies()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "abc123", Path: "/"})
+			fmt.Fprint(w, "ok")
+			return
+		}
+		if c, err := r.Cookie("session"); err == nil {
+			fmt.Fprintf(w, "signed in as %s", c.Value)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, "anonymous")
+	}))
+	defer srv.Close()
+
+	if _, err := Execute(context.Background(), domain.Item{Method: "GET", URL: srv.URL + "/login"}, nil); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	resp, err := Execute(context.Background(), domain.Item{Method: "GET", URL: srv.URL + "/me"}, nil)
+	if err != nil {
+		t.Fatalf("me: %v", err)
+	}
+	if resp.Body != "signed in as abc123" {
+		t.Fatalf("the session cookie should have been sent back, got %q", resp.Body)
+	}
+
+	// Opting out isolates a request from that session — which is what
+	// makes a test that must run anonymous expressible.
+	resp, err = Execute(context.Background(), domain.Item{Method: "GET", URL: srv.URL + "/me", Options: cookiesOn(false)}, nil)
+	if err != nil {
+		t.Fatalf("me without cookies: %v", err)
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("a request that stores no cookies should send none, got %d %q", resp.StatusCode, resp.Body)
+	}
+}
+
+// ResetCookies is what core.App calls when a workspace opens: cookies
+// belong to whoever you were talking to, not to the app.
+func TestResetCookiesForgetsTheSession(t *testing.T) {
+	ResetCookies()
+	defer ResetCookies()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "abc123", Path: "/"})
+			return
+		}
+		if _, err := r.Cookie("session"); err == nil {
+			fmt.Fprint(w, "remembered")
+			return
+		}
+		fmt.Fprint(w, "forgotten")
+	}))
+	defer srv.Close()
+
+	if _, err := Execute(context.Background(), domain.Item{Method: "GET", URL: srv.URL + "/login"}, nil); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	ResetCookies()
+	resp, err := Execute(context.Background(), domain.Item{Method: "GET", URL: srv.URL + "/me"}, nil)
+	if err != nil {
+		t.Fatalf("me: %v", err)
+	}
+	if resp.Body != "forgotten" {
+		t.Fatalf("the jar should be empty after a reset, got %q", resp.Body)
+	}
+}

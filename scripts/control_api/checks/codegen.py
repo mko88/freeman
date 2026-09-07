@@ -45,7 +45,10 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
             "url='https://httpbin.org/post'",
             "-H 'X-Trace: abc'",
             "-H 'Authorization: Bearer t0ken'",
-            'curl -X POST "$url" \\\n  "${headers[@]}"',
+            # -L because the request follows redirects and curl doesn't
+            # unless told — the generated script has to send what Send
+            # sends. See the Options tab.
+            'curl -X POST -L "$url" \\\n  "${headers[@]}"',
         ],
         "powershell": [
             "$uri = 'https://httpbin.org/post'",

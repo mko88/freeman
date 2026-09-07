@@ -238,6 +238,58 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str, item_id:
         str(find_item(collection, TEST_REQUEST_NAME)),
     )
 
+    # How the request is sent, rather than what is sent — the Options
+    # tab. Defaults are follow redirects and share the cookie jar, so an
+    # untouched request carries no options key at all.
+    r.step("selectRequestTab 'options'")
+    api.action("selectRequestTab", {"tab": "options"})
+    state = poll(api.state, lambda s: s.get("tab") == "options")
+    r.check("state.tab reflects selectRequestTab 'options'", state.get("tab") == "options", str(state.get("tab")))
+    r.check(
+        "options start at the defaults",
+        (state.get("options") or {}) == {"followRedirects": True, "maxRedirects": 0, "storeCookies": True},
+        str(state.get("options")),
+    )
+
+    r.step("setRequestOption followRedirects=false / maxRedirects=3 / storeCookies=false, saveRequest")
+    api.action("setRequestOption", {"field": "followRedirects", "value": False})
+    api.action("setRequestOption", {"field": "maxRedirects", "value": 3})
+    api.action("setRequestOption", {"field": "storeCookies", "value": False})
+    state = poll(api.state, lambda s: (s.get("options") or {}).get("maxRedirects") == 3)
+    r.check(
+        "state.options reflects setRequestOption",
+        (state.get("options") or {}) == {"followRedirects": False, "maxRedirects": 3, "storeCookies": False},
+        str(state.get("options")),
+    )
+    api.action("saveRequest")
+    collection = poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: (find_item(c, TEST_REQUEST_NAME) or {}).get("options") is not None,
+    )
+    saved_options = (find_item(collection, TEST_REQUEST_NAME) or {}).get("options") or {}
+    r.check(
+        "options round-tripped to the collection file",
+        saved_options.get("followRedirects") is False
+        and saved_options.get("maxRedirects") == 3
+        and saved_options.get("storeCookies") is False,
+        str(saved_options),
+    )
+
+    r.step("setRequestOption back to the defaults, saveRequest  (the key should disappear again)")
+    api.action("setRequestOption", {"field": "followRedirects", "value": True})
+    api.action("setRequestOption", {"field": "maxRedirects", "value": 0})
+    api.action("setRequestOption", {"field": "storeCookies", "value": True})
+    api.action("saveRequest")
+    collection = poll(
+        lambda: api.get(f"/api/collections/{collection_id}"),
+        lambda c: "options" not in (find_item(c, TEST_REQUEST_NAME) or {"options": 1}),
+    )
+    r.check(
+        "an all-default request carries no options key",
+        "options" not in (find_item(collection, TEST_REQUEST_NAME) or {}),
+        str(find_item(collection, TEST_REQUEST_NAME)),
+    )
+
 
 def test_delete_request(api: ControlAPI, r: Report, collection_id: str) -> None:
     """Fully self-contained: creates DELETE_TEST_NAME and deletes it

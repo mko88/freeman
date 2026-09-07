@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"freeman/internal/httpengine"
 	"freeman/internal/store"
 )
 
@@ -60,6 +61,10 @@ func (a *App) OpenWorkspace(root string) (*WorkspaceInfo, error) {
 		return nil, err
 	}
 	a.ws = ws
+
+	// A new workspace is a different set of APIs, so whatever session the
+	// last one had established doesn't belong to it.
+	httpengine.ResetCookies()
 
 	if len(ws.CollectionPaths) == 0 {
 		if _, err := a.createCollection("My Requests"); err != nil {

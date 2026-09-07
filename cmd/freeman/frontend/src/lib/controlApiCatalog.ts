@@ -191,7 +191,7 @@ export const uiActions: UiAction[] = [
     action: 'selectRequestTab',
     payload: '{ tab }',
     desc:
-      "Switch the request editor tab. tab is 'params', 'headers', 'auth', 'body' or 'code'. " +
+      "Switch the request editor tab. tab is 'params', 'headers', 'auth', 'body', 'options' or 'code'. " +
       "'code' hides the response pane; the response itself is unaffected and still readable through /api/ui/state.",
   },
   {
@@ -237,6 +237,15 @@ export const uiActions: UiAction[] = [
     action: 'setStatusBarHeight',
     payload: '{ px }',
     desc: 'Resize the control API log panel (clamped to a sane range).',
+  },
+  {
+    action: 'setRequestOption',
+    payload: '{ field, value }',
+    desc:
+      'Set how the request is sent, as opposed to what is sent. ' +
+      "field is 'followRedirects' (boolean — off returns the 3xx itself, the only way to assert on a " +
+      "redirect), 'maxRedirects' (number, 0 for the default of 10), or 'storeCookies' (boolean — the " +
+      'shared cookie jar, so signing in on one request authenticates the next). Persisted by saveRequest.',
   },
   {
     action: 'setRequestField',

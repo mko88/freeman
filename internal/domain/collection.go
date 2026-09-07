@@ -43,6 +43,30 @@ type Item struct {
 	Body             *Body        `json:"body,omitempty"`
 	PreRequestScript string       `json:"preRequestScript,omitempty"`
 	TestScript       string       `json:"testScript,omitempty"`
+	Options          *Options     `json:"options,omitempty"`
+}
+
+// Options are the per-request transport switches — the things that
+// change how a request is sent rather than what is sent. nil means a
+// request that predates them, or one nobody has touched: see
+// httpengine's optionsOf, which supplies the defaults.
+//
+// The fields are positive ("follow", "store") rather than negations, so
+// the UI reads as what will happen. That costs an explicit nil check on
+// load, which is why Item.Options is a pointer: a zero Options{} means
+// "don't follow, don't store", and only the pointer can tell that apart
+// from "never set".
+type Options struct {
+	// FollowRedirects off returns the 3xx itself — which is the only way
+	// to assert on a redirect's status or its Location header.
+	FollowRedirects bool `json:"followRedirects"`
+	// MaxRedirects caps the chain when following. 0 means the default.
+	MaxRedirects int `json:"maxRedirects,omitempty"`
+	// StoreCookies puts this request on the shared jar: Set-Cookie is
+	// kept and sent back on later requests, which is what makes a
+	// log-in-then-call-something flow possible. Off isolates the
+	// request from that session entirely.
+	StoreCookies bool `json:"storeCookies"`
 }
 
 // AuthType selects how an Auth's fields become a request header at

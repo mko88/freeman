@@ -30,7 +30,9 @@ func TestGenerateGETWithParamsHeadersAndVars(t *testing.T) {
 		"#!/usr/bin/env bash\nset -euo pipefail\n",
 		"url='https://api.example.com/users?active=true'",
 		"headers=(\n  -H 'Accept: application/json'\n)",
-		"curl -X GET \"$url\" \\\n  \"${headers[@]}\"",
+		// -L because Freeman follows redirects and curl doesn't unless
+		// told — see TestGenerateMatchesRedirectOptions.
+		"curl -X GET -L \"$url\" \\\n  \"${headers[@]}\"",
 	} {
 		if !strings.Contains(bash, want) {
 			t.Fatalf("bash script missing %q:\n%s", want, bash)
@@ -321,6 +323,34 @@ func TestGenerateFormDataAndBinary(t *testing.T) {
 	if got := mustGen(t, bin, nil, FormatPowerShell); !strings.Contains(got, "$file = '/tmp/x.bin'") ||
 		!strings.Contains(got, "-InFile $file") {
 		t.Fatalf("binary PS wrong:\n%s", got)
+	}
+}
+
+// The generated command has to send what Send sends, and both tools
+// disagree with Freeman's defaults in opposite directions: curl doesn't
+// follow redirects at all, Invoke-RestMethod follows up to five.
+func TestGenerateMatchesRedirectOptions(t *testing.T) {
+	item := domain.Item{Method: "GET", URL: "https://api.example.com/thing"}
+
+	// Unset options mean the defaults, which follow.
+	if got := mustGen(t, item, nil, FormatBash); !strings.Contains(got, "curl -X GET -L ") {
+		t.Fatalf("a request that follows should generate -L:\n%s", got)
+	}
+
+	item.Options = &domain.Options{FollowRedirects: false, StoreCookies: true}
+	if got := mustGen(t, item, nil, FormatBash); strings.Contains(got, " -L ") {
+		t.Fatalf("a request that doesn't follow should not generate -L:\n%s", got)
+	}
+	if got := mustGen(t, item, nil, FormatPowerShell); !strings.Contains(got, "-MaximumRedirection 0") {
+		t.Fatalf("PowerShell follows by default, so not following has to be spelled out:\n%s", got)
+	}
+
+	item.Options = &domain.Options{FollowRedirects: true, MaxRedirects: 3, StoreCookies: true}
+	if got := mustGen(t, item, nil, FormatBash); !strings.Contains(got, "--max-redirs 3") {
+		t.Fatalf("a redirect cap should carry into curl:\n%s", got)
+	}
+	if got := mustGen(t, item, nil, FormatPowerShell); !strings.Contains(got, "-MaximumRedirection 3") {
+		t.Fatalf("a redirect cap should carry into PowerShell:\n%s", got)
 	}
 }
 

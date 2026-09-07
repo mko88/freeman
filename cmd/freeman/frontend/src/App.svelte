@@ -35,7 +35,15 @@
   import { formatBytes, formatDuration, methodColor, reasonPhrase, statusTone } from './lib/format'
   import { detectResponseKind, formatResponse } from './lib/responseFormat'
   import type { BodyLanguage, ResponseView } from './lib/responseFormat'
-  import { bodyModes, codeFormats, emptyAuth, emptyDraft, methods } from './lib/requestDraft'
+  import {
+    bodyModes,
+    changedOptionCount,
+    codeFormats,
+    defaultOptions,
+    emptyAuth,
+    emptyDraft,
+    methods,
+  } from './lib/requestDraft'
   import type { AuthType, BodyMode, CodeFormat, FormFieldType, RequestDraft, RequestTab } from './lib/requestDraft'
 
   // The request currently in the editor, before it's saved. RequestEditor
@@ -466,7 +474,14 @@
         break
       case 'selectRequestTab': {
         const tab = payload?.tab
-        if (tab === 'params' || tab === 'headers' || tab === 'auth' || tab === 'body' || tab === 'code') {
+        if (
+          tab === 'params' ||
+          tab === 'headers' ||
+          tab === 'auth' ||
+          tab === 'body' ||
+          tab === 'options' ||
+          tab === 'code'
+        ) {
           selectRequestEditorTab(tab)
         }
         break
@@ -515,6 +530,17 @@
           responseHeight = clamp(px, RESPONSE_HEIGHT_RANGE)
           saveLayoutPrefs()
         }
+        break
+      }
+      case 'setRequestOption': {
+        const field = payload?.field
+        if (field === 'followRedirects' || field === 'storeCookies') {
+          if (typeof payload?.value === 'boolean') draft.options[field] = payload.value
+        } else if (field === 'maxRedirects') {
+          const n = Number(payload?.value)
+          if (!Number.isNaN(n)) draft.options.maxRedirects = Math.max(0, Math.trunc(n))
+        }
+        draft = draft
         break
       }
       case 'setRequestField': {
@@ -788,6 +814,10 @@
         ? item.body.formFields.map((f) => ({ type: 'text', filePath: '', ...f }))
         : [],
       binaryFilePath: item.body?.binaryFilePath || '',
+      // Absent for anything saved before options existed, and for
+      // anything nobody has changed — the same defaults httpengine
+      // applies in that case.
+      options: item.options ? { ...defaultOptions(), ...item.options } : defaultOptions(),
     }
     sendError = ''
     responseDataUri = null
@@ -896,6 +926,10 @@
         formFields: isFormMode ? draft.formFields : [],
         binaryFilePath: draft.bodyMode === 'binary' ? draft.binaryFilePath : '',
       },
+      // Omitted while everything is default, so an untouched request
+      // doesn't grow an options block in its collection.json — and so a
+      // future change of default reaches requests nobody has customised.
+      options: changedOptionCount(draft.options) ? { ...draft.options } : undefined,
     } as unknown as domain.Item
   }
 
