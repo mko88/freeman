@@ -221,10 +221,19 @@
     margin-bottom: 0.75rem;
   }
 
+  /* overflow-y makes this a scroll container, and a scroll container
+     clips at its own edges — including horizontally, since overflow-x
+     computes to auto alongside it. Anything flush against the left edge
+     then loses part of its focus ring, which sits 3px outside the box
+     (a 2px outline at 1px offset). The padding gives the ring room and
+     the matching negative margin puts the content back where it was;
+     both fit inside .modal's own 1.25rem padding. */
   .settings-body {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    padding-inline: 4px;
+    margin-inline: -4px;
   }
 
   .workspace-path {
