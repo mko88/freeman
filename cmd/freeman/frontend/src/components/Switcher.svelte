@@ -40,6 +40,17 @@
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <div class="menu-backdrop" on:click={() => (open = false)}></div>
     <div class="dropdown-menu">
+      <!-- The way out, before the list: it leaves this menu for the
+           settings window rather than doing something to it, so it reads
+           first and is fenced off below. -->
+      <button
+        class="switcher-escape"
+        on:click={() => {
+          open = false
+          onEdit()
+        }}>Edit {label.toLowerCase()}s…</button
+      >
+      <div class="dropdown-divider"></div>
       {#each items as item (item.id)}
         <button
           class="switcher-item"
@@ -52,13 +63,6 @@
           {item.name}
         </button>
       {/each}
-      <div class="dropdown-divider"></div>
-      <button
-        on:click={() => {
-          open = false
-          onEdit()
-        }}>Edit {label.toLowerCase()}s…</button
-      >
     </div>
   {/if}
 </div>
@@ -95,11 +99,25 @@
     box-shadow: inset 2px 0 0 var(--fm-accent);
   }
 
-  /* Stronger than the hairline between items, because this break means
-     something the others don't: above it you pick one, below it you
-     leave for the window that changes them. */
+  /* The shortcut out of the menu. Set apart from the names below it by
+     weight rather than colour — the accent is spent on which item is
+     current, and two accents in a menu this small would compete. */
+  .switcher-escape {
+    color: var(--fm-text-muted);
+    font-size: 0.8rem;
+  }
+
+  .switcher-escape:hover {
+    color: var(--fm-text);
+  }
+
+  /* A rule with air around it, not just another hairline: consecutive
+     items already have one between each pair, so a third identical line
+     would read as one more item boundary. The margin is transparent, so
+     the menu's own background shows through it. */
   .dropdown-divider {
     height: 1px;
+    margin: 0.3rem 0;
     background: var(--fm-border);
   }
 </style>

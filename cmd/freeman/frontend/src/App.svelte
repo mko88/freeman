@@ -1205,32 +1205,38 @@
          rather than in Settings: a collection is what fills the sidebar
          all day, and reaching either through a preferences window meant
          opening a dialog to change what you're looking at. -->
-    {#if workspace}
-      <Switcher
-        label="Collection"
-        items={workspace.collections}
-        selectedId={collectionId}
-        emptyName="No collection"
-        bind:open={showCollectionMenu}
-        onSelect={(id) => void guard(() => selectCollection(id))}
-        onEdit={() => openSettingsTab('collections')}
-      />
-      <Switcher
-        label="Environment"
-        items={workspace.environments}
-        selectedId={environmentId}
-        emptyName="No environment"
-        bind:open={showEnvironmentMenu}
-        onSelect={(id) => void guard(() => selectEnvironment(id))}
-        onEdit={() => openSettingsTab('environments')}
-      />
-    {/if}
-    <span class="top-bar-actions">
+    <!-- Everything that isn't the app's name is grouped right, so the
+         two pickers sit with the buttons rather than floating between
+         them — .top-bar is space-between, which would otherwise spread
+         four children across the whole width. -->
+    <div class="top-bar-right">
       {#if workspace}
-        <button class="icon-btn top-bar-btn" title="Settings" on:click={() => (showSettings = true)}>⚙</button>
+        <Switcher
+          label="Collection"
+          items={workspace.collections}
+          selectedId={collectionId}
+          emptyName="No collection"
+          bind:open={showCollectionMenu}
+          onSelect={(id) => void guard(() => selectCollection(id))}
+          onEdit={() => openSettingsTab('collections')}
+        />
+        <Switcher
+          label="Environment"
+          items={workspace.environments}
+          selectedId={environmentId}
+          emptyName="No environment"
+          bind:open={showEnvironmentMenu}
+          onSelect={(id) => void guard(() => selectEnvironment(id))}
+          onEdit={() => openSettingsTab('environments')}
+        />
       {/if}
-      <button class="icon-btn top-bar-btn" title="Control API help" on:click={() => (showHelp = true)}>?</button>
-    </span>
+      <span class="top-bar-actions">
+        {#if workspace}
+          <button class="icon-btn top-bar-btn" title="Settings" on:click={() => (showSettings = true)}>⚙</button>
+        {/if}
+        <button class="icon-btn top-bar-btn" title="Control API help" on:click={() => (showHelp = true)}>?</button>
+      </span>
+    </div>
   </header>
 
 {#if !workspace}
@@ -1378,6 +1384,12 @@
   .top-bar-title {
     font-weight: 600;
     letter-spacing: -0.01em;
+  }
+
+  .top-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .top-bar-actions {

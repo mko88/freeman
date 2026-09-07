@@ -19,12 +19,6 @@
     <span>{collection?.name ?? ''}</span>
     <button class="icon-btn" title="New request" on:click={onNew}>+</button>
   </div>
-  {#if collection && !collection.items?.length}
-    <!-- A new collection would otherwise be a blank panel that looks
-         like something failed to load. Names the control that fills it
-         rather than just saying it's empty. -->
-    <p class="request-list-empty">No requests yet — <button class="link" on:click={onNew}>add one</button>.</p>
-  {/if}
   <ul class="request-list">
     {#each collection?.items ?? [] as item (item.id)}
       <li class:active={item.id === selectedItemId} style="--m: {methodColor(item.method || 'GET')}">
@@ -39,29 +33,6 @@
 </aside>
 
 <style>
-  .request-list-empty {
-    margin: 0;
-    padding: 0.75rem;
-    font-size: 0.8rem;
-    color: var(--fm-text-muted);
-  }
-
-  /* A button that reads as prose, so the empty state can name the "+"
-     above it as something to press rather than describing where it is. */
-  .request-list-empty .link {
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: inherit;
-    color: var(--fm-accent);
-    text-decoration: underline;
-  }
-
-  .request-list-empty .link:hover {
-    background: none;
-    border-color: transparent;
-  }
-
   /* No width here — set inline from sidebarWidth (see the splitter next
      to it). */
   .sidebar {
