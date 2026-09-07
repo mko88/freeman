@@ -82,7 +82,8 @@
   let collection: domain.Collection | null = null
   let selectedItemId: string | null = null
 
-  // The two top-bar switchers' open state.
+  // The two pickers' open state — the collection's lives above the
+  // request list, the environment's in the top bar.
   let showCollectionMenu = false
   let showEnvironmentMenu = false
 
@@ -91,9 +92,9 @@
   let showSettings = false
   // The settings window's tabs: the workspace folder, and the two things
   // it holds many of. Collections and environments are managed there
-  // rather than from the top bar's switchers, which only pick one —
-  // creating and deleting are occasional, and don't belong a slip away
-  // from a control used several times an hour.
+  // rather than from the pickers, which only pick one — creating and
+  // deleting are occasional, and don't belong a slip away from a control
+  // used several times an hour.
   type SettingsTab = 'workspace' | 'collections' | 'environments'
   let settingsTab: SettingsTab = 'workspace'
 
@@ -1354,26 +1355,16 @@
 <div class="app-shell" class:is-resizing={draggingSplitter !== null}>
   <header class="top-bar">
     <span class="top-bar-title">Freeman</span>
-    <!-- What you're working in and what you're resolving {{vars}}
-         against — the two workspace-level choices. They belong here
-         rather than in Settings: a collection is what fills the sidebar
-         all day, and reaching either through a preferences window meant
-         opening a dialog to change what you're looking at. -->
+    <!-- What {{vars}} resolve against. It belongs here rather than in
+         Settings: reaching it through a preferences window meant opening
+         a dialog to change what you're looking at. The collection picker
+         is in the sidebar instead, above the requests it fills. -->
     <!-- Everything that isn't the app's name is grouped right, so the
-         two pickers sit with the buttons rather than floating between
-         them — .top-bar is space-between, which would otherwise spread
-         four children across the whole width. -->
+         picker sits with the buttons rather than floating between them —
+         .top-bar is space-between, which would otherwise spread the
+         children across the whole width. -->
     <div class="top-bar-right">
       {#if workspace}
-        <Switcher
-          label="Collection"
-          items={workspace.collections}
-          selectedId={collectionId}
-          emptyName="No collection"
-          bind:open={showCollectionMenu}
-          onSelect={(id) => void guard(() => selectCollection(id))}
-          onEdit={() => openSettingsTab('collections')}
-        />
         <Switcher
           label="Environment"
           items={workspace.environments}
@@ -1407,6 +1398,11 @@
       {collection}
       {selectedItemId}
       width={sidebarWidth}
+      collections={workspace.collections}
+      {collectionId}
+      bind:collectionMenuOpen={showCollectionMenu}
+      onSelectCollection={(id) => void guard(() => selectCollection(id))}
+      onEditCollections={() => openSettingsTab('collections')}
       onNew={newRequest}
       onSelect={selectRequest}
       onDelete={confirmDeleteRequest}

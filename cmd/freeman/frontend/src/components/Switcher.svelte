@@ -1,8 +1,9 @@
 <script lang="ts">
-  // A top-bar picker for one of the two things a workspace holds many of:
-  // the open collection, and the active environment. Both are the same
-  // shape — a named list you pick one of — so they're one component
-  // rather than two that drift.
+  // A picker for one of the two things a workspace holds many of: the
+  // open collection, above the request list it fills, and the active
+  // environment, in the top bar. Both are the same shape — a named list
+  // you pick one of — so they're one component rather than two that
+  // drift.
   //
   // Picking only. Creating, renaming and deleting live in the settings
   // window, which this links to: those are occasional, and putting them
@@ -23,10 +24,17 @@
   export let onSelect: (id: string) => void
   export let onEdit: () => void
 
+  // Which edge the menu hangs from, and whether the button fills its
+  // container. The top bar wants a button sized to its name with the
+  // menu hanging right; the sidebar wants the full column width with
+  // the menu under the left edge.
+  export let align: 'left' | 'right' = 'right'
+  export let block = false
+
   $: current = items.find((i) => i.id === selectedId)
 </script>
 
-<div class="switcher">
+<div class="switcher" class:block>
   <!-- The name alone, no label beside it: two of these sit together and
        the tooltip says which is which, rather than spending bar width on
        a word that never changes. -->
@@ -39,7 +47,7 @@
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <div class="menu-backdrop" on:click={() => (open = false)}></div>
-    <div class="dropdown-menu">
+    <div class="dropdown-menu" class:left={align === 'left'}>
       <!-- The way out, before the list: it leaves this menu for the
            settings window rather than doing something to it, so it reads
            first and is fenced off below. -->
@@ -72,6 +80,27 @@
     position: relative;
   }
 
+  /* Fills its container rather than sizing to the name — the sidebar
+     gives it a whole column, and a button floating at the left of an
+     empty header reads as unrelated to the list under it. */
+  .switcher.block,
+  .switcher.block .switcher-button {
+    width: 100%;
+  }
+
+  .switcher.block .switcher-button {
+    justify-content: space-between;
+    padding-left: 0;
+  }
+
+  /* .dropdown-menu hangs from the right, which is what the top bar
+     wants; under a full-width button it has to line up with the left
+     edge instead. */
+  .dropdown-menu.left {
+    left: 0;
+    right: auto;
+  }
+
   .switcher-button {
     display: flex;
     align-items: baseline;
@@ -87,7 +116,16 @@
     border-color: transparent;
   }
 
+  /* Truncates rather than widening its container: a collection can be
+     called anything, and the sidebar is resizable down to 180px. */
+  .switcher-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .switcher-caret {
+    flex: none;
     font-size: 0.7rem;
     color: var(--fm-text-muted);
   }
