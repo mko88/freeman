@@ -363,6 +363,7 @@ export namespace httpengine {
 	    truncated?: boolean;
 	    bodyFile?: string;
 	    capped?: boolean;
+	    bodyBase64?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Response(source);
@@ -379,6 +380,7 @@ export namespace httpengine {
 	        this.truncated = source["truncated"];
 	        this.bodyFile = source["bodyFile"];
 	        this.capped = source["capped"];
+	        this.bodyBase64 = source["bodyBase64"];
 	    }
 	}
 

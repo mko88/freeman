@@ -125,9 +125,8 @@
 
       <!-- No labels: each value says what it is by its own shape — a
            bare number coloured by class, a duration with a unit, a size
-           with a unit, a type name. The labels were repeating that in
-           words. Where a value is rounded for reading, the exact figure
-           is a tooltip. -->
+           with a unit. Where a value is rounded for reading, the exact
+           figure is a tooltip. -->
       <div class="response-meta">
         <span
           class="response-stat status status-{statusTone(response.statusCode)}"
@@ -146,7 +145,6 @@
         >
           {formatBytes(response.sizeBytes)}{#if response.capped}<span class="size-capped">capped</span>{/if}
         </span>
-        <span class="response-stat">{formatted.kind.toUpperCase()}</span>
       </div>
 
       {#if !collapsed}

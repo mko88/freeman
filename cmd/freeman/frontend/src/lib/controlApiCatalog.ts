@@ -57,11 +57,13 @@ export const apiEndpoints: ApiEndpoint[] = [
       'The workspace: workspaceRoot, collections, collectionId, collectionName, environments, ' +
       'environmentId, environment (the one open in settings, which need not be the active one), ' +
       'selectedItemId. The Code tab: codeFormat and code (its rendered script, when that tab is open). ' +
-      'The last response: response (truncated with bodyFile in place of body when it was too large — ' +
+      'The last response: response — its body is in body when the payload is text, and in bodyBase64 ' +
+      "instead when it isn't (an image, a PDF), since JSON cannot carry those bytes and would " +
+      'silently replace them. Also truncated with bodyFile in place of body when it was too large — ' +
       'bodyFile is its path in the per-request on-disk cache, see clearResponseCache; capped when the ' +
       'response outgrew the in-memory ceiling and body holds only what was read), plus responseTab ' +
-      '(body/headers), responseView (pretty/raw/hex), responseKind (json/xml/html/image/text, lightly ' +
-      'autodetected). Chrome: tab, bodyLanguage, requestPaneCollapsed, responsePaneCollapsed, ' +
+      '(body/headers) and responseView (pretty/raw/hex). ' +
+      'Chrome: tab, bodyLanguage, requestPaneCollapsed, responsePaneCollapsed, ' +
       'responseHeight, showCollectionMenu, showEnvironmentMenu, showResponseActionsMenu, showSettings, ' +
       'settingsTab, showHelp, sidebarWidth, statusBarHeight, showControlApiLog. Read this after every ' +
       'action instead of screenshotting the window (desktop only).',
