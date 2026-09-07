@@ -6,7 +6,7 @@ from .. import ControlAPI, Report, poll
 from ..fixtures import TEST_VAR_KEY
 
 
-def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id: str, item_id: str) -> None:
+def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id: str, item_id: str, test_base: str) -> None:
     """The Code tab renders the draft request as a runnable command via
     POST /api/codegen (backend: internal/codegen). Configures the scratch
     request main() created for this test, then checks both formats
@@ -37,13 +37,15 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
     state = poll(api.state, lambda s: s.get("tab") == "code")
     r.check("state.tab reflects selectRequestTab 'code'", state.get("tab") == "code", str(state.get("tab")))
 
-    # {{pyTestBase}} is https://httpbin.org (set by test_environment_editor).
-    # Both formats pull the parts out as variables, so the command at the
-    # bottom of each reads as a list of names. See internal/codegen.
+    # {{pyTestBase}} is the local test server (set by
+    # test_environment_editor), so the substituted URL is what the
+    # generated script has to contain. Both formats pull the parts out as
+    # variables, so the command at the bottom of each reads as a list of
+    # names. See internal/codegen.
     checks = {
         "bash": [
             "#!/usr/bin/env bash\nset -euo pipefail",
-            "url='https://httpbin.org/post'",
+            f"url='{test_base}/post'",
             "-H 'X-Trace: abc'",
             "-H 'Authorization: Bearer t0ken'",
             # -L because the request follows redirects and curl doesn't
@@ -53,7 +55,7 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
             'curl -X POST -L "$url" \\\n  --max-time 30 \\\n  "${headers[@]}"',
         ],
         "powershell": [
-            "$uri = 'https://httpbin.org/post'",
+            f"$uri = '{test_base}/post'",
             "$headers = @{",
             "'Authorization' = 'Bearer t0ken'",
             "Invoke-RestMethod `\n    -Method POST `\n    -Uri $uri `\n    -TimeoutSec 30 `\n    -Headers $headers",
@@ -128,6 +130,6 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
     )
     r.check(
         "POST /api/codegen returns a bash script with the var substituted",
-        status == 200 and isinstance(body, dict) and "url='https://httpbin.org/get'" in body.get("code", ""),
+        status == 200 and isinstance(body, dict) and f"url='{test_base}/get'" in body.get("code", ""),
         f"status={status} body={body}",
     )

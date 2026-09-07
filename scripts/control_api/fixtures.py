@@ -48,7 +48,11 @@ SCRATCH_FIELD_KEY = "scratchField"
 TEST_VAR_KEY = "pyTestBase"
 
 
-TEST_VAR_VALUE = "https://httpbin.org"
+# There is no TEST_VAR_VALUE constant to go with TEST_VAR_KEY: the value
+# is the local test server's base URL (see control_api.server), and the
+# OS picks its port, so it's passed down from the entry point instead.
+# Every check writes its URL as {{pyTestBase}}/… and lets the app
+# substitute it, which is also what proves substitution works.
 
 
 SCRATCH_VAR_KEY = "pyScratchVar"
@@ -65,6 +69,10 @@ REQUEST_TEST_NAMES: dict[str, str] = {
     "large_response": "Python Large Response Test (scratch)",
     "response_cache": "Python Response Cache Test (scratch)",
     "code_tab": "Python Code Tab Test (scratch)",
+    "auth_variations": "Python Auth Variations Test (scratch)",
+    "body_variations": "Python Body Variations Test (scratch)",
+    "option_variations": "Python Option Variations Test (scratch)",
+    "encoding_variations": "Python Encoding Variations Test (scratch)",
     **{m: f"Python {m} Test (scratch)" for m in HTTP_METHODS},
 }
 
@@ -103,10 +111,11 @@ def find_variable_index(variables: Optional[list], key: str) -> Optional[int]:
 
 
 def decode_data_uri_bytes(data_uri: str) -> bytes:
-    """Decodes httpbin's "data:<mime-type>;base64,<...>" shape (what it
+    """Decodes the "data:<mime-type>;base64,<...>" shape the test server
     returns for a body it can't render as text — exactly what a random
-    binary fixture produces) back to raw bytes, for an exact comparison
-    against the original file instead of a fragile substring match."""
+    binary fixture produces — back to raw bytes, for an exact comparison
+    against the original file instead of a fragile substring match.
+    httpbin's own shape, which control_api.server matches here."""
     if ";base64," not in data_uri:
         return data_uri.encode()
     return base64.b64decode(data_uri.split(";base64,", 1)[1])

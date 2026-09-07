@@ -212,8 +212,8 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     r.step('copyResponseCachePath  (the "..." menu\'s Copy path — writes to the clipboard)')
     api.action("copyResponseCachePath")
 
-    # httpbin's /get returns application/json, and the pane defaults to
-    # the pretty (highlighted) view.
+    # /get returns application/json, and the pane defaults to the
+    # pretty (highlighted) view.
     r.check(
         "the response came back as JSON",
         "json" in response_content_type(state),

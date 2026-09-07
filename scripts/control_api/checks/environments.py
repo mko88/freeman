@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Optional
 
 from .. import ControlAPI, Report, poll
-from ..fixtures import TEST_VAR_KEY, TEST_VAR_VALUE, SCRATCH_VAR_KEY, find_variable_index
+from ..fixtures import TEST_VAR_KEY, SCRATCH_VAR_KEY, find_variable_index
 
 
-def test_environment_editor(api: ControlAPI, r: Report, environment_id: str) -> None:
-    """Adds TEST_VAR_KEY, left in place for the rest of the run — every
+def test_environment_editor(api: ControlAPI, r: Report, environment_id: str, test_base: str) -> None:
+    """Adds TEST_VAR_KEY = test_base (the local test server's base URL,
+    on a port the OS picked this run), left in place for the rest of the run — every
     later section that needs {{pyTestBase}} substituted relies on it
     still being there, and the temp workspace is discarded wholesale at
     the end regardless. SCRATCH_VAR_KEY is fully self-contained (added,
@@ -31,8 +32,8 @@ def test_environment_editor(api: ControlAPI, r: Report, environment_id: str) -> 
     # — let a rapid burst of preceding actions (main()'s Phase 1 creates
     # ten requests right before this test runs) occasionally clobber an
     # add/remove here.
-    r.step(f"addEnvironmentVariable {{key: {TEST_VAR_KEY!r}, value: {TEST_VAR_VALUE!r}}}")
-    api.action("addEnvironmentVariable", {"key": TEST_VAR_KEY, "value": TEST_VAR_VALUE})
+    r.step(f"addEnvironmentVariable {{key: {TEST_VAR_KEY!r}, value: {test_base!r}}}")
+    api.action("addEnvironmentVariable", {"key": TEST_VAR_KEY, "value": test_base})
     poll(api.state, lambda s: env_var(s, TEST_VAR_KEY) is not None)
 
     r.step(f"addEnvironmentVariable {{key: {SCRATCH_VAR_KEY!r}, secret: true}}  (scratch)")
@@ -57,8 +58,8 @@ def test_environment_editor(api: ControlAPI, r: Report, environment_id: str) -> 
     )
     variables = env.get("variables") or []
     r.check(
-        f"{TEST_VAR_KEY} = {TEST_VAR_VALUE!r} persisted",
-        any(v.get("key") == TEST_VAR_KEY and v.get("value") == TEST_VAR_VALUE for v in variables),
+        f"{TEST_VAR_KEY} = {test_base!r} persisted",
+        any(v.get("key") == TEST_VAR_KEY and v.get("value") == test_base for v in variables),
         str(variables),
     )
     r.check(
