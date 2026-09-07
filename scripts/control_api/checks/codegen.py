@@ -50,15 +50,36 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
             "-H 'Authorization: Bearer t0ken'",
             # -L because the request follows redirects and curl doesn't
             # unless told, --max-time because Freeman gives up after 30s
-            # and curl never would — the generated script has to send
-            # what Send sends. See the Options tab.
-            'curl -X POST -L "$url" \\\n  --max-time 30 \\\n  "${headers[@]}"',
+            # and curl never would, -b/-c because the request is on the
+            # cookie jar — the generated script has to send what Send
+            # sends. See the Options tab.
+            'curl -X POST -L "$url" \\\n  -b \'cookies.txt\' -c \'cookies.txt\' --max-time 30 \\\n  "${headers[@]}"',
         ],
         "powershell": [
             f"$uri = '{test_base}/post'",
             "$headers = @{",
             "'Authorization' = 'Bearer t0ken'",
-            "Invoke-RestMethod `\n    -Method POST `\n    -Uri $uri `\n    -TimeoutSec 30 `\n    -Headers $headers",
+            "Invoke-RestMethod `\n    -Method POST `\n    -Uri $uri `\n    -TimeoutSec 30 `"
+            "\n    -SessionVariable session `\n    -Headers $headers",
+        ],
+        "python": [
+            "import requests",
+            f"url = '{test_base}/post'",
+            "session = requests.Session()",
+            "MozillaCookieJar('cookies-python.txt')",
+            "'Authorization': 'Bearer t0ken',",
+            "allow_redirects=True",
+            "timeout=30",
+        ],
+        "javascript": [
+            f"const url = '{test_base}/post'",
+            "Authorization: 'Bearer t0ken',",
+            "const response = await fetch(url, {",
+            "redirect: 'follow',",
+            "signal: AbortSignal.timeout(30000),",
+            # fetch has no jar, so it says so rather than dropping the
+            # option in silence.
+            "fetch has none",
         ],
     }
     for fmt, needles in checks.items():
@@ -89,6 +110,21 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
     option_checks = {
         "bash": ["--max-redirs 3", "--max-time 2.5", "--insecure", '--cert "$cert" --key "$key"'],
         "powershell": ["-MaximumRedirection 3", "-TimeoutSec 3", "-SkipCertificateCheck", "-Certificate $cert"],
+        "python": [
+            "session.max_redirects = 3",
+            "timeout=2.5",
+            "verify=False",
+            "cert=('/certs/client.pem', '/certs/client.key')",
+        ],
+        # fetch can express the timeout and (process-wide) the
+        # certificate check; for the other two it says so in a comment
+        # instead of dropping them.
+        "javascript": [
+            "AbortSignal.timeout(2500)",
+            "process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'",
+            "caps this request at 3 redirects",
+            "fetch cannot",
+        ],
     }
     r.step(f"setRequestOption {options!r}, then re-read the code for each format")
     for field, value in options.items():

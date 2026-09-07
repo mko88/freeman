@@ -44,10 +44,14 @@ export function changedOptionCount(o: RequestOptions): number {
   return (Object.keys(d) as (keyof RequestOptions)[]).filter((k) => o[k] !== d[k]).length
 }
 export type AuthType = 'none' | 'bearer' | 'basic' | 'apikey' | 'oauth2'
-export type CodeFormat = 'bash' | 'powershell'
+export type CodeFormat = 'bash' | 'powershell' | 'python' | 'javascript'
+// Labelled by the language, lowercase throughout — these read as a row
+// of formats, not as four differently-capitalised product names.
 export const codeFormats: { value: CodeFormat; label: string }[] = [
   { value: 'bash', label: 'bash' },
-  { value: 'powershell', label: 'PowerShell' },
+  { value: 'powershell', label: 'powershell' },
+  { value: 'python', label: 'python' },
+  { value: 'javascript', label: 'javascript' },
 ]
 
 export const bodyModes: { value: BodyMode; label: string }[] = [

@@ -487,8 +487,10 @@
         break
       }
       case 'selectCodeFormat': {
-        const f = payload?.format
-        if (f === 'bash' || f === 'powershell') codeFormat = f
+        // Validated against the tab row itself, so a format added there
+        // is drivable without a second list to remember.
+        const f = codeFormats.find((c) => c.value === payload?.format)
+        if (f) codeFormat = f.value
         break
       }
       case 'selectBodyLanguage': {

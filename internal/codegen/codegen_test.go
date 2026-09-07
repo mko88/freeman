@@ -31,9 +31,11 @@ func TestGenerateGETWithParamsHeadersAndVars(t *testing.T) {
 		"url='https://api.example.com/users?active=true'",
 		"headers=(\n  -H 'Accept: application/json'\n)",
 		// -L because Freeman follows redirects and curl doesn't unless
-		// told, and --max-time because Freeman gives up after 30s and
-		// curl never does — see TestGenerateMatchesTransportOptions.
-		"curl -X GET -L \"$url\" \\\n  --max-time 30 \\\n  \"${headers[@]}\"",
+		// told, --max-time because Freeman gives up after 30s and curl
+		// never does, and the jar flags because the request is on the
+		// shared cookie jar — see TestGenerateMatchesTransportOptions
+		// and TestGenerateMatchesCookieOption.
+		"curl -X GET -L \"$url\" \\\n  -b 'cookies.txt' -c 'cookies.txt' --max-time 30 \\\n  \"${headers[@]}\"",
 	} {
 		if !strings.Contains(bash, want) {
 			t.Fatalf("bash script missing %q:\n%s", want, bash)
@@ -43,10 +45,17 @@ func TestGenerateGETWithParamsHeadersAndVars(t *testing.T) {
 		t.Fatalf("disabled param leaked into the bash script:\n%s", bash)
 	}
 
+	// Compared whole, not by substring: this is the one test that pins
+	// the shape of a script end to end, comment block included.
 	ps := mustGen(t, item, vars, FormatPowerShell)
-	want := "$uri = 'https://api.example.com/users?active=true'\n\n" +
+	want := "# This request is on Freeman's shared cookie jar. Invoke-RestMethod has no\n" +
+		"# jar on disk: -SessionVariable keeps the response's cookies in $session for\n" +
+		"# as long as this shell lives. Pass -WebSession $session from a later script\n" +
+		"# in the same shell to continue the session.\n\n" +
+		"$uri = 'https://api.example.com/users?active=true'\n\n" +
 		"$headers = @{\n    'Accept' = 'application/json'\n}\n\n" +
-		"Invoke-RestMethod `\n    -Method GET `\n    -Uri $uri `\n    -TimeoutSec 30 `\n    -Headers $headers\n"
+		"Invoke-RestMethod `\n    -Method GET `\n    -Uri $uri `\n    -TimeoutSec 30 `\n" +
+		"    -SessionVariable session `\n    -Headers $headers\n"
 	if ps != want {
 		t.Fatalf("powershell script wrong:\ngot:\n%s\nwant:\n%s", ps, want)
 	}
@@ -423,6 +432,209 @@ func TestGenerateMatchesTransportOptions(t *testing.T) {
 	}
 	if got := mustGen(t, item, nil, FormatPowerShell); strings.Contains(got, "-Certificate") {
 		t.Fatalf("a certificate without its key should be ignored:\n%s", got)
+	}
+}
+
+// The cookie jar is the option that used to be dropped in silence: two
+// requests differing only in it generated identical scripts, and the
+// one meant to be on the jar quietly sent nothing. Every format now
+// either honours it or says in a comment that it can't.
+func TestGenerateMatchesCookieOption(t *testing.T) {
+	item := domain.Item{Method: "GET", URL: "https://api.example.com/thing"}
+
+	on := map[Format][]string{
+		FormatBash:       {"-b 'cookies.txt' -c 'cookies.txt'", "shared cookie jar"},
+		FormatPowerShell: {"-SessionVariable session", "shared cookie jar"},
+		FormatPython:     {"MozillaCookieJar('cookies-python.txt')", "session.cookies.save(", "shared cookie jar"},
+		FormatJavaScript: {"fetch has none"},
+	}
+	for format, wants := range on {
+		got := mustGen(t, item, nil, format)
+		for _, want := range wants {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s on the jar is missing %q:\n%s", format, want, got)
+			}
+		}
+	}
+
+	// Python and bash deliberately use different files: curl stores a
+	// session cookie's expiry as 0 and Python as empty, and Python reads
+	// a 0 as expired — so one shared file would have Python drop curl's
+	// cookies and save the emptied jar back over them.
+	if py := mustGen(t, item, nil, FormatPython); strings.Contains(py, "MozillaCookieJar('cookies.txt')") {
+		t.Errorf("Python must not share curl's jar file:\n%s", py)
+	}
+
+	item.Options = &domain.Options{FollowRedirects: true, StoreCookies: false}
+	off := map[Format][]string{
+		FormatBash:       {"cookies.txt", "cookie"},
+		FormatPowerShell: {"-SessionVariable", "cookie"},
+		FormatPython:     {"MozillaCookieJar", "cookie"},
+		FormatJavaScript: {"cookie"},
+	}
+	for format, unwanted := range off {
+		got := mustGen(t, item, nil, format)
+		for _, bad := range unwanted {
+			if strings.Contains(got, bad) {
+				t.Errorf("%s off the jar should not mention %q:\n%s", format, bad, got)
+			}
+		}
+	}
+
+	// The point of all of the above: the two must not be the same script.
+	for _, format := range []Format{FormatBash, FormatPowerShell, FormatPython, FormatJavaScript} {
+		withJar := mustGen(t, domain.Item{Method: "GET", URL: "https://api.example.com/thing"}, nil, format)
+		withoutJar := mustGen(t, item, nil, format)
+		if withJar == withoutJar {
+			t.Errorf("%s generates the same script whether or not the request is on the cookie jar", format)
+		}
+	}
+}
+
+// Python goes through requests, which can express every option Freeman
+// has — the only one of the four besides curl that can.
+func TestGeneratePython(t *testing.T) {
+	item := domain.Item{
+		Method:  "POST",
+		URL:     "https://api.example.com/orders",
+		Headers: []domain.Header{{Key: "X-Trace", Value: "abc", Enabled: true}},
+		Auth:    &domain.Auth{Type: domain.AuthTypeBearer, Token: "t0ken"},
+		Body:    &domain.Body{Mode: domain.BodyModeRaw, Raw: "{\n  \"sku\": \"A-1\"\n}"},
+		Options: &domain.Options{
+			FollowRedirects:   true,
+			MaxRedirects:      3,
+			TimeoutMs:         2500,
+			SkipTLSVerify:     true,
+			ClientCertFile:    "/certs/client.pem",
+			ClientCertKeyFile: "/certs/client.key",
+		},
+	}
+	got := mustGen(t, item, nil, FormatPython)
+	for _, want := range []string{
+		"import requests",
+		"url = 'https://api.example.com/orders'",
+		"session = requests.Session()",
+		"session.max_redirects = 3",
+		"'X-Trace': 'abc',",
+		"'Authorization': 'Bearer t0ken',",
+		// The heredoc's counterpart: a body stays as typed rather than
+		// being escaped into one line.
+		"body = '''\\\n{\n  \"sku\": \"A-1\"\n}'''",
+		"'POST',",
+		"data=body.encode()",
+		"allow_redirects=True",
+		"timeout=2.5",
+		"verify=False",
+		"cert=('/certs/client.pem', '/certs/client.key')",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("python script missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// fetch is the weakest of the four on transport options. What it can't
+// do has to be said rather than dropped, which is the whole lesson of
+// the cookie jar.
+func TestGenerateJavaScriptSaysWhatFetchCannotDo(t *testing.T) {
+	item := domain.Item{
+		Method: "GET",
+		URL:    "https://api.example.com/thing",
+		Options: &domain.Options{
+			FollowRedirects:   true,
+			MaxRedirects:      3,
+			StoreCookies:      true,
+			SkipTLSVerify:     true,
+			ClientCertFile:    "/certs/client.pem",
+			ClientCertKeyFile: "/certs/client.key",
+			TimeoutMs:         2500,
+		},
+	}
+	got := mustGen(t, item, nil, FormatJavaScript)
+	for _, want := range []string{
+		"// This request is on Freeman's shared cookie jar; fetch has none.",
+		"// Freeman caps this request at 3 redirects",
+		"// Freeman presents a client certificate for this request. fetch cannot;",
+		// The one transport option it can honour, and it's process-wide,
+		// which the note says.
+		"process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'",
+		"not just this request.",
+		"AbortSignal.timeout(2500)",
+		"redirect: 'follow'",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("javascript script missing %q:\n%s", want, got)
+		}
+	}
+
+	item.Options.FollowRedirects = false
+	if got := mustGen(t, item, nil, FormatJavaScript); !strings.Contains(got, "redirect: 'manual'") {
+		t.Errorf("not following should generate redirect: 'manual':\n%s", got)
+	}
+}
+
+// Both new formats have to render every body mode without producing
+// something that won't parse — the file paths differ per platform, so
+// this asserts on the call rather than running it.
+func TestGeneratePythonAndJavaScriptBodyModes(t *testing.T) {
+	cases := []struct {
+		name       string
+		body       domain.Body
+		python, js string
+	}{
+		{
+			name:   "urlencoded",
+			body:   domain.Body{Mode: domain.BodyModeURLEncoded, FormFields: []domain.FormField{{Key: "a", Value: "1", Enabled: true}}},
+			python: "data=form",
+			js:     "new URLSearchParams({",
+		},
+		{
+			name: "form-data with a file",
+			body: domain.Body{Mode: domain.BodyModeForm, FormFields: []domain.FormField{
+				{Key: "caption", Value: "hi", Enabled: true},
+				{Key: "blob", Type: domain.FormFieldTypeFile, FilePath: "/tmp/x.bin", Enabled: true},
+			}},
+			python: "'blob': open('/tmp/x.bin', 'rb'),",
+			js:     "body.append('blob', await openAsBlob('/tmp/x.bin'))",
+		},
+		{
+			name:   "binary",
+			body:   domain.Body{Mode: domain.BodyModeBinary, BinaryFilePath: "/tmp/x.bin"},
+			python: "with open('/tmp/x.bin', 'rb') as f:",
+			js:     "await readFile('/tmp/x.bin')",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			item := domain.Item{Method: "POST", URL: "https://api.example.com/x", Body: &tc.body}
+			if got := mustGen(t, item, nil, FormatPython); !strings.Contains(got, tc.python) {
+				t.Errorf("python missing %q:\n%s", tc.python, got)
+			}
+			if got := mustGen(t, item, nil, FormatJavaScript); !strings.Contains(got, tc.js) {
+				t.Errorf("javascript missing %q:\n%s", tc.js, got)
+			}
+		})
+	}
+}
+
+// A body that would end its own quoting has to fall back rather than
+// generate something that won't parse — the same rule the heredoc
+// delimiter and the here-string already follow.
+func TestGeneratePythonAndJavaScriptEscapeAwkwardBodies(t *testing.T) {
+	for _, raw := range []string{"has ''' inside", `back\slash`, "ends with '", "a ${template} and a ` tick"} {
+		item := domain.Item{
+			Method: "POST",
+			URL:    "https://api.example.com/x",
+			Body:   &domain.Body{Mode: domain.BodyModeRaw, Raw: raw},
+		}
+		py := mustGen(t, item, nil, FormatPython)
+		if strings.Contains(py, "'''"+raw) {
+			t.Errorf("python inlined a body that would close its own quote: %q\n%s", raw, py)
+		}
+		js := mustGen(t, item, nil, FormatJavaScript)
+		if strings.Contains(js, "`"+raw+"`") && strings.ContainsAny(raw, "`\\") {
+			t.Errorf("javascript inlined a body that would break its template: %q\n%s", raw, js)
+		}
 	}
 }
 

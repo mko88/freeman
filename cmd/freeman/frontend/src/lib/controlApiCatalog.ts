@@ -42,7 +42,7 @@ export const apiEndpoints: ApiEndpoint[] = [
     path: '/api/codegen',
     desc:
       'Render a request as a runnable script. Body: {item: domain.Item, environmentId, format}. ' +
-      "format is 'bash' or 'powershell'. Returns {code}.",
+      "format is 'bash', 'powershell', 'python' or 'javascript'. Returns {code}.",
   },
   { method: 'GET', path: '/api/theme', desc: 'Resolved color palette.' },
   { method: 'GET', path: '/api/headers', desc: 'Common request-header names/values for editor autocomplete (from headers.yaml).' },
@@ -198,8 +198,10 @@ export const uiActions: UiAction[] = [
     action: 'selectCodeFormat',
     payload: '{ format }',
     desc:
-      "Switch the Code tab's output. format is 'bash' (a curl script) or 'powershell' " +
-      "(an Invoke-RestMethod script). Read the rendered script from GET /api/ui/state's code field.",
+      "Switch the Code tab's output. format is 'bash' (curl), 'powershell' (Invoke-RestMethod), " +
+      "'python' (requests) or 'javascript' (fetch). Each script carries a comment about any option " +
+      "its language can't express as faithfully as Send does. Read the rendered script from " +
+      "GET /api/ui/state's code field.",
   },
   {
     action: 'selectBodyLanguage',

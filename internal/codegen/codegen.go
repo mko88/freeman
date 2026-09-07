@@ -1,11 +1,18 @@
 // Package codegen renders a saved domain.Item as a small runnable
-// script — a bash one around curl, or a PowerShell one around
-// Invoke-RestMethod. Each pulls the URL, headers and body out as
-// variables, so a body stays readable and every part is editable on its
-// own. It mirrors what
+// script: bash around curl, PowerShell around Invoke-RestMethod, Python
+// around requests, or JavaScript around fetch. Each pulls the URL,
+// headers and body out as variables, so a body stays readable and every
+// part is editable on its own. It mirrors what
 // internal/httpengine.Execute does (same {{var}} substitution, same
 // query-param/header/auth/body handling) so the generated command sends
 // the same request the app's own "Send" would.
+//
+// Where a language can't reach that faithfully — fetch has no cookie
+// jar, no redirect cap and no per-request TLS settings — the script says
+// so in a comment at the top. Silently dropping an option is the one
+// thing a renderer must not do: two requests differing only in the
+// cookie jar once produced identical scripts, one of which quietly sent
+// no cookies at all.
 package codegen
 
 import (
@@ -14,6 +21,7 @@ import (
 	"mime"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +36,8 @@ type Format string
 const (
 	FormatBash       Format = "bash"
 	FormatPowerShell Format = "powershell"
+	FormatPython     Format = "python"
+	FormatJavaScript Format = "javascript"
 )
 
 // Generate renders item, with vars substituted, in the given format.
@@ -41,10 +51,28 @@ func Generate(item domain.Item, vars map[string]string, format Format) (string, 
 		return renderBash(r), nil
 	case FormatPowerShell:
 		return renderPowerShell(r), nil
+	case FormatPython:
+		return renderPython(r), nil
+	case FormatJavaScript:
+		return renderJavaScript(r), nil
 	default:
 		return "", fmt.Errorf("unknown code format %q", format)
 	}
 }
+
+// Where the generated scripts that can keep a cookie jar put it: beside
+// the script, so two of them run in the same directory share a session
+// the way two requests share Freeman's.
+//
+// curl and Python get separate files even though both write Netscape
+// format, because they disagree on how a session cookie is stored: curl
+// writes expiry 0, Python writes an empty expiry and reads a 0 as
+// already expired. Pointed at one file, Python would drop curl's
+// session cookies on load and then save the emptied jar back over them.
+const (
+	CookieJarFile       = "cookies.txt"
+	PythonCookieJarFile = "cookies-python.txt"
+)
 
 // --- neutral intermediate form -------------------------------------------------
 
@@ -79,12 +107,15 @@ type request struct {
 	// Invoke-RestMethod follows up to five, and neither imposes a
 	// timeout the way Freeman's 30 seconds does. Left implicit and the
 	// generated script would quietly do something else than Send.
-	//
-	// The cookie jar is the one option with no equivalent here. A
-	// generated script is a standalone command; the session it would
-	// need belongs to the app.
 	follow       bool
 	maxRedirects int
+	// cookies mirrors StoreCookies. How well each language can honour it
+	// differs — curl and Python keep a jar on disk, PowerShell and fetch
+	// only within one process — so each renderer says in a comment what
+	// its own does. What none of them may do is stay silent: two
+	// requests that differ only in this once generated identical
+	// scripts, one of which quietly didn't send the cookies Send would.
+	cookies bool
 	// timeout is the effective one — the request's own, or the app-wide
 	// default it inherits — rather than only an override, since there is
 	// nothing for it to fall back to in a script.
@@ -155,6 +186,7 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 		url:           u.String(),
 		follow:        opts.FollowRedirects,
 		maxRedirects:  opts.MaxRedirects,
+		cookies:       opts.StoreCookies,
 		timeout:       effectiveTimeout(opts),
 		skipTLSVerify: opts.SkipTLSVerify,
 	}
@@ -203,6 +235,25 @@ func effectiveTimeout(opts domain.Options) time.Duration {
 		return time.Duration(opts.TimeoutMs) * time.Millisecond
 	}
 	return httpengine.RequestTimeout
+}
+
+// commentBlock renders a renderer's leading notes as comments, with a
+// blank line after, or "" when there are none.
+//
+// Every language here can express some of a request's options and not
+// others. Which ones, and how faithfully, is the reader's problem the
+// moment they run the script — so it goes at the top of the script,
+// where they'll see it, rather than only in Freeman's own docs.
+func commentBlock(prefix string, notes []string) string {
+	if len(notes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, n := range notes {
+		b.WriteString(strings.TrimRight(prefix+n, " ") + "\n")
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 // binaryContentType mirrors the first half of
@@ -332,6 +383,19 @@ func suppressContentType(r request) bool {
 	return r.body.kind == bodyRaw && r.header("Content-Type") == ""
 }
 
+func bashNotes(r request) []string {
+	if !r.cookies {
+		// Off the jar, curl's own default is the right behaviour, so
+		// there's nothing to explain.
+		return nil
+	}
+	return []string{
+		"This request is on Freeman's shared cookie jar. curl keeps its own in",
+		"./" + CookieJarFile + ", so scripts run from this directory share a session",
+		"the same way requests in the app do — but they start from an empty one.",
+	}
+}
+
 // renderBash writes the request as something you'd keep in a file: the
 // URL, the headers and the body come out as variables first, so each is
 // editable on its own instead of buried in one long command.
@@ -345,6 +409,7 @@ func renderBash(r request) string {
 	var b strings.Builder
 	b.WriteString("#!/usr/bin/env bash\n")
 	b.WriteString("set -euo pipefail\n\n")
+	b.WriteString(commentBlock("# ", bashNotes(r)))
 	b.WriteString("url=" + shQuote(r.url) + "\n")
 	if r.certFile != "" {
 		b.WriteString("cert=" + shQuote(r.certFile) + "\n")
@@ -428,6 +493,13 @@ func renderBash(r request) string {
 // curl has no timeout of its own, so Freeman's is always spelled out.
 func curlTransportArgs(r request) string {
 	var args []string
+	if r.cookies {
+		// -b reads the jar, -c writes it back. Both, pointed at one
+		// file, is what makes a second script in the same directory see
+		// what this one was given — curl's closest thing to the shared
+		// jar the app keeps.
+		args = append(args, "-b "+shQuote(CookieJarFile)+" -c "+shQuote(CookieJarFile))
+	}
 	if r.timeout > 0 {
 		args = append(args, "--max-time "+secondsArg(r.timeout))
 	}
@@ -516,6 +588,7 @@ func renderPowerShell(r request) string {
 	ps := splitPowerShell(r)
 	var b strings.Builder
 
+	b.WriteString(commentBlock("# ", powerShellNotes(r)))
 	b.WriteString("$uri = " + psQuote(r.url) + "\n")
 
 	if r.certFile != "" {
@@ -595,6 +668,13 @@ func renderPowerShell(r request) string {
 	if r.certFile != "" {
 		params = append(params, "-Certificate $cert")
 	}
+	// -SessionVariable creates $session and keeps the response's cookies
+	// in it. A second script run in the same shell can then pass
+	// -WebSession $session to continue that session, which is as close
+	// as Invoke-RestMethod gets to a jar.
+	if r.cookies {
+		params = append(params, "-SessionVariable session")
+	}
 	if len(ps.headers) > 0 || r.oauth != nil {
 		params = append(params, "-Headers $headers")
 	}
@@ -605,6 +685,18 @@ func renderPowerShell(r request) string {
 
 	b.WriteString("\nInvoke-RestMethod `\n    " + strings.Join(params, " `\n    ") + "\n")
 	return b.String()
+}
+
+func powerShellNotes(r request) []string {
+	if !r.cookies {
+		return nil
+	}
+	return []string{
+		"This request is on Freeman's shared cookie jar. Invoke-RestMethod has no",
+		"jar on disk: -SessionVariable keeps the response's cookies in $session for",
+		"as long as this shell lives. Pass -WebSession $session from a later script",
+		"in the same shell to continue the session.",
+	}
 }
 
 // psBodyLiteral prefers a single-quoted here-string — literal, so a body
@@ -640,4 +732,340 @@ func oauthFields(g *oauthGrant) []string {
 // psQuote wraps s in a single-quoted PowerShell string, doubling any '.
 func psQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// --- Python ------------------------------------------------------------------
+
+// renderPython writes the request against `requests`, which is what
+// anyone reading generated Python expects and the only one of these
+// four languages besides curl with a real cookie jar. Everything comes
+// out as a variable first, as in the other renderers, so the call at
+// the bottom reads as a list of names.
+func renderPython(r request) string {
+	var b strings.Builder
+	b.WriteString("#!/usr/bin/env python3\n")
+	b.WriteString(commentBlock("# ", pythonNotes(r)))
+	b.WriteString("import requests\n")
+	if r.cookies {
+		b.WriteString("from http.cookiejar import MozillaCookieJar\n")
+	}
+	b.WriteString("\nurl = " + pyQuote(r.url) + "\n")
+
+	b.WriteString("\nsession = requests.Session()\n")
+	if r.cookies {
+		// Netscape format, so the jar is the same file curl's script
+		// writes — run either and the other sees the cookies.
+		b.WriteString("session.cookies = MozillaCookieJar(" + pyQuote(PythonCookieJarFile) + ")\n")
+		b.WriteString("try:\n    session.cookies.load(ignore_discard=True)\nexcept FileNotFoundError:\n    pass\n")
+	}
+	if r.follow && r.maxRedirects > 0 {
+		b.WriteString(fmt.Sprintf("session.max_redirects = %d\n", r.maxRedirects))
+	}
+
+	if g := r.oauth; g != nil {
+		b.WriteString("\ntoken = session.post(\n")
+		b.WriteString("    " + pyQuote(g.tokenURL) + ",\n")
+		b.WriteString("    data={\n        'grant_type': 'client_credentials',\n")
+		for _, f := range oauthFields(g) {
+			name, value, _ := strings.Cut(f, "=")
+			b.WriteString("        " + pyQuote(name) + ": " + pyQuote(value) + ",\n")
+		}
+		b.WriteString("    },\n).json()['access_token']\n")
+	}
+
+	headers := r.headers
+	if len(headers) > 0 || r.oauth != nil {
+		b.WriteString("\nheaders = {\n")
+		for _, h := range headers {
+			b.WriteString("    " + pyQuote(h.name) + ": " + pyQuote(h.value) + ",\n")
+		}
+		if r.oauth != nil {
+			b.WriteString("    'Authorization': f'Bearer {token}',\n")
+		}
+		b.WriteString("}\n")
+	}
+
+	// requests picks the Content-Type for data=/files=; a raw body is
+	// bytes and keeps whatever Content-Type header the request carries.
+	var callArgs []string
+	var openFiles []string
+	switch r.body.kind {
+	case bodyRaw:
+		b.WriteString("\nbody = " + pyTripleQuote(r.body.raw) + "\n")
+		callArgs = append(callArgs, "data=body.encode()")
+	case bodyURLEncoded:
+		b.WriteString("\nform = {\n")
+		for _, p := range r.body.pairs {
+			b.WriteString("    " + pyQuote(p.name) + ": " + pyQuote(p.value) + ",\n")
+		}
+		b.WriteString("}\n")
+		callArgs = append(callArgs, "data=form")
+	case bodyForm:
+		if len(r.body.pairs) > 0 {
+			b.WriteString("\nfields = {\n")
+			for _, p := range r.body.pairs {
+				b.WriteString("    " + pyQuote(p.name) + ": " + pyQuote(p.value) + ",\n")
+			}
+			b.WriteString("}\n")
+			callArgs = append(callArgs, "data=fields")
+		}
+		b.WriteString("\nfiles = {\n")
+		for _, f := range r.body.files {
+			b.WriteString("    " + pyQuote(f.name) + ": open(" + pyQuote(f.value) + ", 'rb'),\n")
+			openFiles = append(openFiles, f.name)
+		}
+		b.WriteString("}\n")
+		callArgs = append(callArgs, "files=files")
+	case bodyBinary:
+		b.WriteString("\nwith open(" + pyQuote(r.body.filePath) + ", 'rb') as f:\n    body = f.read()\n")
+		callArgs = append(callArgs, "data=body")
+	}
+
+	args := []string{pyQuote(r.method), "url"}
+	if len(headers) > 0 || r.oauth != nil {
+		args = append(args, "headers=headers")
+	}
+	args = append(args, callArgs...)
+	// allow_redirects is always spelled out: requests follows by default
+	// for everything but HEAD, so leaving it implicit would make a HEAD
+	// behave differently from the same request in the app.
+	args = append(args, fmt.Sprintf("allow_redirects=%s", pyBool(r.follow)))
+	if r.timeout > 0 {
+		args = append(args, "timeout="+secondsArg(r.timeout))
+	}
+	if r.skipTLSVerify {
+		args = append(args, "verify=False")
+	}
+	if r.certFile != "" {
+		args = append(args, "cert=("+pyQuote(r.certFile)+", "+pyQuote(r.certKeyFile)+")")
+	}
+
+	b.WriteString("\nresponse = session.request(\n")
+	for _, a := range args {
+		b.WriteString("    " + a + ",\n")
+	}
+	b.WriteString(")\n")
+
+	for _, name := range openFiles {
+		b.WriteString("files[" + pyQuote(name) + "].close()\n")
+	}
+	if r.cookies {
+		b.WriteString("session.cookies.save(ignore_discard=True)\n")
+	}
+
+	b.WriteString("\nprint(response.status_code)\nprint(response.text)\n")
+	return b.String()
+}
+
+func pythonNotes(r request) []string {
+	if !r.cookies {
+		return nil
+	}
+	return []string{
+		"This request is on Freeman's shared cookie jar. requests keeps its own in",
+		"./" + PythonCookieJarFile + ", so Python scripts run from this directory share a",
+		"session — starting from an empty one. It is deliberately not the file the",
+		"bash script uses: curl and Python disagree on how a session cookie is",
+		"stored, and pointed at one file Python would discard curl's.",
+	}
+}
+
+// pyQuote wraps s in a single-quoted Python string. Backslashes go
+// first, or the escapes added after it would be escaped in turn.
+func pyQuote(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "'", `\'`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
+	return "'" + s + "'"
+}
+
+// pyTripleQuote keeps a multi-line body readable, the way the heredoc
+// and here-string do in the other two. A body that would close the
+// quote early, or end in one, falls back to a normal escaped string.
+func pyTripleQuote(body string) string {
+	if strings.Contains(body, `'''`) || strings.Contains(body, `\`) || strings.HasSuffix(body, "'") {
+		return pyQuote(body)
+	}
+	return "'''\\\n" + body + "'''"
+}
+
+func pyBool(v bool) string {
+	if v {
+		return "True"
+	}
+	return "False"
+}
+
+// --- JavaScript --------------------------------------------------------------
+
+// renderJavaScript writes the request against fetch, which needs no
+// dependency on Node 18+ and is what a browser reader expects too. It's
+// the weakest of the four on the transport options — no redirect cap,
+// no cookie jar, no per-request TLS — so those come out as notes at the
+// top rather than being silently dropped.
+func renderJavaScript(r request) string {
+	var b strings.Builder
+	b.WriteString(commentBlock("// ", javaScriptNotes(r)))
+
+	if r.skipTLSVerify {
+		// Process-wide and read when the connection is made, so it has
+		// to be set before the first fetch, not passed to it.
+		b.WriteString("process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'\n\n")
+	}
+
+	b.WriteString("const url = " + jsQuote(r.url) + "\n")
+
+	if g := r.oauth; g != nil {
+		b.WriteString("\nconst tokenResponse = await fetch(" + jsQuote(g.tokenURL) + ", {\n")
+		b.WriteString("  method: 'POST',\n")
+		b.WriteString("  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },\n")
+		b.WriteString("  body: new URLSearchParams({\n    grant_type: 'client_credentials',\n")
+		for _, f := range oauthFields(g) {
+			name, value, _ := strings.Cut(f, "=")
+			b.WriteString("    " + name + ": " + jsQuote(value) + ",\n")
+		}
+		b.WriteString("  }),\n})\n")
+		b.WriteString("const { access_token: token } = await tokenResponse.json()\n")
+	}
+
+	if len(r.headers) > 0 || r.oauth != nil {
+		b.WriteString("\nconst headers = {\n")
+		for _, h := range r.headers {
+			b.WriteString("  " + jsKey(h.name) + ": " + jsQuote(h.value) + ",\n")
+		}
+		if r.oauth != nil {
+			b.WriteString("  Authorization: `Bearer ${token}`,\n")
+		}
+		b.WriteString("}\n")
+	}
+
+	var bodyInit string
+	switch r.body.kind {
+	case bodyRaw:
+		b.WriteString("\nconst body = " + jsTemplate(r.body.raw) + "\n")
+		bodyInit = "body"
+	case bodyURLEncoded:
+		b.WriteString("\nconst body = new URLSearchParams({\n")
+		for _, p := range r.body.pairs {
+			b.WriteString("  " + jsKey(p.name) + ": " + jsQuote(p.value) + ",\n")
+		}
+		b.WriteString("})\n")
+		bodyInit = "body"
+	case bodyForm:
+		b.WriteString("\nconst body = new FormData()\n")
+		for _, p := range r.body.pairs {
+			b.WriteString("body.append(" + jsQuote(p.name) + ", " + jsQuote(p.value) + ")\n")
+		}
+		for _, f := range r.body.files {
+			// openAsBlob is Node 20+; a browser would use a File from an
+			// <input> instead. Either way FormData sets the multipart
+			// boundary itself, so no Content-Type header is added.
+			b.WriteString("body.append(" + jsQuote(f.name) + ", await openAsBlob(" + jsQuote(f.value) + "))\n")
+		}
+		bodyInit = "body"
+	case bodyBinary:
+		b.WriteString("\nconst body = await readFile(" + jsQuote(r.body.filePath) + ")\n")
+		bodyInit = "body"
+	}
+
+	if r.body.kind == bodyForm && len(r.body.files) > 0 {
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\nconst response = await fetch(url, {\n")
+	b.WriteString("  method: " + jsQuote(r.method) + ",\n")
+	if len(r.headers) > 0 || r.oauth != nil {
+		b.WriteString("  headers,\n")
+	}
+	if bodyInit != "" {
+		b.WriteString("  body,\n")
+	}
+	// 'follow' is fetch's default, but saying it keeps the script honest
+	// next to the 'manual' case rather than leaving the reader to know.
+	if r.follow {
+		b.WriteString("  redirect: 'follow',\n")
+	} else {
+		b.WriteString("  redirect: 'manual',\n")
+	}
+	if r.timeout > 0 {
+		b.WriteString(fmt.Sprintf("  signal: AbortSignal.timeout(%d),\n", r.timeout.Milliseconds()))
+	}
+	b.WriteString("})\n")
+
+	b.WriteString("\nconsole.log(response.status)\nconsole.log(await response.text())\n")
+
+	// The imports the body forms above need, prepended once their use is
+	// known rather than guessed at the top.
+	var imports []string
+	if r.body.kind == bodyForm && len(r.body.files) > 0 {
+		imports = append(imports, "import { openAsBlob } from 'node:fs'")
+	}
+	if r.body.kind == bodyBinary {
+		imports = append(imports, "import { readFile } from 'node:fs/promises'")
+	}
+	if len(imports) == 0 {
+		return b.String()
+	}
+	return strings.Join(imports, "\n") + "\n\n" + b.String()
+}
+
+func javaScriptNotes(r request) []string {
+	var notes []string
+	if r.cookies {
+		notes = append(notes,
+			"This request is on Freeman's shared cookie jar; fetch has none. Read",
+			"Set-Cookie off the response and send it back yourself, or use a library",
+			"like tough-cookie, if the next request needs the session.",
+		)
+	}
+	if r.follow && r.maxRedirects > 0 {
+		notes = append(notes,
+			fmt.Sprintf("Freeman caps this request at %d redirects; fetch has no such option and", r.maxRedirects),
+			"Node follows up to 20.",
+		)
+	}
+	if r.skipTLSVerify {
+		notes = append(notes,
+			"NODE_TLS_REJECT_UNAUTHORIZED below is how fetch skips the certificate",
+			"check. It applies to the whole process, not just this request.",
+		)
+	}
+	if r.certFile != "" {
+		notes = append(notes,
+			"Freeman presents a client certificate for this request. fetch cannot;",
+			"that needs an undici Agent configured with a tls option.",
+		)
+	}
+	return notes
+}
+
+// jsQuote wraps s in a single-quoted JavaScript string.
+func jsQuote(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "'", `\'`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
+	return "'" + s + "'"
+}
+
+// jsIdentifier matches a header or field name that can be an object key
+// as written, so the common ones don't all end up quoted.
+var jsIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
+
+func jsKey(name string) string {
+	if jsIdentifier.MatchString(name) {
+		return name
+	}
+	return jsQuote(name)
+}
+
+// jsTemplate keeps a multi-line body readable in a template literal.
+// A body containing a backtick or a ${ would change what it means, so
+// that falls back to a quoted string.
+func jsTemplate(body string) string {
+	if strings.ContainsAny(body, "`\\") || strings.Contains(body, "${") {
+		return jsQuote(body)
+	}
+	return "`" + body + "`"
 }
