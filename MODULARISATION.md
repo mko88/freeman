@@ -4,6 +4,12 @@ A plan for splitting Freeman into parts a user can turn on and off, and
 for whether any of them should become plugins. Written 2026-09-07
 against `main` at the merge of `codegen-python-javascript`.
 
+**Goal, clarified after the first draft:** the target is third-party
+plugins that users download and install separately — not just built-in
+features with a checkbox. That moves the centre of gravity from Stage 1
+to Stage 3, so read the worked example at the end first; it costs the
+real thing rather than the cheap thing.
+
 ---
 
 ## The short answer
@@ -24,10 +30,12 @@ What is worth doing now, in order:
 | 0 | Invert `core → codegen` behind an interface | half a day | Fixes a real design smell and is the pattern everything else follows |
 | 1 | Capability registry + `features.yaml` + Settings toggles | 2–3 days | This is what "enable/disable" actually means for a desktop app |
 | 2 | Build tags for heavy optional dependencies | 1 day, after 1 | A minimal binary, a smaller attack surface |
-| 3 | Third-party extensions | weeks | Only when someone asks. See "If plugins ever happen" |
+| 3 | Third-party downloadable plugins | ~12–14 days for the first one | The stated goal. See the worked example at the end |
 
-Stage 1 is the deliverable. Stages 2 and 3 are cheap and speculative
-respectively.
+Stages 0–2 are worth doing on their own merits. Stage 3 is the real
+target, and the worked example at the end costs it properly: about two
+of those days are the plugin mechanism and nine are platform, which
+changes what the decision is actually about.
 
 ---
 
@@ -103,7 +111,7 @@ is worth nothing while every module is first-party Go in one repo.
 matching `ui:action`, documented in `uiActions`, mirrored in
 `GET /api/ui/state`, and exercised by `scripts/control_api/`.
 `checks/consistency.py` enforces it mechanically by diffing four lists.
-Today that is 55 actions, 20 routes, and 248 checks that all pass.
+Today that is 55 actions, 20 routes, and 249 checks that all pass.
 
 That property is the most valuable thing about this codebase, and a
 module system is exactly the kind of change that quietly destroys it —
@@ -316,3 +324,138 @@ Stage 0, on its own branch:
 
 It is a day's work, it improves the code whether or not any of the rest
 happens, and it is the shape every later module follows.
+
+---
+
+## Worked example: what would a downloadable codegen plugin cost?
+
+Costed against the real code, because the answer is not what the shape
+of the problem suggests.
+
+### Codegen is the easy case, and it is easier than it looks
+
+`internal/codegen/codegen.go` is 978 lines. The four renderers are 400
+of them:
+
+| Renderer | Lines |
+|---|---|
+| `renderBash` | 81 |
+| `renderPowerShell` | 101 |
+| `renderPython` | 114 |
+| `renderJavaScript` | 104 |
+
+The other ~578 lines are shared and **stay in the host**: `build()`
+resolving `{{vars}}`, folding query params into the URL, turning `Auth`
+into a header, normalising the five body modes, deriving the effective
+timeout, and the per-language quoting helpers.
+
+So a plugin author writes ~100 lines, not ~1,000. And the contract they
+write against is small: **19 fields** across `request`, `reqBody` and
+`oauthGrant` — method, url, headers, the body in normalised form, and
+the transport options. In, a struct. Out, a string.
+
+No I/O. No callbacks into the host. No state between calls. No UI. Of
+everything in this app, this is the most plugin-shaped thing there is —
+which is exactly why it is the right one to cost, and why the number
+below is a *floor* for any other plugin point.
+
+### The mechanism is the cheap part
+
+| Mechanism | Host code | Author needs | Per-call cost | Verdict |
+|---|---|---|---|---|
+| **Subprocess + JSON on stdio** | ~250 lines | any language | 20–60 ms process spawn on Windows, plus interpreter start | Cheapest to build, worst to live with — see below |
+| **JavaScript on goja** | ~500 lines | JS, nothing installed | microseconds | **Recommended** |
+| **WASM on wazero** | ~800 lines | Rust/TinyGo/AssemblyScript toolchain | microseconds | Only if untrusted plugins must be sandboxed |
+
+**The subprocess option is killed by a detail in the frontend.**
+`App.svelte`'s `codeKey` reactive regenerates the snippet on *every
+keystroke* while the Code tab is open — there is no debounce, and
+`regenerateCode` carries a sequence guard precisely because calls
+overlap. In-process that is free. A process spawn per keystroke is
+40–100 ms of lag on every character typed into the URL bar. It could be
+fixed with debouncing or a long-lived worker process, but then the
+"cheapest to build" advantage is gone.
+
+goja wins on three counts: it is in-process so the keystroke path stays
+free, the author needs nothing installed, and the roadmap already
+commits to embedding it for pre-request and test scripts (`TODO.md`).
+Paid once, used twice.
+
+### The costs that are not the mechanism
+
+This is the part that decides the answer.
+
+| Work | Estimate | Why |
+|---|---|---|
+| Stage 0 — invert `core → codegen` behind an interface | 1 day | Prerequisite either way |
+| Dynamic format list, end to end | 2 days | `codeFormats` is a hardcoded TS array feeding both the tab row and `selectCodeFormat`'s validation. It has to come from the backend, and reach `GET /api/ui/state`, the help modal and `/api/agent` |
+| `consistency.py` rework | 1–2 days | It reads *source* to diff the catalogue. With plugins, the action stays static but its accepted payload values become dynamic — it needs a rule for "static action, runtime-reported values" |
+| Contract versioning + author docs | 1 day, then ongoing | The 19 fields become public API. `cookies` was added to them this week; that freedom ends |
+| Failure isolation | 1 day | Timeout, panic recovery, error surfaced in the tab. A plugin that hangs must not hang a path that runs per keystroke |
+| Discovery, manifest, first-run consent | 2 days | A plugin is code from the internet running with the user's privileges |
+| Tests: host, plus a fixture plugin in the suite | 2 days | The load path needs to be a regression check, not a demo |
+| The goja host itself | 2 days | Marshalling, the call, the sandbox |
+| **Total** | **≈ 12–14 days** | |
+
+### The number that matters
+
+**The plugin mechanism is 2 of those days. About 9 are platform.**
+
+Discovery, consent, versioning, failure isolation, the dynamic
+catalogue and the `consistency.py` rework are paid once and are not
+about code generation at all. Once they exist, a *second* plugin point —
+response viewers, importers — costs roughly 2–3 days each.
+
+That inverts the usual reasoning:
+
+- **Making codegen pluggable, alone, is poor value.** Twelve days to let
+  someone add a Ruby snippet, when adding one in-tree is a 100-line pull
+  request against a file that already has four examples in it.
+- **Making codegen the first of three or four plugin points is good
+  value.** The platform cost amortises, and codegen is the right one to
+  build it against because it is the simplest possible consumer.
+
+So the decision is not "should codegen be a plugin". It is "is Freeman
+becoming a platform". If yes, start with codegen. If no, keep taking
+pull requests.
+
+### The one thing that cannot be bought cheaply
+
+**Syntax highlighting for a language Freeman does not already bundle.**
+
+`CodeEditor.svelte` maps a format to a CodeMirror grammar from
+`@codemirror/legacy-modes`, chosen at build time and bundled into the
+Wails binary. A plugin declaring `format: "ruby"` gets no grammar.
+Loading one at runtime means pulling an npm package into an embedded,
+offline asset bundle — not viable.
+
+The honest options are: plugins pick a `language` from the bundled set
+(currently shell, powershell, python, javascript, json, xml), or their
+output renders as plain text. Neither is terrible. It just needs to be a
+documented limit of the plugin API from day one rather than a surprise
+for the first author who picks Ruby.
+
+### What I would cut
+
+- **Don't convert the built-in four to plugins.** They stay compiled:
+  they are the reference implementation, they are pinned byte-for-byte
+  by the Go tests and the control-API suite, and running them through an
+  interpreter buys nothing.
+- **Don't let plugins ship UI.** A transform is enough for every case
+  that actually exists, and a component API is forever.
+- **Don't build a registry or a marketplace.** A folder, a manifest, and
+  "unzip it here" is enough until there are ten plugins.
+
+### If this goes ahead, the order is
+
+1. Stage 0 — the `CodeGenerator` interface. Useful alone.
+2. The dynamic format list end to end, with the built-in four still
+   compiled in. Nothing is pluggable yet; the *catalogue* becomes
+   dynamic, which is the hard half.
+3. `consistency.py` learns dynamic payload values.
+4. Only then: the goja host, discovery, consent, and a fixture plugin in
+   the suite.
+
+Steps 2 and 3 are the risky ones, they are where the standing
+control-API guarantee is either preserved or quietly lost, and they are
+worth doing on their own even if step 4 never happens.
