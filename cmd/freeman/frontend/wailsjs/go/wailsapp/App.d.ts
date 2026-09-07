@@ -4,6 +4,7 @@ import {domain} from '../models';
 import {core} from '../models';
 import {httpengine} from '../models';
 import {headercatalog} from '../models';
+import {settings} from '../models';
 
 export function ClearCachedResponse(arg1:string):Promise<void>;
 
@@ -41,6 +42,8 @@ export function GetResponseCacheDataURI(arg1:string):Promise<string>;
 
 export function GetResponseCachePath(arg1:string):Promise<string>;
 
+export function GetSettings():Promise<settings.Settings>;
+
 export function GetTheme():Promise<Record<string, string>>;
 
 export function GetVersion():Promise<Record<string, string>>;
@@ -65,11 +68,15 @@ export function SaveEnvironment(arg1:domain.Environment):Promise<domain.Environm
 
 export function SaveRequest(arg1:string,arg2:domain.Item):Promise<domain.Item>;
 
+export function SaveSettings(arg1:settings.Settings):Promise<settings.Settings>;
+
 export function SelectFile():Promise<string>;
 
 export function SelectWorkspaceFolder():Promise<string>;
 
 export function SetControlAPIAddr(arg1:string):Promise<void>;
+
+export function Settings():Promise<settings.Settings>;
 
 export function UIState():Promise<string>;
 

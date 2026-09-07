@@ -104,7 +104,7 @@ func (a *App) ExecuteRequest(collectionID, itemID, environmentID string) (*httpe
 // the shared shape ExecuteRequest and GetCachedResponse both hand the
 // frontend for an oversized response.
 func (a *App) trimLargeBody(itemID string, resp *httpengine.Response) {
-	if len(resp.Body) <= httpengine.LargeResponseThreshold {
+	if int64(len(resp.Body)) <= httpengine.LargeResponseThreshold {
 		return
 	}
 	if path, err := a.responseCacheBodyPath(itemID); err == nil {

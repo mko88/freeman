@@ -3,7 +3,7 @@
 // bindings, for the web build served by cmd/freeman-server. Same function
 // signatures as backend.wails.ts, using the same (Wails-independent)
 // generated types from wailsjs/go/models.
-import type { core, domain, httpengine } from '../wailsjs/go/models'
+import type { core, domain, httpengine, settings } from '../wailsjs/go/models'
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -93,6 +93,14 @@ export function GetTheme(): Promise<Record<string, string>> {
 
 export function GetVersion(): Promise<Record<string, string>> {
   return request('GET', '/api/version')
+}
+
+export function GetSettings(): Promise<settings.Settings> {
+  return request('GET', '/api/settings')
+}
+
+export function SaveSettings(s: settings.Settings): Promise<settings.Settings> {
+  return request('PUT', '/api/settings', s)
 }
 
 // The response cache (see internal/wailsapp/responsecache.go) is

@@ -421,3 +421,26 @@ export namespace httpengine {
 
 }
 
+export namespace settings {
+	
+	export class Settings {
+	    requestTimeoutMs: number;
+	    maxRedirects: number;
+	    inlineResponseBytes: number;
+	    maxResponseBytes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Settings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.requestTimeoutMs = source["requestTimeoutMs"];
+	        this.maxRedirects = source["maxRedirects"];
+	        this.inlineResponseBytes = source["inlineResponseBytes"];
+	        this.maxResponseBytes = source["maxResponseBytes"];
+	    }
+	}
+
+}
+

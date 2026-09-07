@@ -11,7 +11,10 @@ import (
 // keeps a response out of its state mirror (see Response.Truncated).
 // Execute itself always returns Body inline — trimming happens a layer
 // up, in wailsapp, against the on-disk response cache it already writes.
-const LargeResponseThreshold = 1 << 20 // 1 MiB
+//
+// A var, not a const, so internal/settings can carry the workspace's
+// answer — see core.App.applySettings.
+var LargeResponseThreshold int64 = 1 << 20 // 1 MiB
 
 // MaxResponseBytes is the hard ceiling on how much of a response body
 // Execute will hold in memory — applied to the bytes off the wire and

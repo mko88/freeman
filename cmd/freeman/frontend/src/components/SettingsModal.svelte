@@ -8,7 +8,7 @@
   // to stay in one place, or a scripted selectEnvironment and a clicked
   // one would take different paths.
   import InfoTip from './InfoTip.svelte'
-  import type { core, domain } from '../../wailsjs/go/models'
+  import type { core, domain, settings as settings_ } from '../../wailsjs/go/models'
 
   export let workspace: core.WorkspaceInfo
   export let openError: string
@@ -29,6 +29,25 @@
   export let onClose: () => void
   export let onOpenWorkspace: () => void
   export let onClearResponseCache: () => void
+
+  // Bound, like `environment` above: App.svelte owns the value, mirrors
+  // it in GET /api/ui/state, and saves it — the two byte fields are
+  // edited in MiB here because nobody wants to type 67108864.
+  export let settings: settings_.Settings
+  export let onSaveSettings: () => void
+
+  const MIB = 1024 * 1024
+  // Derived one way only — reactive statements in both directions would
+  // chase each other. The boxes are read from the settings; saveSizes
+  // writes them back when one is edited.
+  $: inlineMiB = Math.max(1, Math.round(settings.inlineResponseBytes / MIB))
+  $: maxMiB = Math.max(1, Math.round(settings.maxResponseBytes / MIB))
+
+  function saveSizes() {
+    settings.inlineResponseBytes = inlineMiB * MIB
+    settings.maxResponseBytes = maxMiB * MIB
+    onSaveSettings()
+  }
 
   // The environment mutations, grouped rather than passed as seven
   // separate props. App.svelte holds one stable object so this doesn't
@@ -105,6 +124,69 @@
               </span>
             </div>
             <button on:click={onClearResponseCache}>{responseCacheCleared ? 'Cleared' : 'Clear'}</button>
+          </li>
+        </ul>
+
+        <!-- The four values that used to be constants in
+             internal/httpengine. They live in the workspace's
+             settings.yaml, so a workspace shared through git carries
+             them. -->
+        <h3 class="settings-group">Defaults for new requests</h3>
+        <ul class="settings-list">
+          <li class="settings-setting">
+            <span class="settings-setting-name"
+              >Request timeout
+              <InfoTip label="About the request timeout">
+                How long a request may take before it gives up, unless it sets its own in the Options tab.
+                0 waits forever.
+              </InfoTip>
+            </span>
+            <span class="settings-value">
+              <input type="number" min="0" step="500" bind:value={settings.requestTimeoutMs} on:change={onSaveSettings} />
+              <span class="settings-unit">ms</span>
+            </span>
+          </li>
+          <li class="settings-setting">
+            <span class="settings-setting-name"
+              >Maximum redirects
+              <InfoTip label="About the redirect limit">
+                How many redirects a request follows, unless it sets its own. 0 follows without limit —
+                only the timeout ends a redirect loop.
+              </InfoTip>
+            </span>
+            <span class="settings-value">
+              <input type="number" min="0" bind:value={settings.maxRedirects} on:change={onSaveSettings} />
+            </span>
+          </li>
+        </ul>
+
+        <h3 class="settings-group">Response limits</h3>
+        <ul class="settings-list">
+          <li class="settings-setting">
+            <span class="settings-setting-name"
+              >Show inline up to
+              <InfoTip label="About the inline limit">
+                Bodies bigger than this aren't rendered in the response pane. They're still cached in
+                full, and the ⋯ menu opens the file.
+              </InfoTip>
+            </span>
+            <span class="settings-value">
+              <input type="number" min="1" bind:value={inlineMiB} on:change={saveSizes} />
+              <span class="settings-unit">MiB</span>
+            </span>
+          </li>
+          <li class="settings-setting">
+            <span class="settings-setting-name"
+              >Read at most
+              <InfoTip label="About the response ceiling">
+                The hard ceiling on how much of a response is read at all. Past it the body comes back
+                truncated rather than filling memory — a compressed payload can expand a long way.
+              </InfoTip>
+            </span>
+            <span class="settings-value">
+              <input type="number" min="1" bind:value={maxMiB} on:change={saveSizes} />
+              <span class="settings-unit">MiB</span>
+            </span>
           </li>
         </ul>
         {#if openError}<p class="error">{openError}</p>{/if}
@@ -358,6 +440,32 @@
     align-items: center;
     gap: 0.35rem;
     font-size: 0.85rem;
+  }
+
+  /* A heading between lists, not above the first one — the Folder and
+     Response cache rows need no label to be understood. */
+  .settings-group {
+    margin: 1.1rem 0 0.4rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--fm-text-muted);
+  }
+
+  .settings-value {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+  }
+
+  .settings-value input {
+    width: 7rem;
+    text-align: right;
+  }
+
+  .settings-unit {
+    font-size: 0.78rem;
+    color: var(--fm-text-muted);
   }
 
   /* The Environments tab's table has a second narrow (checkbox) column —

@@ -34,9 +34,9 @@ from ..server import (
 # section can't leave a setting behind for the next.
 DEFAULT_OPTIONS = {
     "followRedirects": True,
-    "maxRedirects": 0,
+    "maxRedirects": 10,
     "storeCookies": True,
-    "timeoutMs": 0,
+    "timeoutMs": 30000,
     "skipTlsVerify": False,
     "clientCertFile": "",
     "clientCertKeyFile": "",
@@ -46,8 +46,14 @@ DEFAULT_OPTIONS = {
 # every zero-valued one, so an absent key means the zero value — except
 # that an absent `options` object altogether means the defaults above,
 # which is a different thing for the two booleans that default to true.
+#
+# maxRedirects is the exception within the exception: it's a *int on the
+# Go side precisely so "absent" and "explicitly 0" stay distinguishable,
+# and absent means the workspace default rather than 0 (no cap).
 ZERO_OPTIONS = {k: (False if isinstance(v, bool) else v) for k, v in DEFAULT_OPTIONS.items()}
-ZERO_OPTIONS.update({"maxRedirects": 0, "timeoutMs": 0, "clientCertFile": "", "clientCertKeyFile": ""})
+ZERO_OPTIONS.update(
+    {"maxRedirects": DEFAULT_OPTIONS["maxRedirects"], "timeoutMs": 0, "clientCertFile": "", "clientCertKeyFile": ""}
+)
 
 
 def saved_options(item: dict) -> dict:

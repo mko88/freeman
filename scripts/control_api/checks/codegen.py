@@ -53,14 +53,14 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
             # and curl never would, -b/-c because the request is on the
             # cookie jar — the generated script has to send what Send
             # sends. See the Options tab.
-            'curl -X POST -L "$url" \\\n  -b \'cookies.txt\' -c \'cookies.txt\' --max-time 30 \\\n  "${headers[@]}"',
+            'curl -X POST -L --max-redirs 10 "$url" \\\n  -b \'cookies.txt\' -c \'cookies.txt\' --max-time 30 \\\n  "${headers[@]}"',
         ],
         "powershell": [
             f"$uri = '{test_base}/post'",
             "$headers = @{",
             "'Authorization' = 'Bearer t0ken'",
-            "Invoke-RestMethod `\n    -Method POST `\n    -Uri $uri `\n    -TimeoutSec 30 `"
-            "\n    -SessionVariable session `\n    -Headers $headers",
+            "Invoke-RestMethod `\n    -Method POST `\n    -Uri $uri `\n    -MaximumRedirection 10 `"
+            "\n    -TimeoutSec 30 `\n    -SessionVariable session `\n    -Headers $headers",
         ],
         "python": [
             "import requests",

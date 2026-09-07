@@ -16,6 +16,8 @@
     ExecuteRequest,
     GenerateRequestCode,
     GetVersion,
+    GetSettings,
+    SaveSettings,
     GetCachedResponse,
     ClearResponseCache,
     ClearCachedResponse,
@@ -24,7 +26,7 @@
     GetResponseCacheDataURI,
     OpenResponseCacheInFileExplorer,
   } from '$backend'
-  import type { domain, httpengine, core } from '../wailsjs/go/models'
+  import type { domain, httpengine, core, settings } from '../wailsjs/go/models'
   import { EventsOn } from '../wailsjs/runtime/runtime'
   import HelpModal from './components/HelpModal.svelte'
   import RequestList from './components/RequestList.svelte'
@@ -77,6 +79,21 @@
   // modal, and reported by GET /api/version. Loaded once on mount; it
   // can't change while the app runs.
   let appVersion = ''
+
+  // The workspace's app-wide defaults (internal/settings): how long a
+  // request may take, how many redirects it follows, and the two
+  // response-size limits. Loaded when a workspace opens, edited in the
+  // settings window, and the first two seed every new request's Options.
+  let workspaceSettings: settings.Settings = {
+    requestTimeoutMs: 30_000,
+    maxRedirects: 10,
+    inlineResponseBytes: 1 << 20,
+    maxResponseBytes: 64 << 20,
+  }
+  $: workspaceDefaults = {
+    maxRedirects: workspaceSettings.maxRedirects,
+    requestTimeoutMs: workspaceSettings.requestTimeoutMs,
+  }
 
   let collectionId = ''
   let collection: domain.Collection | null = null
@@ -284,6 +301,9 @@
       environment,
       showSettings,
       settingsTab,
+      // The workspace's app-wide defaults, so setWorkspaceSetting has a
+      // getter to read back — same rule as every other settable field.
+      workspaceSettings,
       showHelp,
       sending,
       sendError,
@@ -303,6 +323,24 @@
     // storing whatever was first reported, never a later update); Go
     // just writes this string straight back out for GET /api/ui/state.
     ReportUIState(JSON.stringify(state)).catch((e) => logEvent(`reportUIState failed: ${e}`))
+  }
+
+  // Reloaded whenever a workspace opens: they live in its settings.yaml,
+  // so a different workspace is a different set.
+  async function loadSettings() {
+    try {
+      workspaceSettings = await GetSettings()
+    } catch {
+      // No workspace open yet, or an unreadable file — the fallbacks
+      // above are the same values Go would have used anyway.
+    }
+  }
+
+  // Saved on every field change rather than behind a button: these are
+  // four numbers, and Go clamps whatever arrives, so the stored answer
+  // comes back and replaces what was typed if it was out of range.
+  async function saveWorkspaceSettings() {
+    workspaceSettings = await SaveSettings(workspaceSettings)
   }
 
   onMount(async () => {
@@ -395,6 +433,15 @@
       case 'newEnvironment':
         await newEnvironment()
         break
+      case 'setWorkspaceSetting': {
+        const field = String(payload?.field ?? '')
+        const value = Number(payload?.value)
+        if (field in workspaceSettings && Number.isFinite(value)) {
+          workspaceSettings = { ...workspaceSettings, [field]: value }
+          await saveWorkspaceSettings()
+        }
+        break
+      }
       case 'setEnvironmentField':
         if (payload?.field === 'name' && typeof payload?.value === 'string') {
           setEnvironmentField('name', payload.value)
@@ -747,6 +794,7 @@
 
   async function initWorkspace(ws: core.WorkspaceInfo) {
     workspace = ws
+    await loadSettings()
     if (ws.environments.length) await selectEnvironment(ws.environments[0].id)
     if (ws.collections.length) await selectCollection(ws.collections[0].id)
   }
@@ -850,7 +898,7 @@
       // Absent for anything saved before options existed, and for
       // anything nobody has changed — the same defaults httpengine
       // applies in that case.
-      options: item.options ? { ...defaultOptions(), ...item.options } : defaultOptions(),
+      options: item.options ? { ...defaultOptions(workspaceDefaults), ...item.options } : defaultOptions(workspaceDefaults),
     }
     sendError = ''
     responseDataUri = null
@@ -868,7 +916,7 @@
 
   function newRequest() {
     selectedItemId = null
-    draft = emptyDraft()
+    draft = emptyDraft(workspaceDefaults)
     response = null
     sendError = ''
     responseDataUri = null
@@ -971,7 +1019,7 @@
       // Omitted while everything is default, so an untouched request
       // doesn't grow an options block in its collection.json — and so a
       // future change of default reaches requests nobody has customised.
-      options: changedOptionCount(draft.options) ? { ...draft.options } : undefined,
+      options: changedOptionCount(draft.options, workspaceDefaults) ? { ...draft.options } : undefined,
     } as unknown as domain.Item
   }
 
@@ -1506,6 +1554,8 @@
       onClose={() => (showSettings = false)}
       onOpenWorkspace={openWorkspace}
       onClearResponseCache={clearResponseCache}
+      bind:settings={workspaceSettings}
+      onSaveSettings={saveWorkspaceSettings}
     />
   {/if}
 

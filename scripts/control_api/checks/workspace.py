@@ -196,3 +196,64 @@ def test_settings_window(api: ControlAPI, r: Report) -> None:
     api.action("openWorkspace", {"path": root})
     state = poll(api.state, lambda s: s.get("workspaceRoot") == root)
     r.check("state.workspaceRoot still matches after re-opening it", state.get("workspaceRoot") == root, str(state.get("workspaceRoot")))
+
+
+def test_workspace_settings(api: ControlAPI, r: Report) -> None:
+    """The app-wide defaults that used to be constants in
+    internal/httpengine: the request timeout, the redirect cap, and the
+    two response-size limits. They live in settings.yaml in the
+    workspace, so this only ever touches the disposable one main()
+    switched to — but it restores what it found anyway, because later
+    checks send real requests through the timeout it sets here."""
+    r.section("Workspace settings (GET/PUT /api/settings / setWorkspaceSetting)")
+
+    keys = {"requestTimeoutMs", "maxRedirects", "inlineResponseBytes", "maxResponseBytes"}
+    original = api.get("/api/settings")
+    r.check(
+        "GET /api/settings returns all four defaults",
+        isinstance(original, dict) and keys <= set(original),
+        str(original),
+    )
+    if not isinstance(original, dict) or not keys <= set(original):
+        return
+
+    try:
+        r.step("setWorkspaceSetting {field: 'maxRedirects', value: 7}")
+        api.action("setWorkspaceSetting", {"field": "maxRedirects", "value": 7})
+        state = poll(api.state, lambda s: (s.get("workspaceSettings") or {}).get("maxRedirects") == 7)
+        r.check(
+            "state.workspaceSettings reflects setWorkspaceSetting",
+            (state.get("workspaceSettings") or {}).get("maxRedirects") == 7,
+            str(state.get("workspaceSettings")),
+        )
+        r.check(
+            "...and it reached settings.yaml, not just the UI",
+            api.get("/api/settings").get("maxRedirects") == 7,
+            str(api.get("/api/settings")),
+        )
+
+        # Go clamps rather than rejecting, and returns what it kept: a
+        # ceiling below the inline threshold would truncate a body the
+        # pane was about to render whole.
+        r.step("PUT /api/settings with maxResponseBytes below inlineResponseBytes  (expect it clamped up)")
+        status, saved = api.raw(
+            "PUT",
+            "/api/settings",
+            {**original, "inlineResponseBytes": 4 * 1024 * 1024, "maxResponseBytes": 1024 * 1024},
+        )
+        r.check(
+            "PUT /api/settings raises a ceiling that sits below the inline threshold",
+            status == 200 and isinstance(saved, dict) and saved.get("maxResponseBytes") == 4 * 1024 * 1024,
+            f"status={status} body={saved}",
+        )
+
+        r.step("PUT /api/settings with a negative timeout  (0 and negative both mean no deadline)")
+        status, saved = api.raw("PUT", "/api/settings", {**original, "requestTimeoutMs": -1})
+        r.check(
+            "a negative timeout is clamped to 0 rather than refused",
+            status == 200 and isinstance(saved, dict) and saved.get("requestTimeoutMs") == 0,
+            f"status={status} body={saved}",
+        )
+    finally:
+        r.step("PUT /api/settings  (restoring what this workspace had)")
+        api.raw("PUT", "/api/settings", original)

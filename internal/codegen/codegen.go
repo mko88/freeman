@@ -105,7 +105,10 @@ type request struct {
 	// Invoke-RestMethod follows up to five, and neither imposes a
 	// timeout the way Freeman's 30 seconds does. Left implicit and the
 	// generated script would quietly do something else than Send.
-	follow       bool
+	follow bool
+	// maxRedirects is the effective cap, resolved from the request's
+	// Options: the app default when it says nothing, and 0 for "no cap",
+	// which each language spells differently.
 	maxRedirects int
 	// cookies mirrors StoreCookies, which each language honours as well
 	// as it can: curl and Python keep a jar on disk, PowerShell one for
@@ -182,7 +185,7 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 		method:        method,
 		url:           u.String(),
 		follow:        opts.FollowRedirects,
-		maxRedirects:  opts.MaxRedirects,
+		maxRedirects:  effectiveMaxRedirects(opts),
 		cookies:       opts.StoreCookies,
 		timeout:       effectiveTimeout(opts),
 		skipTLSVerify: opts.SkipTLSVerify,
@@ -222,6 +225,24 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 		r.headers = append(r.headers, kv{"Content-Type", r.body.contentType})
 	}
 	return r, nil
+}
+
+// The nearest thing to "no cap" that two of the four languages can
+// express: PowerShell's -MaximumRedirection is an int with no unlimited
+// value, and requests has none either (its own default is 30).
+const (
+	psMaxRedirection = 2147483647
+	pyMaxRedirects   = 1000
+)
+
+// effectiveMaxRedirects resolves what Execute would apply: the app
+// default when the request says nothing, otherwise its own value, where
+// 0 means no cap at all.
+func effectiveMaxRedirects(opts domain.Options) int {
+	if opts.MaxRedirects == nil {
+		return httpengine.DefaultMaxRedirects
+	}
+	return *opts.MaxRedirects
 }
 
 // effectiveTimeout resolves what Execute would actually apply: the
@@ -434,8 +455,12 @@ func renderBash(r request) string {
 	head := "curl -X " + r.method
 	if r.follow {
 		head += " -L"
+		// curl's own default is 50 and -1 is its unlimited, so both ends
+		// of the range have to be said out loud.
 		if r.maxRedirects > 0 {
 			head += fmt.Sprintf(" --max-redirs %d", r.maxRedirects)
+		} else {
+			head += " --max-redirs -1"
 		}
 	}
 	lines := []string{head + ` "$url"`}
@@ -617,6 +642,8 @@ func renderPowerShell(r request) string {
 		params = append(params, "-MaximumRedirection 0")
 	} else if r.maxRedirects > 0 {
 		params = append(params, fmt.Sprintf("-MaximumRedirection %d", r.maxRedirects))
+	} else {
+		params = append(params, fmt.Sprintf("-MaximumRedirection %d", psMaxRedirection))
 	}
 	// -TimeoutSec is whole seconds and 0 means "wait forever", so a
 	// sub-second timeout rounds up to 1 rather than becoming no timeout
@@ -708,8 +735,12 @@ func renderPython(r request) string {
 		b.WriteString("session.cookies = MozillaCookieJar(" + pyQuote(PythonCookieJarFile) + ")\n")
 		b.WriteString("try:\n    session.cookies.load(ignore_discard=True)\nexcept FileNotFoundError:\n    pass\n")
 	}
-	if r.follow && r.maxRedirects > 0 {
-		b.WriteString(fmt.Sprintf("session.max_redirects = %d\n", r.maxRedirects))
+	if r.follow {
+		cap := r.maxRedirects
+		if cap <= 0 {
+			cap = pyMaxRedirects
+		}
+		b.WriteString(fmt.Sprintf("session.max_redirects = %d\n", cap))
 	}
 
 	if g := r.oauth; g != nil {

@@ -397,7 +397,7 @@
         <span class="body-language-detected">detected: {resolvedBodyLanguage}</span>
       {/if}
       <span class="body-keys">
-        <InfoTip label="About keyboard behaviour in the body editor" align="right">
+        <InfoTip label="About keyboard behaviour in the body editor">
           Tab indents rather than moving to the next control. Press Escape and then Tab to leave the editor.
         </InfoTip>
       </span>

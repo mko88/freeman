@@ -74,6 +74,10 @@ export function GetResponseCachePath(arg1) {
   return window['go']['wailsapp']['App']['GetResponseCachePath'](arg1);
 }
 
+export function GetSettings() {
+  return window['go']['wailsapp']['App']['GetSettings']();
+}
+
 export function GetTheme() {
   return window['go']['wailsapp']['App']['GetTheme']();
 }
@@ -122,6 +126,10 @@ export function SaveRequest(arg1, arg2) {
   return window['go']['wailsapp']['App']['SaveRequest'](arg1, arg2);
 }
 
+export function SaveSettings(arg1) {
+  return window['go']['wailsapp']['App']['SaveSettings'](arg1);
+}
+
 export function SelectFile() {
   return window['go']['wailsapp']['App']['SelectFile']();
 }
@@ -132,6 +140,10 @@ export function SelectWorkspaceFolder() {
 
 export function SetControlAPIAddr(arg1) {
   return window['go']['wailsapp']['App']['SetControlAPIAddr'](arg1);
+}
+
+export function Settings() {
+  return window['go']['wailsapp']['App']['Settings']();
 }
 
 export function UIState() {
