@@ -1832,13 +1832,20 @@
 
   /* flex-basis 0 so this takes the height the response isn't using —
      including all of it when the response is collapsed or the Code tab
-     has hidden it. min-height keeps a dragged splitter from squeezing
-     the editor away entirely: whatever the window's height, some of it
-     stays on screen. The collapsed rule below drops that floor, since a
-     collapsed pane is meant to be only its name, URL and tab rows. */
+     has hidden it.
+
+     min-height keeps a dragged splitter from squeezing the editor away
+     entirely. It's twice the response's floor because it has to clear
+     three chrome rows before any content shows — the name, the URL bar
+     and the tab strip, which come to around 100px on their own — where
+     the response has only its one bar. A floor of 100px here would leave
+     a pane that looks collapsed but isn't; this leaves about 100px of
+     the open tab, which is the part worth keeping on screen. The
+     collapsed rule below drops the floor entirely, since collapsed
+     means those three rows and nothing else. */
   .request-pane {
     flex: 1 1 0;
-    min-height: 100px;
+    min-height: 200px;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
