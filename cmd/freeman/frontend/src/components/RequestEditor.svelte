@@ -125,10 +125,11 @@
 
 <div class="request-name">
   <input type="text" bind:value={draft.name} placeholder="Request name" />
-  <!-- Beside the name they act on, rather than in the sidebar: the list
-       is then a list of names, and these two are where the rest of what
-       you can do to this request already is. Hidden for an unsaved
-       draft, which has nothing to copy or remove yet. -->
+  <!-- Everything that acts on the request as a whole, beside the name it
+       acts on: Save first, since it's the one you reach for most and the
+       one that's always available — an unsaved draft has nothing to copy
+       or remove, but saving is exactly what it needs. -->
+  <button class="icon-btn name-save" title="Save request" on:click={onSave}>🖫</button>
   {#if saved}
     <button class="icon-btn" title="Duplicate request" on:click={onDuplicate}>⧉</button>
     <button class="icon-btn" title="Delete request" on:click={onDelete}>×</button>
@@ -150,7 +151,6 @@
     }}
     placeholder="{'{'}{'{'}schema{'}'}{'}'}://{'{'}{'{'}base{'}'}{'}'}/api/{'{'}{'{'}version{'}'}{'}'}/health"
   />
-  <button on:click={onSave}>Save</button>
   <!-- The same button, because a request in flight is the only thing you
        want to do to it — a separate Cancel would sit dead most of the
        time, and this way the control is always where your hand is. -->
@@ -480,8 +480,15 @@
     gap: 0.25rem;
   }
 
+  /* Sits away from the name field so it doesn't read as part of it, and
+     stays a named button rather than an icon: it's a different kind of
+     action from the two beside it. */
+  .name-save {
+    margin-left: 0.35rem;
+  }
+
   .request-name input {
-    font-size: 0.95rem;
+    font-size: 0.88rem;
     font-weight: 600;
     letter-spacing: -0.01em;
     background: none;

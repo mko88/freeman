@@ -16,7 +16,6 @@
     ExecuteRequest,
     GenerateRequestCode,
     GetVersion,
-    ImportCurl,
     CancelRequest,
     GetSettings,
     SaveSettings,
@@ -107,11 +106,6 @@
   // What the sidebar is filtered to. Not persisted: where you are right
   // now, not a setting.
   let requestFilter = ''
-
-  // The paste-a-curl dialog.
-  let showImport = false
-  let importText = ''
-  let importError = ''
 
   // The two pickers' open state — the collection's lives above the
   // request list, the environment's in the top bar.
@@ -304,7 +298,6 @@
       environmentId,
       selectedItemId,
       requestFilter,
-      showImport,
       tab: activeTab,
       requestPaneCollapsed,
       // name/method/url/params/headers/auth/bodyMode/bodyRaw/
@@ -462,13 +455,6 @@
         // Reached only by a direct dispatchUIAction call: the ui:action
         // event handler above takes this one out of the queue first.
         await cancelRequest()
-        break
-      case 'importCurl':
-        await importCurl(String(payload?.text ?? ''))
-        break
-      case 'toggleImport':
-        showImport = !showImport
-        importError = ''
         break
       case 'filterRequests':
         requestFilter = String(payload?.text ?? '')
@@ -1171,22 +1157,6 @@
     await CancelRequest()
   }
 
-  // A pasted curl becomes an unsaved draft, not a saved request: what
-  // arrived is worth looking at before it joins the collection, and an
-  // import that guessed wrong should be discardable by navigating away.
-  async function importCurl(text: string) {
-    const item = await ImportCurl(text)
-    selectedItemId = null
-    draft = draftFromItem(item)
-    response = null
-    sendError = ''
-    responseDataUri = null
-    showImport = false
-    importText = ''
-    importError = ''
-    activeTab = 'headers'
-  }
-
   function toggleResponseActionsMenu() {
     showResponseActionsMenu = !showResponseActionsMenu
   }
@@ -1516,7 +1486,6 @@
       {/if}
       <span class="top-bar-actions">
         {#if workspace}
-          <button class="icon-btn top-bar-btn" title="Import from curl" on:click={() => (showImport = true)}>↓</button>
           <button class="icon-btn top-bar-btn" title="Settings" on:click={() => (showSettings = true)}>⚙</button>
         {/if}
         <button class="icon-btn top-bar-btn" title="Control API help" on:click={() => (showHelp = true)}>?</button>
@@ -1559,7 +1528,7 @@
     ></div>
 
     <main class="editor" bind:this={editorEl}>
-      <div class="request-pane scroll-pane" class:collapsed={requestPaneCollapsed}>
+      <div class="request-pane scroll-pane dense" class:collapsed={requestPaneCollapsed}>
         <RequestEditor
           bind:draft
           bind:activeTab
@@ -1662,58 +1631,6 @@
   {#if showHelp}
     <HelpModal {controlApiAddr} {appVersion} onClose={() => (showHelp = false)} />
   {/if}
-
-  {#if showImport}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <div
-      class="modal-backdrop"
-      role="presentation"
-      on:click={() => (showImport = false)}
-      on:keydown={(e) => e.key === 'Escape' && (showImport = false)}
-    >
-      <!-- svelte-ignore a11y-click-events-have-key-events -->
-      <div
-        class="modal import-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="import-title"
-        tabindex="-1"
-        on:click|stopPropagation
-        on:keydown={(e) => e.key === 'Escape' && (showImport = false)}
-      >
-        <div class="modal-header">
-          <h2 id="import-title">Import from curl</h2>
-          <button class="icon-btn" title="Close" on:click={() => (showImport = false)}>×</button>
-        </div>
-        <p class="prose">
-          Paste a command — from an API's docs, or your browser's “Copy as cURL”. It opens as an
-          unsaved request, so you can look at it before saving.
-        </p>
-        <textarea
-          class="import-text"
-          bind:value={importText}
-          placeholder={"curl 'https://api.example.com/v1/orders' \
-  -H 'Accept: application/json'"}
-          aria-label="curl command"
-        ></textarea>
-        {#if importError}<p class="error">{importError}</p>{/if}
-        <div class="import-actions">
-          <button on:click={() => (showImport = false)}>Cancel</button>
-          <button
-            class="primary"
-            disabled={!importText.trim()}
-            on:click={async () => {
-              try {
-                await importCurl(importText)
-              } catch (e) {
-                importError = String(e)
-              }
-            }}>Import</button
-          >
-        </div>
-      </div>
-    </div>
-  {/if}
 </div>
 
 <style>
@@ -1808,26 +1725,6 @@
     inset: -3px 0;
   }
 
-  .import-modal {
-    width: min(640px, 92vw);
-  }
-
-  .import-text {
-    width: 100%;
-    min-height: 9rem;
-    margin-top: 0.5rem;
-    font-family: inherit;
-    font-size: 0.82rem;
-    resize: vertical;
-  }
-
-  .import-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-  }
-
   .welcome {
     flex: 1;
     min-height: 0;
@@ -1873,7 +1770,7 @@
      real boundary rather than sliding one long page. */
   .editor {
     flex: 1;
-    padding: 1rem 1.5rem;
+    padding: 0.7rem 1rem;
     overflow: hidden;
     text-align: left;
     display: flex;
@@ -1890,7 +1787,7 @@
     min-height: 8rem;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.5rem;
   }
 
   /* Collapsed it's only the name, URL and tab rows, so it shrinks to

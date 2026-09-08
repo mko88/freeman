@@ -50,8 +50,6 @@ export function GetTheme():Promise<Record<string, string>>;
 
 export function GetVersion():Promise<Record<string, string>>;
 
-export function ImportCurl(arg1:string):Promise<domain.Item>;
-
 export function ListCollections():Promise<Array<core.CollectionSummary>>;
 
 export function ListEnvironments():Promise<Array<core.EnvironmentSummary>>;

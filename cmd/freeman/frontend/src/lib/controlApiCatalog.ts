@@ -44,11 +44,6 @@ export const apiEndpoints: ApiEndpoint[] = [
       'Render a request as a runnable script. Body: {item: domain.Item, environmentId, format}. ' +
       "format is 'bash', 'powershell', 'python' or 'javascript'. Returns {code}.",
   },
-  {
-    method: 'POST',
-    path: '/api/import/curl',
-    desc: 'Parse a curl command into a request. Body: {text}. Returns the domain.Item; saves nothing.',
-  },
   { method: 'GET', path: '/api/settings', desc: "The workspace's app-wide defaults: timeout, redirect cap, response limits." },
   { method: 'PUT', path: '/api/settings', desc: 'Replace them. Body: the same object; out-of-range values are clamped. Returns what was stored.' },
   { method: 'GET', path: '/api/version', desc: 'Which build is running: {version, commit, date}. Needs no open workspace.' },
@@ -119,18 +114,6 @@ export const uiActions: UiAction[] = [
     action: 'cancelRequest',
     payload: '—',
     desc: 'Stop the request in flight. Does nothing if none is. Desktop only.',
-  },
-  {
-    action: 'toggleImport',
-    payload: '—',
-    desc: 'Open/close the "Import from curl" dialog.',
-  },
-  {
-    action: 'importCurl',
-    payload: '{ text }',
-    desc:
-      'Parse a curl command and load it into the editor as an unsaved request — saveRequest ' +
-      'is what puts it in the collection. Errors if the text is not a usable curl command.',
   },
   {
     action: 'setWorkspaceSetting',

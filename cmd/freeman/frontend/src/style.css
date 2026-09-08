@@ -484,6 +484,52 @@ button.primary:disabled:hover {
    headers — has the room and doesn't want this.
    --------------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------------
+   The work area's density.
+
+   The request editor and the response pane sit one above the other and
+   hold more controls than anywhere else in the app, so both run a step
+   tighter than the shared sizes above. One class on each pane's root
+   rather than the same overrides written twice: they have to agree, and
+   two copies is how they stop agreeing.
+
+   The settings window keeps the roomier defaults — it holds a handful of
+   controls and you open it occasionally.
+   --------------------------------------------------------------------------- */
+
+.dense input,
+.dense select,
+.dense button,
+.dense textarea {
+  font-size: 0.82rem;
+  padding: 0.28rem 0.42rem;
+}
+
+.dense .tabs button {
+  padding: 0.35rem 0.55rem;
+  font-size: 0.82rem;
+}
+
+.dense .option-row button {
+  padding: 0.12rem 0.42rem;
+  font-size: 0.78rem;
+}
+
+.dense .kv-table th {
+  padding: 2px 5px;
+  font-size: 0.74rem;
+}
+
+.dense .kv-table td {
+  padding: 2px 5px;
+}
+
+/* The icon buttons keep their square shape — the shared padding above
+   would stretch them into rectangles. */
+.dense .icon-btn {
+  padding: 0.1rem 0.35rem;
+}
+
 .scroll-pane {
   overflow-y: auto;
   padding: 4px 4px 0.5rem;
