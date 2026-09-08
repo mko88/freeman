@@ -13,6 +13,7 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from .. import ControlAPI, Report, poll
+from ..fixtures import TEST_VAR_KEY
 from .variations import DEFAULT_OPTIONS, Runner, body_json
 
 
@@ -116,6 +117,36 @@ def test_cookie_jar(
         echoed == {"pyJarA": "one", "pyJarB": "two", "pyJarC": "three"},
         f"status={status} echoed={echoed}",
     )
+
+    # The generated code writes the jar out as a literal Cookie header
+    # rather than setting up a jar per language, so a pasted script sends
+    # the session the app is holding with no file, session variable or
+    # import beside it. Checked for all four formats, javascript
+    # included — fetch has no jar at all, so it used to send no cookies
+    # whatever the option said.
+    r.step("POST /api/codegen for the same URL, in all four formats")
+    for fmt in ("bash", "powershell", "python", "javascript"):
+        status, generated = api.post(
+            "/api/codegen",
+            {
+                "item": {"method": "GET", "url": f"{{{{{TEST_VAR_KEY}}}}}/cookies", "headers": []},
+                "environmentId": environment_id,
+                "format": fmt,
+            },
+        )
+        code = (generated or {}).get("code") or ""
+        wanted = ["pyJarA=one", "pyJarB=two", "pyJarC=three"]
+        r.check(
+            f"{fmt}: the jar's cookies are in the script as a Cookie header",
+            status == 200 and all(w in code for w in wanted),
+            f"status={status} code={code[:400]!r}",
+        )
+        for stale in ("cookies.txt", "MozillaCookieJar", "-SessionVariable"):
+            r.check(
+                f"{fmt}: no cookie jar to set up beside the script ({stale})",
+                stale not in code,
+                f"code={code[:400]!r}",
+            )
 
     # The route's other half. The window drives this through Wails rather
     # than over HTTP, so it needs its own check or the query-parameter

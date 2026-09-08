@@ -49,24 +49,22 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
             "-H 'X-Trace: abc'",
             "-H 'Authorization: Bearer t0ken'",
             # -L because the request follows redirects and curl doesn't
-            # unless told, --max-time because Freeman gives up after 30s
-            # and curl never would, -b/-c because the request is on the
-            # cookie jar — the generated script has to send what Send
-            # sends. See the Options tab.
-            'curl -X POST -L --max-redirs 10 "$url" \\\n  -b \'cookies.txt\' -c \'cookies.txt\' --max-time 30 \\\n  "${headers[@]}"',
+            # unless told, and --max-time because Freeman gives up after
+            # 30s and curl never would — the generated script has to send
+            # what Send sends. See the Options tab.
+            'curl -X POST -L --max-redirs 10 "$url" \\\n  --max-time 30 \\\n  "${headers[@]}"',
         ],
         "powershell": [
             f"$uri = '{test_base}/post'",
             "$headers = @{",
             "'Authorization' = 'Bearer t0ken'",
             "Invoke-RestMethod `\n    -Method POST `\n    -Uri $uri `\n    -MaximumRedirection 10 `"
-            "\n    -TimeoutSec 30 `\n    -SessionVariable session `\n    -Headers $headers",
+            "\n    -TimeoutSec 30 `\n    -Headers $headers",
         ],
         "python": [
             "import requests",
             f"url = '{test_base}/post'",
             "session = requests.Session()",
-            "MozillaCookieJar('cookies-python.txt')",
             "'Authorization': 'Bearer t0ken',",
             "allow_redirects=True",
             "timeout=30",
@@ -114,8 +112,8 @@ def test_code_tab(api: ControlAPI, r: Report, collection_id: str, environment_id
             "cert=('/certs/client.pem', '/certs/client.key')",
         ],
         # fetch can express the timeout and, process-wide, the
-        # certificate check. The redirect cap, the cookie jar and the
-        # client certificate have no equivalent and don't appear at all.
+        # certificate check. The redirect cap and the client certificate
+        # have no equivalent and don't appear at all.
         "javascript": [
             "AbortSignal.timeout(2500)",
             "process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'",

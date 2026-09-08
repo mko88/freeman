@@ -145,12 +145,15 @@ clipboard.
 The script sends what *Send* sends, including redirects, the redirect
 cap, the timeout, and the TLS options. Two details worth knowing:
 
-- The cookie jar becomes a per-language equivalent: a `cookies.txt` on
-  disk for bash and python, a shell-lifetime session for powershell.
-  Scripts run from the same directory share it, starting empty. `fetch`
-  has no cookie jar, so javascript can't carry it.
-- javascript also can't express the redirect cap or a client
-  certificate; those are silently absent from that format only.
+- Cookies are written in as a plain `Cookie` header — whichever ones the
+  shared jar holds for that URL, when **Send and store cookies** is on.
+  No file beside the script, no session variable, no import: paste it
+  anywhere and it sends the session you're signed in with. The trade is
+  that it's a snapshot, so regenerate after signing in again — and the
+  cookie is readable in the script, worth knowing before pasting one
+  into a ticket.
+- javascript can't express the redirect cap or a client certificate;
+  those are silently absent from that format only.
 
 ## Settings
 

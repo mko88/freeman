@@ -125,10 +125,12 @@
   // used several times an hour.
   type SettingsTab = 'workspace' | 'collections' | 'environments' | 'cookies'
   let settingsTab: SettingsTab = 'workspace'
-  // The shared cookie jar, read when the Cookies tab opens rather than
-  // kept in step with every send: it changes underneath us on any
-  // request that stores cookies, so a snapshot with a Refresh beside it
-  // is honest where a stale mirror wouldn't be.
+  // The shared cookie jar. Re-read when the Cookies tab opens and after
+  // every send, since a send is what puts cookies on it — and because
+  // the generated code writes the jar's cookies into a Cookie header,
+  // so this is one of the Code tab's inputs (see codeKey). The Refresh
+  // button covers the one case neither catches: another window, or a
+  // script, changing the jar underneath this one.
   let cookies: httpengine.Cookie[] = []
 
   let response: httpengine.Response | null = null
@@ -1167,6 +1169,10 @@
       await saveRequest()
       response = await ExecuteRequest(collectionId, selectedItemId!, environmentId)
       await refreshResponseData()
+      // A send can put cookies on the shared jar, and the jar is an
+      // input to the generated code (see codeKey) as well as what the
+      // settings window lists.
+      await loadCookies()
     } catch (e) {
       sendError = String(e)
       response = null
@@ -1458,11 +1464,15 @@
           draft.formFields,
           draft.auth,
           // The Options tab feeds the generated script too — the
-          // redirect, timeout, TLS and cookie-jar flags. Leaving it out
+          // redirect, timeout, TLS and cookie flags. Leaving it out
           // is invisible by hand (you have to leave the Code tab to
           // change an option, and coming back regenerates) but not to a
           // script: setRequestOption would leave state.code stale.
           draft.options,
+          // So does the shared jar: its cookies are written into the
+          // script as a Cookie header, so deleting one has to redraw the
+          // snippet the same way editing a header does.
+          cookies,
           environmentId,
         ])
       : ''

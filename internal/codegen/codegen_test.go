@@ -1,10 +1,13 @@
 package codegen
 
 import (
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
 	"freeman/internal/domain"
+	"freeman/internal/httpengine"
 )
 
 func redirects(n int) *int { return &n }
@@ -33,11 +36,9 @@ func TestGenerateGETWithParamsHeadersAndVars(t *testing.T) {
 		"url='https://api.example.com/users?active=true'",
 		"headers=(\n  -H 'Accept: application/json'\n)",
 		// -L because Freeman follows redirects and curl doesn't unless
-		// told, --max-time because Freeman gives up after 30s and curl
-		// never does, and the jar flags because the request is on the
-		// shared cookie jar — see TestGenerateMatchesTransportOptions
-		// and TestGenerateMatchesCookieOption.
-		"curl -X GET -L --max-redirs 10 \"$url\" \\\n  -b 'cookies.txt' -c 'cookies.txt' --max-time 30 \\\n  \"${headers[@]}\"",
+		// told, and --max-time because Freeman gives up after 30s and
+		// curl never does — see TestGenerateMatchesTransportOptions.
+		"curl -X GET -L --max-redirs 10 \"$url\" \\\n  --max-time 30 \\\n  \"${headers[@]}\"",
 	} {
 		if !strings.Contains(bash, want) {
 			t.Fatalf("bash script missing %q:\n%s", want, bash)
@@ -54,7 +55,7 @@ func TestGenerateGETWithParamsHeadersAndVars(t *testing.T) {
 	want := "$uri = 'https://api.example.com/users?active=true'\n\n" +
 		"$headers = @{\n    'Accept' = 'application/json'\n}\n\n" +
 		"Invoke-RestMethod `\n    -Method GET `\n    -Uri $uri `\n    -MaximumRedirection 10 `\n" +
-		"    -TimeoutSec 30 `\n    -SessionVariable session `\n    -Headers $headers\n"
+		"    -TimeoutSec 30 `\n    -Headers $headers\n"
 	if ps != want {
 		t.Fatalf("powershell script wrong:\ngot:\n%s\nwant:\n%s", ps, want)
 	}
@@ -434,60 +435,109 @@ func TestGenerateMatchesTransportOptions(t *testing.T) {
 	}
 }
 
-// The cookie jar is the option that used to be dropped in silence: two
-// requests differing only in it generated identical scripts, and the
-// one meant to be on the jar quietly sent nothing. Every format now
-// either honours it or says in a comment that it can't.
-func TestGenerateMatchesCookieOption(t *testing.T) {
+// seedJar puts one cookie on the shared jar for the duration of a test,
+// the way a response Freeman received would have.
+func seedJar(t *testing.T, rawURL string, cookies ...*http.Cookie) {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse %q: %v", rawURL, err)
+	}
+	httpengine.ResetCookies()
+	t.Cleanup(httpengine.ResetCookies)
+	httpengine.CookieJar().SetCookies(u, cookies)
+}
+
+// What the jar holds goes into the script as a plain Cookie header,
+// rather than each language setting up a jar of its own. It's the one
+// form all four can send — fetch has no jar at all, so it used to send
+// no cookies whatever the option said — and it needs no file beside the
+// script, no session variable and no import.
+func TestGenerateWritesJarCookiesAsAHeader(t *testing.T) {
+	seedJar(t, "https://api.example.com/",
+		&http.Cookie{Name: "session", Value: "abc123"},
+		&http.Cookie{Name: "csrf", Value: "xyz"},
+	)
 	item := domain.Item{Method: "GET", URL: "https://api.example.com/thing"}
 
-	// fetch is absent: it has no cookie jar of any kind, so nothing is
-	// emitted for it either way.
-	on := map[Format][]string{
-		FormatBash:       {"-b 'cookies.txt' -c 'cookies.txt'"},
-		FormatPowerShell: {"-SessionVariable session"},
-		FormatPython:     {"MozillaCookieJar('cookies-python.txt')", "session.cookies.save("},
-	}
-	for format, wants := range on {
+	// Every format, fetch included. The exact pairs are asserted rather
+	// than just the header name, since the point is the values reaching
+	// the wire.
+	for _, format := range []Format{FormatBash, FormatPowerShell, FormatPython, FormatJavaScript} {
 		got := mustGen(t, item, nil, format)
-		for _, want := range wants {
+		for _, want := range []string{"session=abc123", "csrf=xyz"} {
 			if !strings.Contains(got, want) {
-				t.Errorf("%s on the jar is missing %q:\n%s", format, want, got)
+				t.Errorf("%s is missing the jar cookie %q:\n%s", format, want, got)
 			}
 		}
-	}
-
-	// Python and bash deliberately use different files: curl stores a
-	// session cookie's expiry as 0 and Python as empty, and Python reads
-	// a 0 as expired — so one shared file would have Python drop curl's
-	// cookies and save the emptied jar back over them.
-	if py := mustGen(t, item, nil, FormatPython); strings.Contains(py, "MozillaCookieJar('cookies.txt')") {
-		t.Errorf("Python must not share curl's jar file:\n%s", py)
-	}
-
-	item.Options = &domain.Options{FollowRedirects: true, StoreCookies: false}
-	off := map[Format][]string{
-		FormatBash:       {"cookies.txt"},
-		FormatPowerShell: {"-SessionVariable"},
-		FormatPython:     {"MozillaCookieJar"},
-	}
-	for format, unwanted := range off {
-		got := mustGen(t, item, nil, format)
-		for _, bad := range unwanted {
+		// The thing this replaced. A generated script must stand alone.
+		for _, bad := range []string{"cookies.txt", "MozillaCookieJar", "-SessionVariable"} {
 			if strings.Contains(got, bad) {
-				t.Errorf("%s off the jar should not mention %q:\n%s", format, bad, got)
+				t.Errorf("%s still sets up a cookie jar (%q):\n%s", format, bad, got)
 			}
 		}
 	}
+}
 
-	// The point of all of the above: for the three formats that have a
-	// jar, the two requests must not produce the same script.
-	for _, format := range []Format{FormatBash, FormatPowerShell, FormatPython} {
-		withJar := mustGen(t, domain.Item{Method: "GET", URL: "https://api.example.com/thing"}, nil, format)
-		withoutJar := mustGen(t, item, nil, format)
+// The jar is asked the same question http.Client asks it in Execute, so
+// a cookie for another host — or one the scheme rules out — stays out of
+// the script exactly as it would stay off the wire.
+func TestGenerateOnlySendsCookiesForThisRequest(t *testing.T) {
+	seedJar(t, "https://other.example.com/", &http.Cookie{Name: "elsewhere", Value: "nope"})
+	got := mustGen(t, domain.Item{Method: "GET", URL: "https://api.example.com/thing"}, nil, FormatBash)
+	if strings.Contains(got, "elsewhere") {
+		t.Errorf("a cookie set by another host reached the script:\n%s", got)
+	}
+	if strings.Contains(got, "Cookie:") {
+		t.Errorf("an empty Cookie header was emitted:\n%s", got)
+	}
+
+	seedJar(t, "https://api.example.com/", &http.Cookie{Name: "secureOnly", Value: "s", Secure: true})
+	if got := mustGen(t, domain.Item{Method: "GET", URL: "http://api.example.com/thing"}, nil, FormatBash); strings.Contains(got, "secureOnly") {
+		t.Errorf("a Secure cookie reached a plain-http script:\n%s", got)
+	}
+}
+
+// Turning "Send and store cookies" off is what it says: the script goes
+// out with nothing from the jar. Two requests differing only in that
+// option must not generate the same script — the bug this option's
+// coverage exists for.
+func TestGenerateRespectsTheCookieOption(t *testing.T) {
+	seedJar(t, "https://api.example.com/", &http.Cookie{Name: "session", Value: "abc123"})
+
+	on := domain.Item{Method: "GET", URL: "https://api.example.com/thing"}
+	off := domain.Item{
+		Method:  "GET",
+		URL:     "https://api.example.com/thing",
+		Options: &domain.Options{FollowRedirects: true, StoreCookies: false},
+	}
+	for _, format := range []Format{FormatBash, FormatPowerShell, FormatPython, FormatJavaScript} {
+		withJar, withoutJar := mustGen(t, on, nil, format), mustGen(t, off, nil, format)
+		if strings.Contains(withoutJar, "session=abc123") {
+			t.Errorf("%s off the jar still sent a cookie:\n%s", format, withoutJar)
+		}
 		if withJar == withoutJar {
 			t.Errorf("%s generates the same script whether or not the request is on the cookie jar", format)
 		}
+	}
+}
+
+// A hand-written Cookie row and the jar both apply, in that order —
+// http.Request.AddCookie appends to the header rather than replacing it,
+// so this is what Execute would send.
+func TestGenerateMergesJarCookiesWithAWrittenOne(t *testing.T) {
+	seedJar(t, "https://api.example.com/", &http.Cookie{Name: "session", Value: "abc123"})
+	item := domain.Item{
+		Method:  "GET",
+		URL:     "https://api.example.com/thing",
+		Headers: []domain.Header{{Key: "Cookie", Value: "theme=dark", Enabled: true}},
+	}
+	got := mustGen(t, item, nil, FormatBash)
+	if !strings.Contains(got, "theme=dark; session=abc123") {
+		t.Errorf("the written cookie and the jar's should merge, written one first:\n%s", got)
+	}
+	if strings.Count(got, "Cookie:") != 1 {
+		t.Errorf("expected exactly one Cookie header:\n%s", got)
 	}
 }
 

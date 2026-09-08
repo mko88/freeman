@@ -8,9 +8,9 @@
 // the same request the app's own "Send" would.
 //
 // The scripts are code and nothing else — no explanatory comments. Where
-// a language can't express an option at all (fetch has no cookie jar, no
-// redirect cap and no per-request TLS), it's simply absent, and the
-// Options tab is where that's written down instead.
+// a language can't express an option at all (fetch has no redirect cap
+// and no per-request TLS), it's simply absent, and the Options tab is
+// where that's written down instead.
 package codegen
 
 import (
@@ -58,20 +58,6 @@ func Generate(item domain.Item, vars map[string]string, format Format) (string, 
 	}
 }
 
-// Where the generated scripts that can keep a cookie jar put it: beside
-// the script, so two of them run in the same directory share a session
-// the way two requests share Freeman's.
-//
-// curl and Python get separate files even though both write Netscape
-// format, because they disagree on how a session cookie is stored: curl
-// writes expiry 0, Python writes an empty expiry and reads a 0 as
-// already expired. Pointed at one file, Python would drop curl's
-// session cookies on load and then save the emptied jar back over them.
-const (
-	CookieJarFile       = "cookies.txt"
-	PythonCookieJarFile = "cookies-python.txt"
-)
-
 // --- neutral intermediate form -------------------------------------------------
 
 type kv struct{ name, value string }
@@ -110,12 +96,6 @@ type request struct {
 	// Options: the app default when it says nothing, and 0 for "no cap",
 	// which each language spells differently.
 	maxRedirects int
-	// cookies mirrors StoreCookies, which each language honours as well
-	// as it can: curl and Python keep a jar on disk, PowerShell one for
-	// the shell's lifetime, and fetch has none at all. Emitting nothing
-	// for it is what generated two identical scripts for two requests
-	// that differ only in this, one of which then sent no cookies.
-	cookies bool
 	// timeout is the effective one — the request's own, or the app-wide
 	// default it inherits — rather than only an override, since there is
 	// nothing for it to fall back to in a script.
@@ -186,7 +166,6 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 		url:           u.String(),
 		follow:        opts.FollowRedirects,
 		maxRedirects:  effectiveMaxRedirects(opts),
-		cookies:       opts.StoreCookies,
 		timeout:       effectiveTimeout(opts),
 		skipTLSVerify: opts.SkipTLSVerify,
 	}
@@ -216,6 +195,13 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 		}
 	}
 
+	// Whatever the shared jar would put on this request, written out as
+	// a literal Cookie header. Last, so it appends after any auth header
+	// and after a hand-written Cookie row it has to merge with.
+	if opts.StoreCookies {
+		addJarCookies(&r, u)
+	}
+
 	r.body = buildBody(item.Body, vars)
 	// A raw body carries its Content-Type as a normal header (or not at
 	// all); the form/urlencoded/binary modes imply one, which we add only
@@ -225,6 +211,43 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 		r.headers = append(r.headers, kv{"Content-Type", r.body.contentType})
 	}
 	return r, nil
+}
+
+// addJarCookies writes the cookies Freeman would send with this request
+// into a plain Cookie header — the ones the shared jar holds for this
+// URL's host, path and scheme, since it is asked the same question
+// http.Client asks it in Execute.
+//
+// A header rather than each language's own jar mechanism: the header is
+// something every one of the four can send, including fetch, which has
+// no jar at all and so used to send no cookies whatever the option said.
+// It also means the script needs no file beside it, no session variable
+// and no import — you can paste it anywhere and it sends what the app
+// sends.
+//
+// The trade is that a script is a snapshot: it carries the session the
+// jar held when the code was generated, and does not keep what the
+// response sets. Regenerate after signing in again. A cookie is also
+// plainly readable in the script, which is worth knowing before pasting
+// one into a ticket.
+//
+// An existing Cookie header is appended to rather than replaced,
+// matching http.Request.AddCookie, which is how the jar's cookies join a
+// hand-written one in Execute.
+func addJarCookies(r *request, u *url.URL) {
+	cookies := httpengine.CookieJar().Cookies(u)
+	if len(cookies) == 0 {
+		return
+	}
+	pairs := make([]string, 0, len(cookies))
+	for _, c := range cookies {
+		pairs = append(pairs, c.Name+"="+c.Value)
+	}
+	joined := strings.Join(pairs, "; ")
+	if existing := r.header("Cookie"); existing != "" {
+		joined = existing + "; " + joined
+	}
+	r.setHeader("Cookie", joined)
 }
 
 // The nearest thing to "no cap" that two of the four languages can
@@ -482,13 +505,6 @@ func renderBash(r request) string {
 // curl has no timeout of its own, so Freeman's is always spelled out.
 func curlTransportArgs(r request) string {
 	var args []string
-	if r.cookies {
-		// -b reads the jar, -c writes it back. Both, pointed at one
-		// file, is what makes a second script in the same directory see
-		// what this one was given — curl's closest thing to the shared
-		// jar the app keeps.
-		args = append(args, "-b "+shQuote(CookieJarFile)+" -c "+shQuote(CookieJarFile))
-	}
 	if r.timeout > 0 {
 		args = append(args, "--max-time "+secondsArg(r.timeout))
 	}
@@ -658,13 +674,6 @@ func renderPowerShell(r request) string {
 	if r.certFile != "" {
 		params = append(params, "-Certificate $cert")
 	}
-	// -SessionVariable creates $session and keeps the response's cookies
-	// in it. A second script run in the same shell can then pass
-	// -WebSession $session to continue that session, which is as close
-	// as Invoke-RestMethod gets to a jar.
-	if r.cookies {
-		params = append(params, "-SessionVariable session")
-	}
 	if len(ps.headers) > 0 || r.oauth != nil {
 		params = append(params, "-Headers $headers")
 	}
@@ -715,26 +724,16 @@ func psQuote(s string) string {
 // --- Python ------------------------------------------------------------------
 
 // renderPython writes the request against `requests`, which is what
-// anyone reading generated Python expects and the only one of these
-// four languages besides curl with a real cookie jar. Everything comes
-// out as a variable first, as in the other renderers, so the call at
-// the bottom reads as a list of names.
+// anyone reading generated Python expects. Everything comes out as a
+// variable first, as in the other renderers, so the call at the bottom
+// reads as a list of names.
 func renderPython(r request) string {
 	var b strings.Builder
 	b.WriteString("#!/usr/bin/env python3\n")
 	b.WriteString("import requests\n")
-	if r.cookies {
-		b.WriteString("from http.cookiejar import MozillaCookieJar\n")
-	}
 	b.WriteString("\nurl = " + pyQuote(r.url) + "\n")
 
 	b.WriteString("\nsession = requests.Session()\n")
-	if r.cookies {
-		// Netscape format, so the jar is the same file curl's script
-		// writes — run either and the other sees the cookies.
-		b.WriteString("session.cookies = MozillaCookieJar(" + pyQuote(PythonCookieJarFile) + ")\n")
-		b.WriteString("try:\n    session.cookies.load(ignore_discard=True)\nexcept FileNotFoundError:\n    pass\n")
-	}
 	if r.follow {
 		cap := r.maxRedirects
 		if cap <= 0 {
@@ -830,10 +829,6 @@ func renderPython(r request) string {
 	for _, name := range openFiles {
 		b.WriteString("files[" + pyQuote(name) + "].close()\n")
 	}
-	if r.cookies {
-		b.WriteString("session.cookies.save(ignore_discard=True)\n")
-	}
-
 	b.WriteString("\nprint(response.status_code)\nprint(response.text)\n")
 	return b.String()
 }
@@ -869,10 +864,10 @@ func pyBool(v bool) string {
 
 // renderJavaScript writes the request against fetch, which needs no
 // dependency on Node 18+ and is what a browser reader expects too. It's
-// the weakest of the four on the transport options: the redirect cap,
-// the cookie jar and the client certificate have no equivalent and
-// don't appear, and the certificate check is skipped process-wide
-// because fetch has no per-request setting for it.
+// the weakest of the four on the transport options: the redirect cap
+// and the client certificate have no equivalent and don't appear, and
+// the certificate check is skipped process-wide because fetch has no
+// per-request setting for it.
 func renderJavaScript(r request) string {
 	var b strings.Builder
 
