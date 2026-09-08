@@ -102,6 +102,7 @@ from control_api.server import CLIENT_CERT, TestServers, reachable
 from control_api.checks.chrome import test_help_modal, test_layout_comfort
 from control_api.checks.codegen import test_code_tab
 from control_api.checks.consistency import test_consistency
+from control_api.checks.cookies import test_cookie_jar
 from control_api.checks.environments import test_environment_editor
 from control_api.checks.execute import test_execute, test_file_upload, test_http_methods
 from control_api.checks.guard import test_api_guard
@@ -262,6 +263,7 @@ def main() -> int:
         test_body_and_status_variations(api, r, collection_id, environment_id, item_ids.get("body_variations"), servers)
         test_option_variations(api, r, collection_id, environment_id, item_ids.get("option_variations"), servers)
         test_encoding_variations(api, r, collection_id, environment_id, item_ids.get("encoding_variations"), servers)
+        test_cookie_jar(api, r, collection_id, environment_id, item_ids.get("cookie_jar"), servers.base_url)
         test_large_response_truncation(api, r, collection_id, environment_id, item_ids.get("large_response"))
         test_response_cache(api, r, collection_id, environment_id, item_ids.get("response_cache"))
         test_code_tab(api, r, collection_id, environment_id, item_ids.get("code_tab"), servers.base_url)

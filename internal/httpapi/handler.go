@@ -211,11 +211,6 @@ func NewHandler(app *core.App, static fs.FS) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"code": code})
 	})
 
-	// Resolved from theme.yaml inside the workspace directory (the one
-	// thing guaranteed to persist via a Docker volume mount), not
-	// appdata.Dir() — a per-user OS config dir has no durable meaning
-	// inside a container. See internal/wailsapp.GetTheme for desktop's
-	// appdata-based equivalent.
 	// Which build is running. No workspace needed, so it answers before
 	// one is open — the first thing worth asking a process you just
 	// found on a port.
@@ -248,6 +243,30 @@ func NewHandler(app *core.App, static fs.FS) http.Handler {
 		writeJSON(w, http.StatusOK, saved)
 	})
 
+	// The shared cookie jar, as the settings window's Cookies tab shows
+	// it. No workspace needed: the jar belongs to the running process, not
+	// to what's open in it.
+	mux.HandleFunc("GET /api/cookies", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, app.Cookies())
+	})
+
+	// One cookie by domain+path+name, or the whole jar when no name is
+	// given — the same two things the Cookies tab offers.
+	mux.HandleFunc("DELETE /api/cookies", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("name") == "" {
+			app.ClearCookies()
+		} else {
+			app.DeleteCookie(q.Get("domain"), q.Get("path"), q.Get("name"))
+		}
+		writeJSON(w, http.StatusOK, app.Cookies())
+	})
+
+	// Resolved from theme.yaml inside the workspace directory (the one
+	// thing guaranteed to persist via a Docker volume mount), not
+	// appdata.Dir() — a per-user OS config dir has no durable meaning
+	// inside a container. See internal/wailsapp.GetTheme for desktop's
+	// appdata-based equivalent.
 	mux.HandleFunc("GET /api/theme", func(w http.ResponseWriter, r *http.Request) {
 		palette := theme.Resolve(theme.Load(app.WorkspaceRoot()))
 		writeJSON(w, http.StatusOK, palette)

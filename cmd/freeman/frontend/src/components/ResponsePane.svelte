@@ -26,7 +26,7 @@
   // Bound: these are view preferences App.svelte mirrors in
   // GET /api/ui/state and the control API can set, so writes here have
   // to travel back up.
-  export let tab: 'body' | 'headers'
+  export let tab: 'body' | 'headers' | 'cookies'
   export let view: ResponseView
   export let collapsed: boolean
   export let showActionsMenu: boolean
@@ -40,7 +40,7 @@
 
   // Picking a panel shows it — collapsing is the disclosure toggle's job
   // alone, not a second meaning overloaded onto these buttons.
-  function onResponseTabClick(next: 'body' | 'headers') {
+  function onResponseTabClick(next: 'body' | 'headers' | 'cookies') {
     tab = next
     collapsed = false
   }
@@ -76,6 +76,40 @@
   // Response doesn't carry the protocol version, and writing "HTTP/1.1"
   // would be inventing one.
   $: headerText = headerRows.map((h) => `${h.name}: ${h.value}`).join('\n')
+
+  // What this response asked the client to store. Parsed from its own
+  // Set-Cookie headers rather than read back from the shared jar: this
+  // is what *this* response did, which is the question the tab answers —
+  // and it stays answerable for a request that isn't on the jar at all.
+  $: responseCookies = headerRows
+    .filter((h) => h.name.toLowerCase() === 'set-cookie')
+    .map((h) => parseSetCookie(h.value))
+
+  function parseSetCookie(raw: string) {
+    const [pair, ...attrs] = raw.split(';')
+    const eq = pair.indexOf('=')
+    const attr: Record<string, string> = {}
+    for (const a of attrs) {
+      const i = a.indexOf('=')
+      const key = (i < 0 ? a : a.slice(0, i)).trim().toLowerCase()
+      attr[key] = i < 0 ? 'true' : a.slice(i + 1).trim()
+    }
+    return {
+      name: eq < 0 ? pair.trim() : pair.slice(0, eq).trim(),
+      value: eq < 0 ? '' : pair.slice(eq + 1).trim(),
+      domain: attr['domain'] ?? '',
+      path: attr['path'] ?? '',
+      // Either way of saying when it ends, left as the server wrote it.
+      expires: attr['max-age'] ? `${attr['max-age']}s` : (attr['expires'] ?? ''),
+      flags: [
+        attr['secure'] ? 'Secure' : '',
+        attr['httponly'] ? 'HttpOnly' : '',
+        attr['samesite'] ? `SameSite=${attr['samesite']}` : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    }
+  }
 
   // The bytes of exactly what the raw view above shows. Not a
   // reconstruction of the CRLF-delimited block from the wire: Response
@@ -123,6 +157,9 @@
         <button class:active={tab === 'body'} on:click={() => onResponseTabClick('body')}>Body</button>
         <button class:active={tab === 'headers'} on:click={() => onResponseTabClick('headers')}>
           Headers<span class="tab-count">{headerRows.length}</span>
+        </button>
+        <button class:active={tab === 'cookies'} on:click={() => onResponseTabClick('cookies')}>
+          Cookies<span class="tab-count">{responseCookies.length}</span>
         </button>
       </div>
 
@@ -193,6 +230,34 @@
       {:else}
         <CodeEditor readOnly layout="fill" value={activeView === 'hex' ? headerHex : headerText} language="plain" />
       {/if}
+    {:else if tab === 'cookies'}
+      {#if !responseCookies.length}
+        <p class="muted">This response set no cookies.</p>
+      {:else}
+        <!-- One row per Set-Cookie, split into the parts you'd want to
+             read. The Pretty/Raw/Hex switch doesn't apply: the raw form
+             is the Set-Cookie header, which the Headers panel already
+             shows verbatim. -->
+        <div class="response-headers">
+          <table class="cookie-table">
+            <thead>
+              <tr><th>Name</th><th>Value</th><th>Domain</th><th>Path</th><th>Expires</th><th>Flags</th></tr>
+            </thead>
+            <tbody>
+              {#each responseCookies as c}
+                <tr>
+                  <td>{c.name}</td>
+                  <td class="cookie-value">{c.value}</td>
+                  <td>{c.domain || '—'}</td>
+                  <td>{c.path || '—'}</td>
+                  <td>{c.expires || 'session'}</td>
+                  <td>{c.flags || '—'}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
     {:else if response.truncated}
       <div class="response-truncated">
         <p>
@@ -230,7 +295,12 @@
     flex: 0 1 auto;
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    /* Enough to stay a pane rather than a sliver: dragging the splitter
+       to the bottom of the window, or shrinking the window itself, still
+       leaves something of the response showing. Only .collapsed drops
+       the floor, since collapsed means the meta strip and nothing
+       else. */
+    min-height: 100px;
   }
 
   /* Collapsed it's just the meta strip: no splitter above it any more,
@@ -239,6 +309,7 @@
   .response.collapsed {
     flex: none;
     height: auto !important;
+    min-height: 0;
     border-top: 1px solid var(--fm-border-subtle);
     padding-top: 0.75rem;
   }

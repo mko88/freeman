@@ -46,6 +46,12 @@ export const apiEndpoints: ApiEndpoint[] = [
   },
   { method: 'GET', path: '/api/settings', desc: "The workspace's app-wide defaults: timeout, redirect cap, response limits." },
   { method: 'PUT', path: '/api/settings', desc: 'Replace them. Body: the same object; out-of-range values are clamped. Returns what was stored.' },
+  { method: 'GET', path: '/api/cookies', desc: 'The shared cookie jar: every stored cookie, with domain, path, expiry and flags.' },
+  {
+    method: 'DELETE',
+    path: '/api/cookies',
+    desc: 'Forget one cookie (?domain=&path=&name=) or, with no name, the whole jar. Returns what is left.',
+  },
   { method: 'GET', path: '/api/version', desc: 'Which build is running: {version, commit, date}. Needs no open workspace.' },
   { method: 'GET', path: '/api/theme', desc: 'Resolved color palette.' },
   { method: 'GET', path: '/api/headers', desc: 'Common request-header names/values for editor autocomplete (from headers.yaml).' },
@@ -77,13 +83,24 @@ export const uiActions: UiAction[] = [
   {
     action: 'toggleSettings',
     payload: '—',
-    desc: 'Open/close the settings window (workspace folder, collections, environments).',
+    desc: 'Open/close the settings window (workspace folder, collections, environments, cookies).',
   },
   {
     action: 'selectSettingsTab',
     payload: '{ tab }',
-    desc: "Switch the settings window tab. tab is 'workspace', 'collections' or 'environments'.",
+    desc: "Switch the settings window tab. tab is 'workspace', 'collections', 'environments' or 'cookies'.",
   },
+  {
+    action: 'refreshCookies',
+    payload: '—',
+    desc: "Re-read the shared cookie jar into the settings window's Cookies tab, and into GET /api/ui/state.",
+  },
+  {
+    action: 'deleteCookie',
+    payload: '{ name, domain?, path? }',
+    desc: 'Forget one cookie. The three together identify it, the way they do in a browser.',
+  },
+  { action: 'clearCookies', payload: '—', desc: 'Empty the shared cookie jar.' },
   { action: 'selectEnvironment', payload: '{ id }', desc: 'Switch the active environment (and open it in settings).' },
   {
     action: 'renameEnvironment',
@@ -176,8 +193,8 @@ export const uiActions: UiAction[] = [
     action: 'setResponseTab',
     payload: '{ tab }',
     desc:
-      "Switch the response panel. tab is 'body' or 'headers' (the response's headers). " +
-      'Always expands the pane if it was collapsed.',
+      "Switch the response panel. tab is 'body', 'headers' (the response's headers) or 'cookies' " +
+      '(the ones those headers set). Always expands the pane if it was collapsed.',
   },
   {
     action: 'setResponseView',

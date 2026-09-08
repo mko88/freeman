@@ -14,7 +14,6 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"net/http/cookiejar"
 	"net/textproto"
 	"net/url"
 	"os"
@@ -39,19 +38,17 @@ var DefaultMaxRedirects = 10
 // package already holds things that outlive a single call; core.App
 // clears it when a workspace opens (ResetCookies), since cookies belong
 // to whoever you were talking to, not to the app.
-var cookies http.CookieJar = mustJar()
-
-func mustJar() http.CookieJar {
-	// cookiejar.New only ever errors on a bad PublicSuffixList, and this
-	// passes none.
-	jar, _ := cookiejar.New(nil)
-	return jar
-}
+var cookies = NewJar()
 
 // ResetCookies empties the shared jar.
 func ResetCookies() {
-	cookies = mustJar()
+	cookies.Clear()
 }
+
+// CookieJar exposes the shared jar so the settings window can list and
+// remove what's in it. One jar for the app, so there is nothing to
+// address it by.
+func CookieJar() *Jar { return cookies }
 
 // optionsOf supplies the defaults for a request that has no Options —
 // everything saved before they existed, and anything nobody has touched.

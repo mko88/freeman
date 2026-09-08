@@ -4,6 +4,7 @@
   // control-API actions, and deleting asks for confirmation there.
   import type { domain } from '../../wailsjs/go/models'
   import { methodColor, methodLabel } from '../lib/format'
+  import { tick } from 'svelte'
   import Switcher from './Switcher.svelte'
 
   export let collection: domain.Collection | null
@@ -32,6 +33,20 @@
   // Matched against the name and the method, because "post" is as
   // likely a search as a word in a name. Case-insensitive, no globbing:
   // this is a way to find one row in forty, not a query language.
+  // Bring the selected row into view when the selection changes from
+  // somewhere other than a click on it — selectRequest over the control
+  // API, or the app reopening on a request further down the list. A
+  // click needs no help, and 'nearest' is what makes this a no-op when
+  // the row is already showing rather than a jump that moves the list
+  // under the pointer.
+  let listEl: HTMLElement
+  $: void scrollSelectedIntoView(selectedItemId, listEl)
+  async function scrollSelectedIntoView(id: string | null, el: HTMLElement | undefined) {
+    if (!id || !el) return
+    await tick()
+    el.querySelector(`[data-item-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' })
+  }
+
   $: needle = filter.trim().toLowerCase()
   $: shown = (collection?.items ?? []).filter(
     (i) => !needle || `${i.method || 'GET'} ${i.name}`.toLowerCase().includes(needle),
@@ -58,9 +73,13 @@
     <input type="search" bind:value={filter} placeholder="Filter requests" aria-label="Filter requests" />
   </div>
 
-  <ul class="request-list scroll-pane">
+  <ul class="request-list scroll-pane" bind:this={listEl}>
     {#each shown as item (item.id)}
-      <li class:active={item.id === selectedItemId} style="--m: {methodColor(item.method || 'GET')}">
+      <li
+        data-item-id={item.id}
+        class:active={item.id === selectedItemId}
+        style="--m: {methodColor(item.method || 'GET')}"
+      >
         <!-- The whole row selects. Duplicating and deleting live in the
              editor, beside the name they act on, so this list is a list
              of names and nothing else. -->

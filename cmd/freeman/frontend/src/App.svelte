@@ -19,6 +19,9 @@
     CancelRequest,
     GetSettings,
     SaveSettings,
+    GetCookies,
+    DeleteCookie,
+    ClearCookies,
     GetCachedResponse,
     ClearResponseCache,
     ClearCachedResponse,
@@ -120,8 +123,13 @@
   // rather than from the pickers, which only pick one — creating and
   // deleting are occasional, and don't belong a slip away from a control
   // used several times an hour.
-  type SettingsTab = 'workspace' | 'collections' | 'environments'
+  type SettingsTab = 'workspace' | 'collections' | 'environments' | 'cookies'
   let settingsTab: SettingsTab = 'workspace'
+  // The shared cookie jar, read when the Cookies tab opens rather than
+  // kept in step with every send: it changes underneath us on any
+  // request that stores cookies, so a snapshot with a Refresh beside it
+  // is honest where a stale mirror wouldn't be.
+  let cookies: httpengine.Cookie[] = []
 
   let response: httpengine.Response | null = null
   let sending = false
@@ -139,10 +147,10 @@
   // preference, not per-response state. See formattedResponse below for
   // the (lightweight) detection of whether pretty is even possible.
   let responseView: ResponseView = 'pretty'
-  // Which of the response's two panels is showing — the body, or its
-  // headers (the response's meta info the meta stats don't cover).
-  // Sticky across requests, same as responseView.
-  let responseTab: 'body' | 'headers' = 'body'
+  // Which of the response's panels is showing — the body, its headers
+  // (the meta info the stats strip doesn't cover), or just the cookies
+  // those headers set. Sticky across requests, same as responseView.
+  let responseTab: 'body' | 'headers' | 'cookies' = 'body'
   // The cached response body as a data: URI (see
   // GetResponseCacheDataURI) — the bytes as they arrived, which
   // response.body can't carry across the JSON bridge. Wanted by the
@@ -310,6 +318,11 @@
       environment,
       showSettings,
       settingsTab,
+      // The jar as of the last read — refreshCookies is what re-reads
+      // it, and the two deletes leave this holding what they answered
+      // with. GET /api/cookies asks the jar directly, without needing
+      // the settings window open.
+      cookies,
       // The workspace's app-wide defaults, so setWorkspaceSetting has a
       // getter to read back — same rule as every other settable field.
       workspaceSettings,
@@ -442,7 +455,8 @@
         break
       case 'selectSettingsTab': {
         const tab = payload?.tab
-        if (tab === 'workspace' || tab === 'collections' || tab === 'environments') settingsTab = tab
+        if (tab === 'workspace' || tab === 'collections' || tab === 'environments' || tab === 'cookies')
+          settingsTab = tab
         break
       }
       case 'selectEnvironment':
@@ -473,6 +487,19 @@
         }
         break
       }
+      case 'refreshCookies':
+        await loadCookies()
+        break
+      case 'deleteCookie': {
+        const name = String(payload?.name ?? '')
+        if (name) {
+          cookies = await DeleteCookie(String(payload?.domain ?? ''), String(payload?.path ?? ''), name)
+        }
+        break
+      }
+      case 'clearCookies':
+        cookies = await ClearCookies()
+        break
       case 'setEnvironmentField':
         if (payload?.field === 'name' && typeof payload?.value === 'string') {
           setEnvironmentField('name', payload.value)
@@ -543,7 +570,7 @@
       }
       case 'setResponseTab': {
         const tab = payload?.tab
-        if (tab === 'body' || tab === 'headers') setResponseTab(tab)
+        if (tab === 'body' || tab === 'headers' || tab === 'cookies') setResponseTab(tab)
         break
       }
       case 'openResponseCacheExternally':
@@ -1349,6 +1376,29 @@
     confirmDelete: confirmDeleteCollection,
   }
 
+  // Reading the jar every time the tab comes into view, from either
+  // path: the tab strip writes settingsTab back through its binding, and
+  // so does the control API's selectSettingsTab, so there's one place to
+  // catch both. Both deletes answer with the jar as it now stands, so
+  // nothing below has to re-read it.
+  $: if (showSettings && settingsTab === 'cookies') void loadCookies()
+
+  async function loadCookies() {
+    cookies = await GetCookies()
+  }
+
+  const cookieActions = {
+    refresh: () => guard(loadCookies),
+    remove: (c: httpengine.Cookie) =>
+      guard(async () => {
+        cookies = await DeleteCookie(c.domain, c.path, c.name)
+      }),
+    clear: () =>
+      guard(async () => {
+        cookies = await ClearCookies()
+      }),
+  }
+
   function addEnvironmentVariable(initial?: Partial<domain.Variable>) {
     if (!environment) return
     environment.variables = [...environment.variables, { key: '', value: '', enabled: true, secret: false, ...initial }]
@@ -1431,7 +1481,7 @@
   // selectRequestEditorTab does — a script asking for 'headers'
   // shouldn't get a collapse just because 'headers' was already showing.
   // toggleResponsePane is the deterministic way to reach the collapse.
-  function setResponseTab(tab: 'body' | 'headers') {
+  function setResponseTab(tab: 'body' | 'headers' | 'cookies') {
     responseTab = tab
     responsePaneCollapsed = false
   }
@@ -1620,6 +1670,8 @@
       bind:collectionId
       env={environmentActions}
       coll={collectionActions}
+      {cookies}
+      cookieJar={cookieActions}
       onClose={() => (showSettings = false)}
       onOpenWorkspace={openWorkspace}
       onClearResponseCache={clearResponseCache}
@@ -1781,10 +1833,12 @@
   /* flex-basis 0 so this takes the height the response isn't using —
      including all of it when the response is collapsed or the Code tab
      has hidden it. min-height keeps a dragged splitter from squeezing
-     the editor away entirely. */
+     the editor away entirely: whatever the window's height, some of it
+     stays on screen. The collapsed rule below drops that floor, since a
+     collapsed pane is meant to be only its name, URL and tab rows. */
   .request-pane {
     flex: 1 1 0;
-    min-height: 8rem;
+    min-height: 100px;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;

@@ -282,6 +282,39 @@ table {
   border-collapse: collapse;
 }
 
+/* .cookie-table: a read-only cookie listing — the response's own
+   Set-Cookie headers in the response pane, the shared jar in the
+   settings window. Shared because the two show the same six columns and
+   should read alike; the settings one adds a delete column of its own. */
+.cookie-table {
+  font-size: 0.78rem;
+  text-align: left;
+}
+
+.cookie-table th {
+  padding: 0 0.6rem 0.3rem 0;
+  font-weight: 600;
+  color: var(--fm-text-muted);
+  white-space: nowrap;
+}
+
+.cookie-table td {
+  padding: 0.15rem 0.6rem 0.15rem 0;
+  vertical-align: top;
+}
+
+.cookie-table tbody tr + tr td {
+  border-top: 1px solid var(--fm-border-subtle);
+}
+
+/* The value is the column that can run long — a signed token goes to
+   hundreds of characters — so it wraps and the columns after it keep
+   their places. */
+.cookie-table .cookie-value {
+  overflow-wrap: anywhere;
+  max-width: 24rem;
+}
+
 /* .kv-table: the editable key/value grids (env variables, request
    headers) — fixed layout with narrow checkbox/remove-button columns,
    so wide text inputs can't force the layout and overlap each other.

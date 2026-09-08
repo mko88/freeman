@@ -65,7 +65,7 @@ def saved_options(item: dict) -> dict:
     return {k: stored.get(k, ZERO_OPTIONS[k]) for k in DEFAULT_OPTIONS}
 
 
-class _Runner:
+class Runner:
     """Select once, then configure-save-execute as many times as the
     section needs. Every send goes out twice on purpose: sendRequest so
     the app window visibly does the thing, then POST /api/execute for
@@ -143,7 +143,7 @@ class _Runner:
         self.auth = {"type": "none"}
 
 
-def _body_json(resp: dict) -> dict:
+def body_json(resp: dict) -> dict:
     try:
         return json.loads(resp.get("body") or "")
     except (ValueError, TypeError):
@@ -162,7 +162,7 @@ def test_auth_variations(
         r.check("skipped — no empty scratch request for this test", False)
         return
 
-    run = _Runner(api, r, collection_id, environment_id, item_id)
+    run = Runner(api, r, collection_id, environment_id, item_id)
     base = servers.base_url
 
     r.step("auth 'none' against /bearer  (should be refused — proves the endpoint really checks)")
@@ -177,7 +177,7 @@ def test_auth_variations(
     r.step("setRequestAuth type='bearer', token  (watch: the Auth tab switches)")
     run.configure(f"{base}/bearer", auth={"type": "bearer", "token": "t0ken-from-the-auth-tab"})
     status, resp = run.send()
-    body = _body_json(resp)
+    body = body_json(resp)
     r.check(
         "bearer auth reaches the server as Authorization: Bearer <token>",
         resp.get("statusCode") == 200 and body.get("token") == "t0ken-from-the-auth-tab",
@@ -187,7 +187,7 @@ def test_auth_variations(
     r.step(f"setRequestAuth type='basic', username={BASIC_USER!r}, password")
     run.configure(f"{base}/basic-auth", auth={"type": "basic", "username": BASIC_USER, "password": BASIC_PASSWORD})
     status, resp = run.send()
-    body = _body_json(resp)
+    body = body_json(resp)
     r.check(
         "basic auth reaches the server base64-encoded and is accepted",
         resp.get("statusCode") == 200 and body.get("authenticated") is True,
@@ -206,7 +206,7 @@ def test_auth_variations(
     r.step("setRequestAuth type='apikey', key='X-API-Key', value")
     run.configure(f"{base}/api-key?header=X-API-Key", auth={"type": "apikey", "key": "X-API-Key", "value": "key-9f3a"})
     status, resp = run.send()
-    body = _body_json(resp)
+    body = body_json(resp)
     r.check(
         "apikey auth arrives as the named header with the given value",
         resp.get("statusCode") == 200 and body.get("key") == "key-9f3a",
@@ -225,7 +225,7 @@ def test_auth_variations(
         },
     )
     status, resp = run.send()
-    body = _body_json(resp)
+    body = body_json(resp)
     r.check(
         "oauth2 fetches a token and sends it as a bearer token",
         resp.get("statusCode") == 200 and body.get("token") == OAUTH_ACCESS_TOKEN,
@@ -260,7 +260,7 @@ def test_body_and_status_variations(
         r.check("skipped — no empty scratch request for this test", False)
         return
 
-    run = _Runner(api, r, collection_id, environment_id, item_id)
+    run = Runner(api, r, collection_id, environment_id, item_id)
     base = servers.base_url
 
     r.step("bodyMode 'x-www-form-urlencoded' with two fields")
@@ -269,7 +269,7 @@ def test_body_and_status_variations(
     api.action("addRequestFormField", {"key": "qty", "type": "text", "value": "7"})
     run.configure(f"{base}/post", method="POST", body_mode="x-www-form-urlencoded")
     status, resp = run.send()
-    body = _body_json(resp)
+    body = body_json(resp)
     r.check(
         "urlencoded fields arrive as a parsed form, not as a raw string",
         resp.get("statusCode") == 200 and (body.get("form") or {}).get("grant") == "widget" and (body.get("form") or {}).get("qty") == "7",
@@ -284,7 +284,7 @@ def test_body_and_status_variations(
     r.step("bodyMode 'none' on a POST  (nothing should be sent, and that has to be fine)")
     run.configure(f"{base}/post", method="POST", body_mode="none")
     status, resp = run.send()
-    body = _body_json(resp)
+    body = body_json(resp)
     r.check(
         "a POST with no body succeeds and the server sees an empty one",
         resp.get("statusCode") == 200 and not body.get("data") and not body.get("form"),
@@ -319,7 +319,7 @@ def test_option_variations(
         r.check("skipped — no empty scratch request for this test", False)
         return
 
-    run = _Runner(api, r, collection_id, environment_id, item_id)
+    run = Runner(api, r, collection_id, environment_id, item_id)
     base = servers.base_url
 
     # --- redirects --------------------------------------------------------
@@ -327,7 +327,7 @@ def test_option_variations(
     r.step("followRedirects=true against a 3-hop redirect chain")
     run.configure(f"{base}/redirect/3", options={**DEFAULT_OPTIONS, "followRedirects": True})
     status, resp = run.send()
-    body = _body_json(resp)
+    body = body_json(resp)
     r.check(
         "following redirects lands on the final 200, not the first 302",
         resp.get("statusCode") == 200 and body.get("method") == "GET",
@@ -360,7 +360,7 @@ def test_option_variations(
     r.step("storeCookies=true: GET /cookies/set?pySession=abc123  (the server sets one, then redirects)")
     run.configure(f"{base}/cookies/set?pySession=abc123", options={**DEFAULT_OPTIONS, "storeCookies": True})
     status, resp = run.send()
-    body = _body_json(resp)
+    body = body_json(resp)
     r.check(
         "the redirect after Set-Cookie is followed and the cookie is echoed straight back",
         resp.get("statusCode") == 200 and (body.get("cookies") or {}).get("pySession") == "abc123",
@@ -370,7 +370,7 @@ def test_option_variations(
     r.step("storeCookies=true: a *separate* GET /cookies  (this is what the shared jar is for)")
     run.configure(f"{base}/cookies", options={"storeCookies": True})
     status, resp = run.send()
-    body = _body_json(resp)
+    body = body_json(resp)
     r.check(
         "a later request on the jar sends the cookie the earlier one was given",
         (body.get("cookies") or {}).get("pySession") == "abc123",
@@ -380,7 +380,7 @@ def test_option_variations(
     r.step("storeCookies=false: the same GET /cookies")
     run.configure(f"{base}/cookies", options={"storeCookies": False})
     status, resp = run.send()
-    body = _body_json(resp)
+    body = body_json(resp)
     r.check(
         "a request off the jar sends no cookie at all, isolating it from that session",
         body.get("cookies") == {},
@@ -455,7 +455,7 @@ def test_option_variations(
         },
     )
     status, resp = run.send()
-    body = _body_json(resp)
+    body = body_json(resp)
     r.check(
         "presenting the client certificate completes the handshake",
         status == 200 and resp.get("statusCode") == 200 and body.get("clientCertificate") is True,
@@ -494,7 +494,7 @@ def test_encoding_variations(
         r.check("skipped — no empty scratch request for this test", False)
         return
 
-    run = _Runner(api, r, collection_id, environment_id, item_id)
+    run = Runner(api, r, collection_id, environment_id, item_id)
 
     for encoding in ("gzip", "deflate", "brotli"):
         r.step(f"GET /{encoding}")

@@ -111,6 +111,21 @@ export function SaveSettings(s: settings.Settings): Promise<settings.Settings> {
   return request('PUT', '/api/settings', s)
 }
 
+export function GetCookies(): Promise<httpengine.Cookie[]> {
+  return request('GET', '/api/cookies')
+}
+
+// Both deletes answer with the jar as it now stands, so the caller never
+// has to ask again to redraw.
+export function DeleteCookie(domain: string, path: string, name: string): Promise<httpengine.Cookie[]> {
+  const q = new URLSearchParams({ domain, path, name })
+  return request('DELETE', `/api/cookies?${q}`)
+}
+
+export function ClearCookies(): Promise<httpengine.Cookie[]> {
+  return request('DELETE', '/api/cookies')
+}
+
 // The response cache (see internal/wailsapp/responsecache.go) is
 // desktop-only — it lives under the desktop app's workspace, which a
 // server that just returns bodies over HTTP has no equivalent for.

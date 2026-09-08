@@ -82,6 +82,7 @@ REQUEST_TEST_NAMES: dict[str, str] = {
     "auth_variations": "Python Auth Variations Test (scratch)",
     "body_variations": "Python Body Variations Test (scratch)",
     "option_variations": "Python Option Variations Test (scratch)",
+    "cookie_jar": "Python Cookie Jar Test (scratch)",
     "encoding_variations": "Python Encoding Variations Test (scratch)",
     **{m: f"Python {m} Test (scratch)" for m in HTTP_METHODS},
 }

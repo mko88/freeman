@@ -10,6 +10,10 @@ export function ClearCachedResponse(arg1) {
   return window['go']['wailsapp']['App']['ClearCachedResponse'](arg1);
 }
 
+export function ClearCookies() {
+  return window['go']['wailsapp']['App']['ClearCookies']();
+}
+
 export function ClearResponseCache() {
   return window['go']['wailsapp']['App']['ClearResponseCache']();
 }
@@ -22,6 +26,10 @@ export function ControlAPIDocs() {
   return window['go']['wailsapp']['App']['ControlAPIDocs']();
 }
 
+export function Cookies() {
+  return window['go']['wailsapp']['App']['Cookies']();
+}
+
 export function CreateCollection(arg1) {
   return window['go']['wailsapp']['App']['CreateCollection'](arg1);
 }
@@ -32,6 +40,10 @@ export function CurrentWorkspace() {
 
 export function DeleteCollection(arg1) {
   return window['go']['wailsapp']['App']['DeleteCollection'](arg1);
+}
+
+export function DeleteCookie(arg1, arg2, arg3) {
+  return window['go']['wailsapp']['App']['DeleteCookie'](arg1, arg2, arg3);
 }
 
 export function DeleteEnvironment(arg1) {
@@ -60,6 +72,10 @@ export function GetCachedResponse(arg1) {
 
 export function GetCollection(arg1) {
   return window['go']['wailsapp']['App']['GetCollection'](arg1);
+}
+
+export function GetCookies() {
+  return window['go']['wailsapp']['App']['GetCookies']();
 }
 
 export function GetEnvironment(arg1) {

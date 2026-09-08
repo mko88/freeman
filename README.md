@@ -114,9 +114,12 @@ commit.
 
 ## Reading the response
 
-The response pane has its own **Body** and **Headers** tabs, with the
-status, time and size on the right. Hover any of them for the exact
-value.
+The response pane has its own **Body**, **Headers** and **Cookies**
+tabs, with the status, time and size on the right. Hover any of them for
+the exact value. **Cookies** lists what this response asked you to
+store — name, value, domain, path, expiry and flags — read from its own
+`Set-Cookie` headers, so it shows what the response did whether or not
+the request was on the shared jar.
 
 Three views, always available:
 
@@ -157,6 +160,10 @@ picker.
 - **Workspace** — which folder is open, and clearing the response cache
 - **Collections** — create, rename and delete collections
 - **Environments** — the same, plus each one's variables
+- **Cookies** — the shared jar every request with **Send and store
+  cookies** on draws from: forget one, or empty it. It lasts until you
+  clear it or close Freeman, so this is where you go to sign out of a
+  session without restarting.
 
 ### Theming
 

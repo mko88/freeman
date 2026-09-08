@@ -8,7 +8,7 @@
   // to stay in one place, or a scripted selectEnvironment and a clicked
   // one would take different paths.
   import InfoTip from './InfoTip.svelte'
-  import type { core, domain, settings as settings_ } from '../../wailsjs/go/models'
+  import type { core, domain, httpengine, settings as settings_ } from '../../wailsjs/go/models'
 
   export let workspace: core.WorkspaceInfo
   export let openError: string
@@ -18,7 +18,7 @@
   // edited here, and the variable rows below write straight into
   // `environment` — App.svelte's reportUIState mirrors all three, so the
   // changes have to travel back up.
-  export let settingsTab: 'workspace' | 'collections' | 'environments'
+  export let settingsTab: 'workspace' | 'collections' | 'environments' | 'cookies'
   export let environmentId: string
   export let environment: domain.Environment | null
   // Only the id: the list names every collection from
@@ -67,6 +67,29 @@
     rename: (id: string, value: string) => void
     confirmDelete: (summary: core.CollectionSummary) => void
   }
+
+  // The jar as of the last read, and the three things the tab can do to
+  // it. Kept apart from the callbacks so a new list re-renders on its
+  // own — `cookieJar` is one stable object, like `env` and `coll`.
+  export let cookies: httpengine.Cookie[]
+  export let cookieJar: {
+    refresh: () => void
+    remove: (cookie: httpengine.Cookie) => void
+    clear: () => void
+  }
+
+  // Go's zero time crosses as year 1, which is how a session cookie —
+  // one with no expiry at all — arrives here.
+  function expiryLabel(expires: unknown): string {
+    if (!expires) return 'session'
+    const at = new Date(expires as string)
+    if (Number.isNaN(at.getTime()) || at.getFullYear() <= 1) return 'session'
+    return at.toLocaleString()
+  }
+
+  function cookieFlags(c: httpengine.Cookie): string {
+    return [c.secure ? 'Secure' : '', c.httpOnly ? 'HttpOnly' : ''].filter(Boolean).join(' ')
+  }
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -98,6 +121,7 @@
       <button class:active={settingsTab === 'environments'} on:click={() => (settingsTab = 'environments')}
         >Environments</button
       >
+      <button class:active={settingsTab === 'cookies'} on:click={() => (settingsTab = 'cookies')}>Cookies</button>
     </div>
 
     <div class="settings-body scroll-pane">
@@ -221,6 +245,55 @@
           {/each}
         </ul>
         <button class="settings-list-add" on:click={coll.create}>+ New collection</button>
+      {:else if settingsTab === 'cookies'}
+        <!-- The jar the app sends from, not a per-request view: the
+             response pane's Cookies tab is what a single response set.
+             Read and delete only — a cookie gets into the jar by a
+             server sending it, and inventing one here would be putting
+             words in a server's mouth. -->
+        <ul class="settings-list">
+          <li class="settings-setting">
+            <div class="settings-setting-text">
+              <span class="settings-setting-name"
+                >Cookie jar
+                <InfoTip label="About the cookie jar">
+                  Every cookie kept from a response to a request with <strong>Send and store cookies</strong> on. One jar
+                  for the app, shared by every collection, emptied when Freeman closes or a workspace is opened.
+                </InfoTip>
+              </span>
+              <span class="settings-list-count"
+                >{cookies.length || 'empty'}{cookies.length ? ` cookie${cookies.length === 1 ? '' : 's'}` : ''}</span
+              >
+            </div>
+            <button on:click={cookieJar.refresh}>Refresh</button>
+            <button disabled={!cookies.length} on:click={cookieJar.clear}>Clear all</button>
+          </li>
+        </ul>
+
+        {#if cookies.length}
+          <table class="cookie-table settings-cookie-table">
+            <thead>
+              <tr>
+                <th>Name</th><th>Value</th><th>Domain</th><th>Path</th><th>Expires</th><th>Flags</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each cookies as c (c.domain + '\n' + c.path + '\n' + c.name)}
+                <tr>
+                  <td>{c.name}</td>
+                  <td class="cookie-value">{c.value}</td>
+                  <td>{c.domain}</td>
+                  <td>{c.path}</td>
+                  <td>{expiryLabel(c.expires)}</td>
+                  <td>{cookieFlags(c) || '—'}</td>
+                  <td>
+                    <button class="icon-btn" title="Delete cookie" on:click={() => cookieJar.remove(c)}>×</button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
       {:else}
         <!-- The same list, with each environment's variables opening
              under the row they belong to. Opening one is not selecting
@@ -459,6 +532,18 @@
   .settings-unit {
     font-size: 0.78rem;
     color: var(--fm-text-muted);
+  }
+
+  /* The delete column, like .kv-table's: narrow, flush with the table's
+     right edge rather than padded away from it. */
+  .settings-cookie-table {
+    margin-top: 0.6rem;
+  }
+
+  .settings-cookie-table td:last-child,
+  .settings-cookie-table th:last-child {
+    width: 2.25rem;
+    padding-right: 0;
   }
 
   /* The Environments tab's table has a second narrow (checkbox) column —
