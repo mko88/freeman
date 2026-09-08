@@ -66,7 +66,7 @@
              of names and nothing else. -->
         <button class="request-select" title="{item.method || 'GET'} {item.name}" on:click={() => onSelect(item)}>
           <span class="method-tag">{methodLabel(item.method)}</span>
-          <span class="truncate">{item.name}</span>
+          <span class="request-name-text">{item.name}</span>
         </button>
       </li>
     {/each}
@@ -139,6 +139,13 @@
     display: flex;
     align-items: center;
     border-left: 2px solid var(--m, transparent);
+    border-bottom: 1px solid var(--fm-border-subtle);
+  }
+
+  /* No rule under the last row: it would read as the start of another
+     one that isn't there. */
+  .request-list li:last-child {
+    border-bottom: none;
   }
 
   .request-list li:hover {
@@ -156,11 +163,21 @@
     background: none;
     border: none;
     color: inherit;
-    padding: 0.35rem 0.75rem;
+    padding: 0.45rem 0.6rem 0.45rem 2px;
     cursor: pointer;
     display: flex;
     gap: 0.5rem;
     align-items: center;
+  }
+
+  /* Wraps rather than truncating: a name is what tells two requests
+     apart, and the end of it is often the part that does. overflow-wrap
+     so a long unbroken one — a pasted URL, say — breaks instead of
+     forcing the row wider than the sidebar. */
+  .request-name-text {
+    min-width: 0;
+    text-align: left;
+    overflow-wrap: anywhere;
   }
 
   .request-list li.active .request-select {
