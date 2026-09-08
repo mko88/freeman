@@ -44,7 +44,11 @@ export const apiEndpoints: ApiEndpoint[] = [
       'Render a request as a runnable script. Body: {item: domain.Item, environmentId, format}. ' +
       "format is 'bash', 'powershell', 'python' or 'javascript'. Returns {code}.",
   },
-  { method: 'GET', path: '/api/settings', desc: "The workspace's app-wide defaults: timeout, redirect cap, response limits." },
+  {
+    method: 'GET',
+    path: '/api/settings',
+    desc: "The workspace's app-wide defaults: every request option a new request starts from, plus the response limits.",
+  },
   { method: 'PUT', path: '/api/settings', desc: 'Replace them. Body: the same object; out-of-range values are clamped. Returns what was stored.' },
   { method: 'GET', path: '/api/cookies', desc: 'The shared cookie jar: every stored cookie, with domain, path, expiry and flags.' },
   {
@@ -71,11 +75,12 @@ export const apiEndpoints: ApiEndpoint[] = [
       'silently replace them. Also truncated with bodyFile in place of body when it was too large — ' +
       'bodyFile is its path in the per-request on-disk cache, see clearResponseCache; capped when the ' +
       'response outgrew the in-memory ceiling and body holds only what was read), plus responseTab ' +
-      '(body/headers) and responseView (pretty/raw/hex). ' +
+      '(body/headers/cookies) and responseView (pretty/raw/hex). ' +
+      'The shared cookie jar as of the last read: cookies — see refreshCookies. ' +
       'Chrome: tab, bodyLanguage, requestPaneCollapsed, responsePaneCollapsed, ' +
       'responseHeight, showCollectionMenu, showEnvironmentMenu, showResponseActionsMenu, showSettings, ' +
-      'settingsTab, showHelp, sidebarWidth, statusBarHeight, showControlApiLog. Read this after every ' +
-      'action instead of screenshotting the window (desktop only).',
+      'settingsTab, workspaceSettings, showHelp, sidebarWidth, statusBarHeight, showControlApiLog. ' +
+      'Read this after every action instead of screenshotting the window (desktop only).',
   },
 ]
 
@@ -83,12 +88,14 @@ export const uiActions: UiAction[] = [
   {
     action: 'toggleSettings',
     payload: '—',
-    desc: 'Open/close the settings window (workspace folder, collections, environments, cookies).',
+    desc: 'Open/close the settings window (workspace, collections, environments, requests, cookies).',
   },
   {
     action: 'selectSettingsTab',
     payload: '{ tab }',
-    desc: "Switch the settings window tab. tab is 'workspace', 'collections', 'environments' or 'cookies'.",
+    desc:
+      "Switch the settings window tab. tab is 'workspace', 'collections', 'environments', 'requests' " +
+      "(what a new request's options start as) or 'cookies'.",
   },
   {
     action: 'refreshCookies',
@@ -137,9 +144,12 @@ export const uiActions: UiAction[] = [
     payload: '{ field, value }',
     desc:
       "Set one of the workspace's app-wide defaults and save it (settings.yaml — see internal/settings). " +
-      "field is 'requestTimeoutMs' (0 waits forever), 'maxRedirects' (0 follows without limit), " +
-      "'inlineResponseBytes' or 'maxResponseBytes'. Out-of-range values are clamped, and GET /api/settings " +
-      'reports what was actually stored.',
+      "field is 'inlineResponseBytes' or 'maxResponseBytes' (numbers), or any setRequestOption field — " +
+      "'requestTimeoutMs' (named so here, 0 waits forever), 'maxRedirects', 'followRedirects', " +
+      "'storeCookies', 'skipTlsVerify', 'useCustomCA', 'caCertFile', 'clientCertFile', " +
+      "'clientCertKeyFile' — which is what a new request starts from. The value must match the " +
+      "field's own type. Out-of-range numbers are clamped, and GET /api/settings reports what was " +
+      'actually stored.',
   },
   {
     action: 'setEnvironmentField',
@@ -291,9 +301,10 @@ export const uiActions: UiAction[] = [
       "field is 'followRedirects' (boolean — off returns the 3xx itself, the only way to assert on a " +
       "redirect), 'maxRedirects' (number, 0 for the default of 10), 'storeCookies' (boolean — the " +
       "shared cookie jar, so signing in on one request authenticates the next), 'timeoutMs' (number, " +
-      "0 for the app default of 30s), 'skipTlsVerify' (boolean — accept any server certificate), or " +
-      "'clientCertFile'/'clientCertKeyFile' (paths to a PEM pair for mutual TLS; both or neither, and " +
-      'both take {{var}} substitution like the URL does). Persisted by saveRequest.',
+      "0 for the app default of 30s), 'skipTlsVerify' (boolean — accept any server certificate), " +
+      "'useCustomCA' (boolean) with 'caCertFile' (a PEM verified against *instead of* the machine's " +
+      "own trust store), or 'clientCertFile'/'clientCertKeyFile' (a PEM pair for mutual TLS; both or " +
+      'neither). Every path takes {{var}} substitution like the URL does. Persisted by saveRequest.',
   },
   {
     action: 'setRequestField',

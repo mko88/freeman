@@ -83,12 +83,29 @@ type Options struct {
 	// server: mutual TLS. Both are needed, or neither is used.
 	ClientCertFile    string `json:"clientCertFile,omitempty"`
 	ClientCertKeyFile string `json:"clientCertKeyFile,omitempty"`
+	// CACertFile is a PEM file of the certificates to verify the server
+	// against — an internal root, or the intermediate a misconfigured
+	// server forgets to send. Switched on it is the *whole* trust store
+	// for the request: the machine's own is ignored, so what verifies is
+	// what chains to this file. The honest answer to a certificate that
+	// won't verify, where SkipTLSVerify is the blunt one.
+	//
+	// UseCustomCA is the switch, kept separate from the path so turning
+	// it off doesn't lose the path. Off, or with no path, the machine's
+	// trust store is used as before.
+	CACertFile  string `json:"caCertFile,omitempty"`
+	UseCustomCA bool   `json:"useCustomCA,omitempty"`
+}
+
+// CustomCA reports whether a CA file is both set and switched on.
+func (o Options) CustomCA() bool {
+	return o.UseCustomCA && o.CACertFile != ""
 }
 
 // TLS reports whether any option needs a transport of its own — the
 // default one can't carry per-request TLS settings.
 func (o Options) TLS() bool {
-	return o.SkipTLSVerify || (o.ClientCertFile != "" && o.ClientCertKeyFile != "")
+	return o.SkipTLSVerify || o.CustomCA() || (o.ClientCertFile != "" && o.ClientCertKeyFile != "")
 }
 
 // AuthType selects how an Auth's fields become a request header at

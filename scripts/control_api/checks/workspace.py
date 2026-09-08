@@ -176,6 +176,11 @@ def test_settings_window(api: ControlAPI, r: Report) -> None:
     state = poll(api.state, lambda s: s.get("settingsTab") == "collections")
     r.check("state.settingsTab reflects selectSettingsTab 'collections'", state.get("settingsTab") == "collections", str(state.get("settingsTab")))
 
+    r.step("selectSettingsTab {tab: 'requests'}  (what a new request's options start as)")
+    api.action("selectSettingsTab", {"tab": "requests"})
+    state = poll(api.state, lambda s: s.get("settingsTab") == "requests")
+    r.check("state.settingsTab reflects selectSettingsTab 'requests'", state.get("settingsTab") == "requests", str(state.get("settingsTab")))
+
     r.step("selectSettingsTab {tab: 'environments'}")
     api.action("selectSettingsTab", {"tab": "environments"})
     state = poll(api.state, lambda s: s.get("settingsTab") == "environments")
@@ -199,18 +204,30 @@ def test_settings_window(api: ControlAPI, r: Report) -> None:
 
 
 def test_workspace_settings(api: ControlAPI, r: Report) -> None:
-    """The app-wide defaults that used to be constants in
-    internal/httpengine: the request timeout, the redirect cap, and the
-    two response-size limits. They live in settings.yaml in the
-    workspace, so this only ever touches the disposable one main()
-    switched to — but it restores what it found anyway, because later
-    checks send real requests through the timeout it sets here."""
+    """The app-wide defaults: every setting a new request's Options tab
+    starts from, plus the two response-size limits. They live in
+    settings.yaml in the workspace, so this only ever touches the
+    disposable one main() switched to — but it restores what it found
+    anyway, because later checks send real requests through the timeout
+    it sets here."""
     r.section("Workspace settings (GET/PUT /api/settings / setWorkspaceSetting)")
 
-    keys = {"requestTimeoutMs", "maxRedirects", "inlineResponseBytes", "maxResponseBytes"}
+    keys = {
+        "requestTimeoutMs",
+        "maxRedirects",
+        "inlineResponseBytes",
+        "maxResponseBytes",
+        "followRedirects",
+        "storeCookies",
+        "skipTlsVerify",
+        "caCertFile",
+        "useCustomCA",
+        "clientCertFile",
+        "clientCertKeyFile",
+    }
     original = api.get("/api/settings")
     r.check(
-        "GET /api/settings returns all four defaults",
+        f"GET /api/settings returns every default ({len(keys)} of them)",
         isinstance(original, dict) and keys <= set(original),
         str(original),
     )
@@ -229,6 +246,30 @@ def test_workspace_settings(api: ControlAPI, r: Report) -> None:
         r.check(
             "...and it reached settings.yaml, not just the UI",
             api.get("/api/settings").get("maxRedirects") == 7,
+            str(api.get("/api/settings")),
+        )
+
+        # The settings are three types now, not just numbers, and the
+        # value has to match the field rather than be coerced — a
+        # Number('') of 0 would have turned every path into one.
+        r.step("setWorkspaceSetting {field: 'storeCookies', value: false}  (a switch, not a number)")
+        api.action("setWorkspaceSetting", {"field": "storeCookies", "value": False})
+        state = poll(api.state, lambda s: (s.get("workspaceSettings") or {}).get("storeCookies") is False)
+        r.check(
+            "a boolean default round trips as a boolean",
+            (state.get("workspaceSettings") or {}).get("storeCookies") is False
+            and api.get("/api/settings").get("storeCookies") is False,
+            str(api.get("/api/settings")),
+        )
+
+        r.step("setWorkspaceSetting {field: 'caCertFile', value: '{{pyCertDir}}/server.pem'}  (a path)")
+        ca = "{{pyCertDir}}/server.pem"
+        api.action("setWorkspaceSetting", {"field": "caCertFile", "value": ca})
+        state = poll(api.state, lambda s: (s.get("workspaceSettings") or {}).get("caCertFile") == ca)
+        r.check(
+            "a path default round trips as the string it was given, {{var}} and all",
+            (state.get("workspaceSettings") or {}).get("caCertFile") == ca
+            and api.get("/api/settings").get("caCertFile") == ca,
             str(api.get("/api/settings")),
         )
 

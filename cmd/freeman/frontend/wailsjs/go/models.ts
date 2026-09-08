@@ -165,6 +165,8 @@ export namespace domain {
 	    skipTlsVerify?: boolean;
 	    clientCertFile?: string;
 	    clientCertKeyFile?: string;
+	    caCertFile?: string;
+	    useCustomCA?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Options(source);
@@ -179,6 +181,8 @@ export namespace domain {
 	        this.skipTlsVerify = source["skipTlsVerify"];
 	        this.clientCertFile = source["clientCertFile"];
 	        this.clientCertKeyFile = source["clientCertKeyFile"];
+	        this.caCertFile = source["caCertFile"];
+	        this.useCustomCA = source["useCustomCA"];
 	    }
 	}
 	export class Header {
@@ -471,6 +475,13 @@ export namespace settings {
 	    maxRedirects: number;
 	    inlineResponseBytes: number;
 	    maxResponseBytes: number;
+	    followRedirects: boolean;
+	    storeCookies: boolean;
+	    skipTlsVerify: boolean;
+	    caCertFile: string;
+	    useCustomCA: boolean;
+	    clientCertFile: string;
+	    clientCertKeyFile: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -482,6 +493,13 @@ export namespace settings {
 	        this.maxRedirects = source["maxRedirects"];
 	        this.inlineResponseBytes = source["inlineResponseBytes"];
 	        this.maxResponseBytes = source["maxResponseBytes"];
+	        this.followRedirects = source["followRedirects"];
+	        this.storeCookies = source["storeCookies"];
+	        this.skipTlsVerify = source["skipTlsVerify"];
+	        this.caCertFile = source["caCertFile"];
+	        this.useCustomCA = source["useCustomCA"];
+	        this.clientCertFile = source["clientCertFile"];
+	        this.clientCertKeyFile = source["clientCertKeyFile"];
 	    }
 	}
 

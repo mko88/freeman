@@ -279,16 +279,19 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str, item_id:
     api.action("selectRequestTab", {"tab": "options"})
     state = poll(api.state, lambda s: s.get("tab") == "options")
     r.check("state.tab reflects selectRequestTab 'options'", state.get("tab") == "options", str(state.get("tab")))
-    # A new request inherits the workspace's own answers for the redirect
-    # cap and the timeout (settings.yaml — see internal/settings), which
-    # in a fresh workspace are the built-in 10 and 30s. 0 in either field
-    # means "no limit", not "use the default".
+    # A new request starts from the workspace's own answers for every one
+    # of these (settings.yaml — see internal/settings, and the settings
+    # window's Requests tab), which in a fresh workspace are the built-in
+    # ones. 0 in the cap or the timeout means "no limit", not "use the
+    # default".
     defaults = {
         "followRedirects": True,
         "maxRedirects": 10,
         "storeCookies": True,
         "timeoutMs": 30000,
         "skipTlsVerify": False,
+        "caCertFile": "",
+        "useCustomCA": False,
         "clientCertFile": "",
         "clientCertKeyFile": "",
     }
@@ -300,6 +303,8 @@ def test_request_editor(api: ControlAPI, r: Report, collection_id: str, item_id:
         "storeCookies": False,
         "timeoutMs": 2500,
         "skipTlsVerify": True,
+        "caCertFile": "/tmp/ca.pem",
+        "useCustomCA": True,
         "clientCertFile": "/tmp/client.pem",
         "clientCertKeyFile": "/tmp/client.key",
     }

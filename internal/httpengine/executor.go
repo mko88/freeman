@@ -7,6 +7,7 @@ import (
 	"compress/zlib"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -66,6 +67,7 @@ func optionsOf(item domain.Item, vars map[string]string) domain.Options {
 	opts := *item.Options
 	opts.ClientCertFile = Substitute(opts.ClientCertFile, vars)
 	opts.ClientCertKeyFile = Substitute(opts.ClientCertKeyFile, vars)
+	opts.CACertFile = Substitute(opts.CACertFile, vars)
 	return opts
 }
 
@@ -134,6 +136,13 @@ func transportFor(opts domain.Options) (*http.Transport, error) {
 	}
 	tr := base.Clone()
 	cfg := &tls.Config{InsecureSkipVerify: opts.SkipTLSVerify} //nolint:gosec // the point of the option
+	if opts.CustomCA() {
+		pool, err := caPool(opts.CACertFile)
+		if err != nil {
+			return nil, err
+		}
+		cfg.RootCAs = pool
+	}
 	if opts.ClientCertFile != "" && opts.ClientCertKeyFile != "" {
 		cert, err := tls.LoadX509KeyPair(opts.ClientCertFile, opts.ClientCertKeyFile)
 		if err != nil {
@@ -143,6 +152,30 @@ func transportFor(opts domain.Options) (*http.Transport, error) {
 	}
 	tr.TLSClientConfig = cfg
 	return tr, nil
+}
+
+// caPool is the certificates in file, and nothing else: switched on, the
+// custom CA is the whole trust store for that request, not an addition
+// to the machine's. Every certificate in the file is a trust anchor, so
+// a server that forgets to send its intermediate verifies once you hand
+// it that intermediate.
+//
+// Replacing rather than extending also means Go builds the chain itself
+// instead of asking the OS. That is the point on Windows: the platform
+// verifier completes a chain by fetching missing issuers, which is why
+// this app accepted a chain Postman rejected. With a CA named here,
+// nothing is fetched and nothing else is trusted — what verifies is what
+// chains to the file you chose.
+func caPool(file string) (*x509.CertPool, error) {
+	pem, err := os.ReadFile(file)
+	if err != nil {
+		return nil, fmt.Errorf("CA certificate: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("CA certificate: %s holds no PEM certificate", file)
+	}
+	return pool, nil
 }
 
 // Execute builds an HTTP request from item — substituting {{var}} in the

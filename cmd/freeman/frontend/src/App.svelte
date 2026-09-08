@@ -84,23 +84,41 @@
   // can't change while the app runs.
   let appVersion = ''
 
-  // The workspace's app-wide defaults (internal/settings): how long a
-  // request may take, how many redirects it follows, and the two
-  // response-size limits. Loaded when a workspace opens, edited in the
-  // settings window, and the first two seed every new request's Options.
+  // The workspace's app-wide defaults (internal/settings): every setting
+  // on a request's Options tab, plus the two response-size limits.
+  // Loaded when a workspace opens, edited in the settings window, and
+  // the options half seeds every new request. These starting values are
+  // only what stands before the load, and match settings.Defaults().
   let workspaceSettings: settings.Settings = {
     requestTimeoutMs: 30_000,
     maxRedirects: 10,
     inlineResponseBytes: 1 << 20,
     maxResponseBytes: 64 << 20,
+    followRedirects: true,
+    storeCookies: true,
+    skipTlsVerify: false,
+    caCertFile: '',
+    useCustomCA: false,
+    clientCertFile: '',
+    clientCertKeyFile: '',
   }
   // The saved item the editor is showing, or undefined for a new draft.
   // Duplicate and delete act on this rather than on a sidebar row.
   $: selectedItem = collection?.items?.find((i) => i.id === selectedItemId)
 
+  // The options half of the settings, as a new request's starting
+  // Options. Picked out by name rather than passed whole so the response
+  // limits — which a request has no say in — can't leak into a draft.
   $: workspaceDefaults = {
     maxRedirects: workspaceSettings.maxRedirects,
     requestTimeoutMs: workspaceSettings.requestTimeoutMs,
+    followRedirects: workspaceSettings.followRedirects,
+    storeCookies: workspaceSettings.storeCookies,
+    skipTlsVerify: workspaceSettings.skipTlsVerify,
+    caCertFile: workspaceSettings.caCertFile,
+    useCustomCA: workspaceSettings.useCustomCA,
+    clientCertFile: workspaceSettings.clientCertFile,
+    clientCertKeyFile: workspaceSettings.clientCertKeyFile,
   }
 
   let collectionId = ''
@@ -123,7 +141,7 @@
   // rather than from the pickers, which only pick one — creating and
   // deleting are occasional, and don't belong a slip away from a control
   // used several times an hour.
-  type SettingsTab = 'workspace' | 'collections' | 'environments' | 'cookies'
+  type SettingsTab = 'workspace' | 'collections' | 'environments' | 'requests' | 'cookies'
   let settingsTab: SettingsTab = 'workspace'
   // The shared cookie jar. Re-read when the Cookies tab opens and after
   // every send, since a send is what puts cookies on it — and because
@@ -457,8 +475,15 @@
         break
       case 'selectSettingsTab': {
         const tab = payload?.tab
-        if (tab === 'workspace' || tab === 'collections' || tab === 'environments' || tab === 'cookies')
+        if (
+          tab === 'workspace' ||
+          tab === 'collections' ||
+          tab === 'environments' ||
+          tab === 'requests' ||
+          tab === 'cookies'
+        ) {
           settingsTab = tab
+        }
         break
       }
       case 'selectEnvironment':
@@ -482,8 +507,22 @@
       }
       case 'setWorkspaceSetting': {
         const field = String(payload?.field ?? '')
-        const value = Number(payload?.value)
-        if (field in workspaceSettings && Number.isFinite(value)) {
+        // The settings are a mix of numbers, switches and paths now, so
+        // the value has to match the field's own type rather than being
+        // coerced to a number — Number('') is 0, which would have turned
+        // every string field into one.
+        if (!(field in workspaceSettings)) break
+        const current = workspaceSettings[field as keyof settings.Settings]
+        let value: number | boolean | string | null = null
+        if (typeof current === 'boolean') {
+          if (typeof payload?.value === 'boolean') value = payload.value
+        } else if (typeof current === 'string') {
+          if (typeof payload?.value === 'string') value = payload.value
+        } else {
+          const n = Number(payload?.value)
+          if (Number.isFinite(n)) value = n
+        }
+        if (value !== null) {
           workspaceSettings = { ...workspaceSettings, [field]: value }
           await saveWorkspaceSettings()
         }
@@ -662,12 +701,17 @@
       }
       case 'setRequestOption': {
         const field = payload?.field
-        if (field === 'followRedirects' || field === 'storeCookies' || field === 'skipTlsVerify') {
+        if (
+          field === 'followRedirects' ||
+          field === 'storeCookies' ||
+          field === 'skipTlsVerify' ||
+          field === 'useCustomCA'
+        ) {
           if (typeof payload?.value === 'boolean') draft.options[field] = payload.value
         } else if (field === 'maxRedirects' || field === 'timeoutMs') {
           const n = Number(payload?.value)
           if (!Number.isNaN(n)) draft.options[field] = Math.max(0, Math.trunc(n))
-        } else if (field === 'clientCertFile' || field === 'clientCertKeyFile') {
+        } else if (field === 'clientCertFile' || field === 'clientCertKeyFile' || field === 'caCertFile') {
           if (typeof payload?.value === 'string') draft.options[field] = payload.value
         }
         draft = draft
@@ -1052,7 +1096,7 @@
     removeFormField: removeRequestFormField,
     pickFormFieldFile: pickRequestFormFieldFile,
     pickBinaryFile,
-    pickClientCert,
+    pickCertFile,
   }
 
   // Opens the native file picker (desktop only) and writes the chosen
@@ -1070,10 +1114,11 @@
     if (path) draft.binaryFilePath = path
   }
 
-  async function pickClientCert(which: 'cert' | 'key') {
+  async function pickCertFile(which: 'ca' | 'cert' | 'key') {
     const path = await SelectFile()
     if (!path) return
-    if (which === 'cert') draft.options.clientCertFile = path
+    if (which === 'ca') draft.options.caCertFile = path
+    else if (which === 'cert') draft.options.clientCertFile = path
     else draft.options.clientCertKeyFile = path
     draft = draft
   }

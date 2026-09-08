@@ -2,9 +2,17 @@ package httpengine
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -298,5 +306,156 @@ func TestOptionsRedirectCapSemantics(t *testing.T) {
 	}
 	if hops <= 4 {
 		t.Errorf("0 should mean no cap, but it stopped after %d hops", hops)
+	}
+}
+
+// writeServerCA saves the certificate an httptest TLS server presents,
+// as the PEM file a user would point the CA option at. For a self-signed
+// server that certificate is its own issuer, which is exactly the shape
+// of an internal CA.
+func writeServerCA(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	block := &pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}
+	if err := os.WriteFile(path, pem.EncodeToMemory(block), 0o600); err != nil {
+		t.Fatalf("writing the CA file: %v", err)
+	}
+	return path
+}
+
+// The point of the option: a certificate nothing on the machine trusts
+// verifies against the CA you name, with the check still happening —
+// the difference between this and SkipTLSVerify.
+func TestExecuteVerifiesAgainstACustomCA(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "verified")
+	}))
+	defer srv.Close()
+
+	item := domain.Item{Method: "GET", URL: srv.URL}
+	if _, err := Execute(context.Background(), item, nil); err == nil {
+		t.Fatal("expected an untrusted certificate to be refused by default")
+	}
+
+	item.Options = &domain.Options{
+		FollowRedirects: true,
+		StoreCookies:    true,
+		CACertFile:      writeServerCA(t, srv),
+		UseCustomCA:     true,
+	}
+	resp, err := Execute(context.Background(), item, nil)
+	if err != nil {
+		t.Fatalf("Execute with a custom CA: %v", err)
+	}
+	if resp.Body != "verified" {
+		t.Fatalf("got %q", resp.Body)
+	}
+}
+
+// writeUnrelatedCA generates a throwaway self-signed CA and writes it
+// out — a certificate that issued nothing in the test. Generated rather
+// than reusing another httptest server's, because every
+// httptest.NewTLSServer presents the same built-in certificate, so two
+// of them are not two CAs.
+func writeUnrelatedCA(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating a key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "unrelated-test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("creating the certificate: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "unrelated-ca.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+		t.Fatalf("writing the CA file: %v", err)
+	}
+	return path
+}
+
+// Switched on, the custom CA is the whole trust store: a certificate
+// that doesn't chain to the named file is refused, whatever the machine
+// thinks of it. Without that, "custom CA" would only ever widen what's
+// accepted, and pinning to one CA would be impossible.
+func TestCustomCAReplacesTheSystemTrustStore(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+
+	item := domain.Item{
+		Method: "GET",
+		URL:    srv.URL,
+		Options: &domain.Options{
+			FollowRedirects: true,
+			StoreCookies:    true,
+			CACertFile:      writeUnrelatedCA(t),
+			UseCustomCA:     true,
+		},
+	}
+	if _, err := Execute(context.Background(), item, nil); err == nil {
+		t.Fatal("a certificate that doesn't chain to the named CA must be refused")
+	}
+}
+
+// The switch is what applies the file, so the path can be kept while the
+// option is off — the same request then behaves as it did before.
+func TestCustomCAIsOffUntilSwitchedOn(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+
+	item := domain.Item{
+		Method: "GET",
+		URL:    srv.URL,
+		Options: &domain.Options{
+			FollowRedirects: true,
+			StoreCookies:    true,
+			CACertFile:      writeServerCA(t, srv),
+			UseCustomCA:     false,
+		},
+	}
+	if _, err := Execute(context.Background(), item, nil); err == nil {
+		t.Fatal("the CA file should do nothing until the switch is on")
+	}
+}
+
+// A path that isn't there, or isn't a certificate, has to say so rather
+// than fail as an opaque handshake error later.
+func TestCustomCAReportsABadFile(t *testing.T) {
+	dir := t.TempDir()
+	notPEM := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(notPEM, []byte("this is not a certificate"), 0o600); err != nil {
+		t.Fatalf("writing the file: %v", err)
+	}
+
+	for name, file := range map[string]string{
+		"missing":   filepath.Join(dir, "nope.pem"),
+		"not a PEM": notPEM,
+	} {
+		item := domain.Item{
+			Method: "GET",
+			URL:    "https://example.invalid",
+			Options: &domain.Options{
+				FollowRedirects: true,
+				StoreCookies:    true,
+				CACertFile:      file,
+				UseCustomCA:     true,
+			},
+		}
+		_, err := Execute(context.Background(), item, nil)
+		if err == nil {
+			t.Fatalf("%s: expected an error", name)
+		}
+		if !strings.Contains(err.Error(), "CA certificate") {
+			t.Fatalf("%s: the error should name the CA certificate, got %v", name, err)
+		}
 	}
 }

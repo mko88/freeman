@@ -95,8 +95,24 @@ row has an ⓘ that explains it.
 | Maximum redirects | 10 |
 | Send and store cookies | on — one shared jar, so signing in on one request authenticates the next |
 | Timeout | 30 s |
-| Skip TLS certificate check | off — for a staging box with a self-signed certificate |
+| Skip TLS certificate check | off — accepts any certificate at all |
+| Verify with a custom CA | off — with a PEM file, verifies against that *instead of* the machine's trust store |
 | Client certificate | a PEM pair, for mutual TLS |
+
+A certificate that won't verify has two answers, and they are not the
+same. **Skip TLS certificate check** stops checking who the server is.
+**Verify with a custom CA** keeps checking, against a file you name —
+your internal root, or the intermediate a server forgets to send (every
+certificate in the file is trusted as an anchor). Switched on it replaces
+the machine's trust store for that request, so a public host that doesn't
+chain to your file is refused while it's on. Prefer it to skipping.
+
+Worth knowing if Freeman accepts something another client rejects: on
+Windows it verifies through the OS, which can fetch a missing
+intermediate the way Chrome and curl do. Node — so Postman, and probably
+your CI — ships its own CA list and won't. If Postman says *unable to
+verify the first certificate* and Freeman is happy, the server is sending
+an incomplete chain, and Postman is the one telling you the truth.
 
 **Code** — the request as a runnable script. See below.
 
@@ -107,6 +123,8 @@ headers, body, auth fields, and the client-certificate paths.
 
 Switch the active environment with the picker in the top bar. Manage
 them in **Settings → Environments**: expand a row to edit its variables.
+
+New requests start from **Settings → Requests** — see below.
 
 Tick **secret** on a variable and its value moves to
 `<environment>.local.json`, so the environment itself stays safe to
@@ -152,7 +170,10 @@ cap, the timeout, and the TLS options. Two details worth knowing:
   that it's a snapshot, so regenerate after signing in again — and the
   cookie is readable in the script, worth knowing before pasting one
   into a ticket.
-- javascript can't express the redirect cap or a client certificate;
+- A custom CA reaches bash (`--cacert`) and python (`verify=`). powershell
+  and javascript have no per-request equivalent, so it's absent there
+  rather than approximated.
+- javascript also can't express the redirect cap or a client certificate;
   those are silently absent from that format only.
 
 ## Settings
@@ -160,9 +181,17 @@ cap, the timeout, and the TLS options. Two details worth knowing:
 Open with **⚙** in the top bar, or from **Edit …** at the top of either
 picker.
 
-- **Workspace** — which folder is open, and clearing the response cache
+- **Workspace** — which folder is open, clearing the response cache, and
+  the two response-size limits
 - **Collections** — create, rename and delete collections
 - **Environments** — the same, plus each one's variables
+- **Requests** — every setting on the Options tab, as a new request
+  starts it. Only a starting point: a saved request carries its own
+  answer, so changing one here doesn't reach back into requests you've
+  already written. The timeout and the redirect cap are the exception —
+  they're also the fallback for any request that never set one. The
+  certificate paths take `{{variables}}`, which is usually the point of
+  setting them here.
 - **Cookies** — the shared jar every request with **Send and store
   cookies** on draws from: forget one, or empty it. It lasts until you
   clear it or close Freeman, so this is where you go to sign out of a

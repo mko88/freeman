@@ -1,6 +1,7 @@
 <script lang="ts">
-  // The settings window: a Workspace tab (which folder is open, and the
-  // response cache that lives inside it) and an Environments tab.
+  // The settings window: the workspace folder and its response limits,
+  // the collections and environments it holds, what a new request starts
+  // as, and the shared cookie jar — one tab each.
   //
   // Presentation only. Every mutation is a callback into App.svelte,
   // because the control API drives the same operations through
@@ -18,7 +19,7 @@
   // edited here, and the variable rows below write straight into
   // `environment` — App.svelte's reportUIState mirrors all three, so the
   // changes have to travel back up.
-  export let settingsTab: 'workspace' | 'collections' | 'environments' | 'cookies'
+  export let settingsTab: 'workspace' | 'collections' | 'environments' | 'requests' | 'cookies'
   export let environmentId: string
   export let environment: domain.Environment | null
   // Only the id: the list names every collection from
@@ -121,6 +122,7 @@
       <button class:active={settingsTab === 'environments'} on:click={() => (settingsTab = 'environments')}
         >Environments</button
       >
+      <button class:active={settingsTab === 'requests'} on:click={() => (settingsTab = 'requests')}>Requests</button>
       <button class:active={settingsTab === 'cookies'} on:click={() => (settingsTab = 'cookies')}>Cookies</button>
     </div>
 
@@ -151,39 +153,10 @@
           </li>
         </ul>
 
-        <!-- The four values that used to be constants in
+        <!-- Two of the values that used to be constants in
              internal/httpengine. They live in the workspace's
              settings.yaml, so a workspace shared through git carries
-             them. -->
-        <h3 class="settings-group">Defaults for new requests</h3>
-        <ul class="settings-list">
-          <li class="settings-setting">
-            <span class="settings-setting-name"
-              >Request timeout
-              <InfoTip label="About the request timeout">
-                How long a request may take before it gives up, unless it sets its own in the Options tab.
-                0 waits forever.
-              </InfoTip>
-            </span>
-            <span class="settings-value">
-              <input type="number" min="0" step="500" bind:value={settings.requestTimeoutMs} on:change={onSaveSettings} />
-              <span class="settings-unit">ms</span>
-            </span>
-          </li>
-          <li class="settings-setting">
-            <span class="settings-setting-name"
-              >Maximum redirects
-              <InfoTip label="About the redirect limit">
-                How many redirects a request follows, unless it sets its own. 0 follows without limit —
-                only the timeout ends a redirect loop.
-              </InfoTip>
-            </span>
-            <span class="settings-value">
-              <input type="number" min="0" bind:value={settings.maxRedirects} on:change={onSaveSettings} />
-            </span>
-          </li>
-        </ul>
-
+             them; the rest are on the Requests tab. -->
         <h3 class="settings-group">Response limits</h3>
         <ul class="settings-list">
           <li class="settings-setting">
@@ -245,6 +218,163 @@
           {/each}
         </ul>
         <button class="settings-list-add" on:click={coll.create}>+ New collection</button>
+      {:else if settingsTab === 'requests'}
+        <!-- What a new request's Options tab starts as. The same rows in
+             the same order as that tab, so the two read as one list
+             rather than two vocabularies — see internal/settings.
+
+             Only a starting point: a saved request carries its own
+             answer, so changing one here doesn't reach back into
+             requests already written. The two at the top are the
+             exception, and say so — the engine falls back to them for
+             any request that sets nothing. -->
+        <table class="options-table">
+          <tbody>
+            <tr>
+              <th scope="row">
+                <span>Request timeout (ms)
+                  <InfoTip label="About the request timeout">
+                    How long a request may take before it gives up, unless it sets its own. 0 waits
+                    forever. Also the fallback for any request that never set one.
+                  </InfoTip>
+                </span>
+              </th>
+              <td>
+                <input
+                  type="number"
+                  min="0"
+                  step="500"
+                  class="option-number"
+                  bind:value={settings.requestTimeoutMs}
+                  on:change={onSaveSettings}
+                />
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row">
+                <span>Follow redirects
+                  <InfoTip label="About following redirects">
+                    Off starts a new request on the 3xx itself, which is the only way to assert on
+                    its status or its Location header.
+                  </InfoTip>
+                </span>
+              </th>
+              <td><input type="checkbox" bind:checked={settings.followRedirects} on:change={onSaveSettings} /></td>
+            </tr>
+
+            <tr>
+              <th scope="row">
+                <span>Maximum redirects
+                  <InfoTip label="About the redirect limit">
+                    How many redirects a request follows, unless it sets its own. 0 follows without
+                    limit — only the timeout ends a redirect loop. Also the fallback for any request
+                    that never set one.
+                  </InfoTip>
+                </span>
+              </th>
+              <td>
+                <input
+                  type="number"
+                  min="0"
+                  class="option-number"
+                  bind:value={settings.maxRedirects}
+                  on:change={onSaveSettings}
+                />
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row">
+                <span>Send and store cookies
+                  <InfoTip label="About the cookie jar">
+                    Whether a new request joins the shared jar, so signing in on one authenticates
+                    the next. The jar itself is on the Cookies tab.
+                  </InfoTip>
+                </span>
+              </th>
+              <td><input type="checkbox" bind:checked={settings.storeCookies} on:change={onSaveSettings} /></td>
+            </tr>
+
+            <tr>
+              <th scope="row">
+                <span>Skip TLS certificate check
+                  <InfoTip label="About skipping the certificate check">
+                    Starts new requests accepting any certificate. Worth thinking about before
+                    setting it here rather than per request: it stops verifying that the server is
+                    who it claims to be, for everything you go on to write.
+                  </InfoTip>
+                </span>
+              </th>
+              <td><input type="checkbox" bind:checked={settings.skipTlsVerify} on:change={onSaveSettings} /></td>
+            </tr>
+
+            <tr>
+              <th scope="row">
+                <span>Verify with a custom CA
+                  <InfoTip label="About a custom CA">
+                    Verifies against the file below <em>instead of</em> the certificates this
+                    machine trusts — an internal root, or the intermediate a server forgets to send.
+                    The check still happens, against something you chose.
+                  </InfoTip>
+                </span>
+              </th>
+              <td><input type="checkbox" bind:checked={settings.useCustomCA} on:change={onSaveSettings} /></td>
+            </tr>
+
+            <tr class:disabled={!settings.useCustomCA}>
+              <th scope="row">
+                <span>CA certificate
+                  <InfoTip label="About the CA file">
+                    A PEM file of one or more certificates, each trusted as an anchor. Takes
+                    {'{'}{'{'}variables{'}'}{'}'}, which is usually the point of setting it here —
+                    every new request then verifies against whatever the open environment names.
+                  </InfoTip>
+                </span>
+              </th>
+              <td class="option-path">
+                <input
+                  type="text"
+                  placeholder="ca .pem"
+                  disabled={!settings.useCustomCA}
+                  bind:value={settings.caCertFile}
+                  on:change={onSaveSettings}
+                />
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row">
+                <span>Client certificate
+                  <InfoTip label="About client certificates">
+                    A PEM certificate and its key, presented to servers that ask for one (mutual
+                    TLS). Both or neither. Takes {'{'}{'{'}variables{'}'}{'}'} too.
+                  </InfoTip>
+                </span>
+              </th>
+              <td class="option-path">
+                <input
+                  type="text"
+                  placeholder="certificate .pem"
+                  bind:value={settings.clientCertFile}
+                  on:change={onSaveSettings}
+                />
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row"><span>Client certificate key</span></th>
+              <td class="option-path">
+                <input
+                  type="text"
+                  placeholder="key .pem"
+                  bind:value={settings.clientCertKeyFile}
+                  on:change={onSaveSettings}
+                />
+              </td>
+            </tr>
+          </tbody>
+        </table>
       {:else if settingsTab === 'cookies'}
         <!-- The jar the app sends from, not a per-request view: the
              response pane's Cookies tab is what a single response set.

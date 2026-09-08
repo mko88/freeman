@@ -106,6 +106,11 @@ type request struct {
 	skipTLSVerify bool
 	certFile      string
 	certKeyFile   string
+	// caFile is the PEM the server is verified against instead of the
+	// machine's own trust store, set only when the option's switch is on.
+	// curl and requests take one; Invoke-RestMethod and fetch have no
+	// per-request equivalent, so it doesn't appear for them.
+	caFile string
 	// oauth is set when the request authenticates with the
 	// client-credentials grant. A token can't be baked in — it expires,
 	// and the one Freeman holds is its own — so the script fetches its
@@ -172,6 +177,9 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 	if opts.ClientCertFile != "" && opts.ClientCertKeyFile != "" {
 		r.certFile = httpengine.Substitute(opts.ClientCertFile, vars)
 		r.certKeyFile = httpengine.Substitute(opts.ClientCertKeyFile, vars)
+	}
+	if opts.CustomCA() {
+		r.caFile = httpengine.Substitute(opts.CACertFile, vars)
 	}
 	for _, h := range item.Headers {
 		if h.Enabled {
@@ -423,6 +431,9 @@ func renderBash(r request) string {
 		b.WriteString("cert=" + shQuote(r.certFile) + "\n")
 		b.WriteString("key=" + shQuote(r.certKeyFile) + "\n")
 	}
+	if r.caFile != "" {
+		b.WriteString("cacert=" + shQuote(r.caFile) + "\n")
+	}
 
 	if g := r.oauth; g != nil {
 		// sed rather than jq, so the script needs nothing installed.
@@ -514,6 +525,11 @@ func curlTransportArgs(r request) string {
 	if r.certFile != "" {
 		args = append(args, `--cert "$cert" --key "$key"`)
 	}
+	if r.caFile != "" {
+		// --cacert replaces the default bundle rather than adding to it,
+		// which is what the option means in the app too.
+		args = append(args, `--cacert "$cacert"`)
+	}
 	return strings.Join(args, " ")
 }
 
@@ -589,6 +605,10 @@ func urlEncodedBody(pairs []kv) string {
 // reads as a list of names. A raw body becomes a single-quoted
 // here-string, which is literal: no doubling of every ' the way an
 // inline PowerShell string needs.
+//
+// The one option it can't carry is a custom CA: Invoke-RestMethod
+// verifies against the Windows store or not at all, with no per-request
+// way to name a different one.
 func renderPowerShell(r request) string {
 	ps := splitPowerShell(r)
 	var b strings.Builder
@@ -813,8 +833,13 @@ func renderPython(r request) string {
 	if r.timeout > 0 {
 		args = append(args, "timeout="+secondsArg(r.timeout))
 	}
+	// requests spells both with one argument: False to skip the check, a
+	// path to verify against that file alone. Skipping wins if somehow
+	// both are set, which is what the engine does too.
 	if r.skipTLSVerify {
 		args = append(args, "verify=False")
+	} else if r.caFile != "" {
+		args = append(args, "verify="+pyQuote(r.caFile))
 	}
 	if r.certFile != "" {
 		args = append(args, "cert=("+pyQuote(r.certFile)+", "+pyQuote(r.certKeyFile)+")")
@@ -864,10 +889,10 @@ func pyBool(v bool) string {
 
 // renderJavaScript writes the request against fetch, which needs no
 // dependency on Node 18+ and is what a browser reader expects too. It's
-// the weakest of the four on the transport options: the redirect cap
-// and the client certificate have no equivalent and don't appear, and
-// the certificate check is skipped process-wide because fetch has no
-// per-request setting for it.
+// the weakest of the four on the transport options: the redirect cap,
+// the client certificate and a custom CA have no equivalent and don't
+// appear, and the certificate check is skipped process-wide because
+// fetch has no per-request setting for it.
 func renderJavaScript(r request) string {
 	var b strings.Builder
 

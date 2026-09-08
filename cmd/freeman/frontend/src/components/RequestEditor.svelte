@@ -56,7 +56,7 @@
     removeFormField: (index: number) => void
     pickFormFieldFile: (index: number) => void
     pickBinaryFile: () => void
-    pickClientCert: (which: 'cert' | 'key') => void
+    pickCertFile: (which: 'ca' | 'cert' | 'key') => void
   }
 
   // Common values for a header the user has typed, matched
@@ -305,85 +305,132 @@
 {:else if activeTab === 'options'}
   <!-- How the request is sent rather than what is sent. Both default to
        what every other HTTP client does, so a request nobody has touched
-       behaves the way it always did. -->
-  <div class="options-tab">
-    <div class="option">
-      <label class="option-label">
-        <input type="checkbox" bind:checked={draft.options.followRedirects} />
-        <span>Follow redirects</span>
-      </label>
-      <InfoTip label="About following redirects">
-        Off returns the 3xx itself, which is the only way to assert on its status or its Location header.
-      </InfoTip>
-    </div>
+       behaves the way it always did.
 
-    <div class="option" class:disabled={!draft.options.followRedirects}>
-      <label class="option-label">
-        <input
-          type="number"
-          min="0"
-          max="50"
-          class="option-number"
-          disabled={!draft.options.followRedirects}
-          bind:value={draft.options.maxRedirects}
-        />
-        <span>Maximum redirects</span>
-      </label>
-      <InfoTip label="About the redirect limit">0 uses the default of 10.</InfoTip>
-    </div>
+       A table, one control per row: the names line up in one column and
+       the controls in another, whether the control is a checkbox, a
+       number or a path — which reading down a list of mixed controls
+       laid out inline did not. -->
+  <table class="options-table">
+    <tbody>
+      <tr>
+        <th scope="row">
+          <span>Follow redirects</span>
+          <InfoTip label="About following redirects">
+            Off returns the 3xx itself, which is the only way to assert on its status or its Location
+            header.
+          </InfoTip>
+        </th>
+        <td><input type="checkbox" bind:checked={draft.options.followRedirects} /></td>
+      </tr>
 
-    <div class="option">
-      <label class="option-label">
-        <input type="checkbox" bind:checked={draft.options.storeCookies} />
-        <span>Send and store cookies</span>
-      </label>
-      <InfoTip label="About the cookie jar">
-        Shares one cookie jar with every other request that has this on, so signing in on one
-        authenticates the next. Off isolates this request from that session. Generated scripts keep a
-        jar of their own where the language has one — on disk for bash and python, for the shell's
-        lifetime in powershell — starting empty rather than inheriting this one.
-      </InfoTip>
-    </div>
+      <tr class:disabled={!draft.options.followRedirects}>
+        <th scope="row">
+          <span>Maximum redirects</span>
+          <InfoTip label="About the redirect limit">0 uses the default of 10.</InfoTip>
+        </th>
+        <td>
+          <input
+            type="number"
+            min="0"
+            max="50"
+            class="option-number"
+            disabled={!draft.options.followRedirects}
+            bind:value={draft.options.maxRedirects}
+          />
+        </td>
+      </tr>
 
-    <div class="option">
-      <label class="option-label">
-        <input type="number" min="0" step="100" class="option-number" bind:value={draft.options.timeoutMs} />
-        <span>Timeout (ms)</span>
-      </label>
-      <InfoTip label="About the timeout">0 uses the app's default of 30 seconds.</InfoTip>
-    </div>
+      <tr>
+        <th scope="row">
+          <span>Send and store cookies</span>
+          <InfoTip label="About the cookie jar">
+            Shares one cookie jar with every other request that has this on, so signing in on one
+            authenticates the next. Off isolates this request from that session. A generated script
+            carries whatever the jar holds for that URL as a Cookie header.
+          </InfoTip>
+        </th>
+        <td><input type="checkbox" bind:checked={draft.options.storeCookies} /></td>
+      </tr>
 
-    <div class="option">
-      <label class="option-label">
-        <input type="checkbox" bind:checked={draft.options.skipTlsVerify} />
-        <span>Skip TLS certificate check</span>
-      </label>
-      <InfoTip label="About skipping the certificate check">
-        Accepts any certificate the server presents — for a staging box with a self-signed one, which
-        can't be called otherwise. It stops verifying that the server is who it claims to be, so leave
-        it off for anything you don't control.
-      </InfoTip>
-    </div>
+      <tr>
+        <th scope="row">
+          <span>Timeout (ms)</span>
+          <InfoTip label="About the timeout">0 uses the app's default of 30 seconds.</InfoTip>
+        </th>
+        <td><input type="number" min="0" step="100" class="option-number" bind:value={draft.options.timeoutMs} /></td>
+      </tr>
 
-    <div class="option option-cert">
-      <span class="option-label">
-        <span>Client certificate</span>
-        <InfoTip label="About client certificates">
-          A PEM certificate and its key, presented to servers that ask for one (mutual TLS). Both or
-          neither. Both paths take {'{'}{'{'}variables{'}'}{'}'}, so which certificate to present can
-          belong to the environment.
-        </InfoTip>
-      </span>
-      <div class="option-cert-fields">
-        <input type="text" placeholder="certificate .pem" bind:value={draft.options.clientCertFile} />
-        <button on:click={() => rows.pickClientCert('cert')}>Choose…</button>
-      </div>
-      <div class="option-cert-fields">
-        <input type="text" placeholder="key .pem" bind:value={draft.options.clientCertKeyFile} />
-        <button on:click={() => rows.pickClientCert('key')}>Choose…</button>
-      </div>
-    </div>
-  </div>
+      <tr>
+        <th scope="row">
+          <span>Skip TLS certificate check</span>
+          <InfoTip label="About skipping the certificate check">
+            Accepts any certificate the server presents — for a staging box with a self-signed one,
+            which can't be called otherwise. It stops verifying that the server is who it claims to
+            be, so leave it off for anything you don't control. Naming a CA below is the answer that
+            keeps the check.
+          </InfoTip>
+        </th>
+        <td><input type="checkbox" bind:checked={draft.options.skipTlsVerify} /></td>
+      </tr>
+
+      <tr>
+        <th scope="row">
+          <span>Verify with a custom CA</span>
+          <InfoTip label="About a custom CA">
+            Verifies the server against the certificates in the file below <em>instead of</em> the
+            ones this machine trusts — an internal root, or the intermediate a server forgets to
+            send. The check still happens, against something you chose, so a public host that
+            doesn't chain to that file is refused while this is on.
+          </InfoTip>
+        </th>
+        <td><input type="checkbox" bind:checked={draft.options.useCustomCA} /></td>
+      </tr>
+
+      <tr class:disabled={!draft.options.useCustomCA}>
+        <th scope="row">
+          <span>CA certificate</span>
+          <InfoTip label="About the CA file">
+            A PEM file of one or more certificates, each trusted as an anchor. Takes
+            {'{'}{'{'}variables{'}'}{'}'}, so which CA to verify against can belong to the
+            environment.
+          </InfoTip>
+        </th>
+        <td class="option-path">
+          <input
+            type="text"
+            placeholder="ca .pem"
+            disabled={!draft.options.useCustomCA}
+            bind:value={draft.options.caCertFile}
+          />
+          <button disabled={!draft.options.useCustomCA} on:click={() => rows.pickCertFile('ca')}>Choose…</button>
+        </td>
+      </tr>
+
+      <tr>
+        <th scope="row">
+          <span>Client certificate</span>
+          <InfoTip label="About client certificates">
+            A PEM certificate and its key, presented to servers that ask for one (mutual TLS). Both
+            or neither. Both paths take {'{'}{'{'}variables{'}'}{'}'}, so which certificate to
+            present can belong to the environment.
+          </InfoTip>
+        </th>
+        <td class="option-path">
+          <input type="text" placeholder="certificate .pem" bind:value={draft.options.clientCertFile} />
+          <button on:click={() => rows.pickCertFile('cert')}>Choose…</button>
+        </td>
+      </tr>
+
+      <tr>
+        <th scope="row"><span>Client certificate key</span></th>
+        <td class="option-path">
+          <input type="text" placeholder="key .pem" bind:value={draft.options.clientCertKeyFile} />
+          <button on:click={() => rows.pickCertFile('key')}>Choose…</button>
+        </td>
+      </tr>
+    </tbody>
+  </table>
 {:else if activeTab === 'code'}
   <div class="code-tab">
     <div class="code-formats">
@@ -537,58 +584,6 @@
   /* One line per setting now that the explanations are behind their own
      control — the tab reads as a list of switches rather than a page of
      prose with checkboxes in it. */
-  .options-tab {
-    display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
-    max-width: 46rem;
-  }
-
-  .option {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-
-  .option.disabled {
-    opacity: 0.5;
-  }
-
-  /* The control leads, its name follows — so the column of controls
-     scans down the left the way the checkbox column does in the header
-     and param tables. */
-  .option-label {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    font-size: 0.85rem;
-  }
-
-  .option-number {
-    width: 6rem;
-  }
-
-  /* The cert pair is two paths rather than one control, so its label
-     leads the block instead of sitting beside a checkbox. */
-  .option-cert {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.35rem;
-    margin-top: 0.35rem;
-  }
-
-  .option-cert-fields {
-    display: flex;
-    gap: 0.4rem;
-    width: 100%;
-    max-width: 34rem;
-  }
-
-  .option-cert-fields input {
-    flex: 1;
-    min-width: 0;
-  }
-
   .body-mode-picker {
     display: flex;
     gap: 1rem;

@@ -785,3 +785,66 @@ func TestGenerateOAuth2FetchesItsOwnToken(t *testing.T) {
 		}
 	}
 }
+
+// The custom CA reaches the two formats that can express it, and is
+// absent from the two that can't rather than being approximated.
+func TestGenerateMatchesCustomCA(t *testing.T) {
+	item := domain.Item{
+		Method: "GET",
+		URL:    "https://internal.example.com/thing",
+		Options: &domain.Options{
+			FollowRedirects: true,
+			StoreCookies:    true,
+			CACertFile:      "/certs/internal-ca.pem",
+			UseCustomCA:     true,
+		},
+	}
+	for format, want := range map[Format][]string{
+		FormatBash:   {"cacert='/certs/internal-ca.pem'", `--cacert "$cacert"`},
+		FormatPython: {"verify='/certs/internal-ca.pem'"},
+	} {
+		got := mustGen(t, item, nil, format)
+		for _, w := range want {
+			if !strings.Contains(got, w) {
+				t.Errorf("%s is missing %q:\n%s", format, w, got)
+			}
+		}
+	}
+	// Invoke-RestMethod and fetch have no per-request equivalent, so an
+	// approximation would be a script that verifies against something
+	// else than the app does.
+	for _, format := range []Format{FormatPowerShell, FormatJavaScript} {
+		if got := mustGen(t, item, nil, format); strings.Contains(got, "internal-ca.pem") {
+			t.Errorf("%s cannot express a custom CA but mentions one:\n%s", format, got)
+		}
+	}
+
+	// The switch gates it, the same way it gates the engine.
+	item.Options.UseCustomCA = false
+	for _, format := range []Format{FormatBash, FormatPython} {
+		if got := mustGen(t, item, nil, format); strings.Contains(got, "internal-ca.pem") {
+			t.Errorf("%s used the CA file with the switch off:\n%s", format, got)
+		}
+	}
+}
+
+// Skipping the check and naming a CA are one argument in requests, so
+// only one can be emitted — and skipping has to win, because that is
+// what the engine does with both set.
+func TestGeneratePythonPrefersSkipOverCustomCA(t *testing.T) {
+	item := domain.Item{
+		Method: "GET",
+		URL:    "https://internal.example.com/thing",
+		Options: &domain.Options{
+			FollowRedirects: true,
+			StoreCookies:    true,
+			SkipTLSVerify:   true,
+			CACertFile:      "/certs/internal-ca.pem",
+			UseCustomCA:     true,
+		},
+	}
+	got := mustGen(t, item, nil, FormatPython)
+	if !strings.Contains(got, "verify=False") || strings.Contains(got, "verify='/certs") {
+		t.Errorf("skipping the check should win over the CA file:\n%s", got)
+	}
+}

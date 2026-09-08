@@ -1,7 +1,6 @@
-// Package settings holds the app-wide defaults that used to be
-// constants in internal/httpengine — how long a request may take, how
-// many redirects it follows, and how big a response may get before it
-// stops being shown inline or read at all.
+// Package settings holds the app-wide defaults: every setting on a
+// request's Options tab, which a new request starts from, plus how big a
+// response may get before it stops being shown inline or read at all.
 //
 // Persisted as settings.yaml in the workspace rather than the app-data
 // directory: they describe how this collection of requests should be
@@ -35,6 +34,25 @@ type Settings struct {
 	// MaxResponseBytes is the size above which a response body stops
 	// being read at all, and comes back truncated.
 	MaxResponseBytes int64 `yaml:"maxResponseBytes" json:"maxResponseBytes"`
+
+	// The rest of the Options tab, as a new request starts it. Unlike the
+	// two above — which the engine also falls back to for a request that
+	// sets nothing — these are only a starting point: a saved request
+	// carries its own answer, so changing one here doesn't reach back and
+	// change requests already written.
+	//
+	// Named as the options are (see domain.Options) so the two read as
+	// the same list rather than two vocabularies for one thing.
+	FollowRedirects bool `yaml:"followRedirects" json:"followRedirects"`
+	StoreCookies    bool `yaml:"storeCookies" json:"storeCookies"`
+	SkipTLSVerify   bool `yaml:"skipTlsVerify" json:"skipTlsVerify"`
+	// The certificate paths take {{variables}}, like the request's own —
+	// which CA to verify against usually belongs to the environment, so
+	// naming one here is naming the same variable for every new request.
+	CACertFile        string `yaml:"caCertFile" json:"caCertFile"`
+	UseCustomCA       bool   `yaml:"useCustomCA" json:"useCustomCA"`
+	ClientCertFile    string `yaml:"clientCertFile" json:"clientCertFile"`
+	ClientCertKeyFile string `yaml:"clientCertKeyFile" json:"clientCertKeyFile"`
 }
 
 // Defaults are what Freeman shipped with as constants.
@@ -44,6 +62,11 @@ func Defaults() Settings {
 		MaxRedirects:        10,
 		InlineResponseBytes: 1 << 20,  // 1 MiB
 		MaxResponseBytes:    64 << 20, // 64 MiB
+		// The two that are on unless you say otherwise, matching every
+		// other HTTP client. The rest are off/empty, which is their zero
+		// value — nothing to state.
+		FollowRedirects: true,
+		StoreCookies:    true,
 	}
 }
 

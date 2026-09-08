@@ -282,6 +282,70 @@ table {
   border-collapse: collapse;
 }
 
+/* Two columns: what the option is, then the control that sets it.
+   Checkboxes, numbers and paths all differ in width, so laying them
+   out inline put every name at a different place down the page; a
+   fixed name column is what makes the list scan. */
+.options-table {
+  max-width: 46rem;
+  table-layout: fixed;
+}
+
+/* border-bottom: 0 because .modal td/th above puts a rule under every
+   cell, and this table draws its own between rows instead — inside the
+   settings window both would apply and every row would be underlined
+   twice. */
+.options-table th {
+  width: 16rem;
+  padding: 0.3rem 0.75rem 0.3rem 0;
+  font-size: 0.85rem;
+  font-weight: 400;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 0;
+}
+
+/* The name and its ⓘ, kept together on the row's baseline. */
+.options-table th > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.options-table td {
+  padding: 0.3rem 0;
+  vertical-align: middle;
+  border-bottom: 0;
+}
+
+.options-table tr + tr th,
+.options-table tr + tr td {
+  border-top: 1px solid var(--fm-border-subtle);
+}
+
+/* A row whose control is switched off elsewhere — the redirect cap
+   without following, the CA path without the switch. Dimmed rather
+   than hidden, so the value it still holds stays readable. */
+.options-table tr.disabled th,
+.options-table tr.disabled td {
+  opacity: 0.5;
+}
+
+.option-number {
+  width: 6rem;
+}
+
+/* A path and the button that fills it, sharing the control column. */
+.option-path {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.option-path input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* .cookie-table: a read-only cookie listing — the response's own
    Set-Cookie headers in the response pane, the shared jar in the
    settings window. Shared because the two show the same six columns and

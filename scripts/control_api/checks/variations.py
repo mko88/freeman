@@ -27,6 +27,7 @@ from ..server import (
     OAUTH_ACCESS_TOKEN,
     OAUTH_CLIENT_ID,
     OAUTH_CLIENT_SECRET,
+    SERVER_CERT,
     TestServers,
 )
 
@@ -38,6 +39,8 @@ DEFAULT_OPTIONS = {
     "storeCookies": True,
     "timeoutMs": 30000,
     "skipTlsVerify": False,
+    "caCertFile": "",
+    "useCustomCA": False,
     "clientCertFile": "",
     "clientCertKeyFile": "",
 }
@@ -52,13 +55,19 @@ DEFAULT_OPTIONS = {
 # and absent means the workspace default rather than 0 (no cap).
 ZERO_OPTIONS = {k: (False if isinstance(v, bool) else v) for k, v in DEFAULT_OPTIONS.items()}
 ZERO_OPTIONS.update(
-    {"maxRedirects": DEFAULT_OPTIONS["maxRedirects"], "timeoutMs": 0, "clientCertFile": "", "clientCertKeyFile": ""}
+    {
+        "maxRedirects": DEFAULT_OPTIONS["maxRedirects"],
+        "timeoutMs": 0,
+        "caCertFile": "",
+        "clientCertFile": "",
+        "clientCertKeyFile": "",
+    }
 )
 
 
 def saved_options(item: dict) -> dict:
-    """The item's options as all seven values, whichever of them Go left
-    out of the JSON."""
+    """The item's options as every value, whichever of them Go left out
+    of the JSON."""
     if "options" not in item:
         return dict(DEFAULT_OPTIONS)
     stored = item.get("options") or {}
@@ -428,6 +437,56 @@ def test_option_variations(
         status == 200 and resp.get("statusCode") == 200,
         f"status={status} resp={str(resp)[:200]}",
     )
+
+    # --- a custom CA ------------------------------------------------------
+
+    # The honest answer to the same server: verify it, against the
+    # certificate you name instead of the machine's own trust store. The
+    # test server's certificate is self-signed, so it is its own CA —
+    # exactly the shape of an internal root.
+    r.step("...and with skipTlsVerify=false but the server's own certificate as the CA")
+    run.configure(
+        f"{servers.tls.base_url}/get",
+        options={
+            **DEFAULT_OPTIONS,
+            "skipTlsVerify": False,
+            "caCertFile": f"{{{{{TEST_CERT_VAR_KEY}}}}}/{SERVER_CERT.name}",
+            "useCustomCA": True,
+        },
+    )
+    status, resp = run.send()
+    r.check(
+        "naming a CA verifies the same certificate instead of skipping the check",
+        status == 200 and resp.get("statusCode") == 200,
+        f"status={status} resp={str(resp)[:200]}",
+    )
+
+    # The switch, not the path, is what applies it — so the path can be
+    # kept while the option is off.
+    r.step("...the same request with useCustomCA=false  (the path stays, the CA does not apply)")
+    run.configure(f"{servers.tls.base_url}/get", options={"useCustomCA": False})
+    status, resp = run.send()
+    r.check(
+        "the CA file does nothing until its switch is on",
+        status != 200,
+        f"status={status} resp={str(resp)[:200]}",
+    )
+
+    # Switched on it is the *whole* trust store: the client certificate,
+    # which is not the server's issuer, must be refused as the CA even
+    # though the machine would have been happy either way.
+    r.step("...and with an unrelated certificate as the CA  (a custom CA replaces the trust store)")
+    run.configure(
+        f"{servers.tls.base_url}/get",
+        options={"caCertFile": f"{{{{{TEST_CERT_VAR_KEY}}}}}/{CLIENT_CERT.name}", "useCustomCA": True},
+    )
+    status, resp = run.send()
+    r.check(
+        "a certificate that doesn't chain to the named CA is refused",
+        status != 200,
+        f"status={status} resp={str(resp)[:200]}",
+    )
+    run.reset_options()
 
     # The option has to cover the OAuth2 token call too, not just the
     # request. A staging box serves its token endpoint on the same

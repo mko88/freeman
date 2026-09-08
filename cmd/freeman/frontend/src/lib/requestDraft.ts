@@ -22,29 +22,43 @@ export type RequestOptions = {
   storeCookies: boolean
   timeoutMs: number
   skipTlsVerify: boolean
+  caCertFile: string
+  useCustomCA: boolean
   clientCertFile: string
   clientCertKeyFile: string
 }
 
-// What a new request starts with. maxRedirects and timeoutMs come from
-// the workspace's settings (see internal/settings) rather than being
-// fixed here, so changing the workspace default changes what new
-// requests get — App.svelte passes them in, and these fallbacks are only
-// what stands before the settings have loaded.
+// What a new request starts with — every option, taken from the
+// workspace's settings (see internal/settings) rather than fixed here,
+// so Settings → Requests is what decides. App.svelte passes them in;
+// these fallbacks are only what stands before the settings have loaded,
+// and match internal/settings.Defaults.
 export const defaultOptions = (workspace?: WorkspaceDefaults): RequestOptions => ({
-  followRedirects: true,
+  followRedirects: workspace?.followRedirects ?? true,
   maxRedirects: workspace?.maxRedirects ?? 10,
-  storeCookies: true,
+  storeCookies: workspace?.storeCookies ?? true,
   timeoutMs: workspace?.requestTimeoutMs ?? 30_000,
-  skipTlsVerify: false,
-  clientCertFile: '',
-  clientCertKeyFile: '',
+  skipTlsVerify: workspace?.skipTlsVerify ?? false,
+  caCertFile: workspace?.caCertFile ?? '',
+  useCustomCA: workspace?.useCustomCA ?? false,
+  clientCertFile: workspace?.clientCertFile ?? '',
+  clientCertKeyFile: workspace?.clientCertKeyFile ?? '',
 })
 
-// The two workspace settings a request can override per-request. The
-// rest of internal/settings.Settings is about responses, which a request
-// has no say in.
-export type WorkspaceDefaults = { maxRedirects: number; requestTimeoutMs: number }
+// The part of internal/settings.Settings a request can override — which
+// is now every option on the Options tab. The rest of Settings is about
+// responses, which a request has no say in.
+export type WorkspaceDefaults = {
+  maxRedirects: number
+  requestTimeoutMs: number
+  followRedirects: boolean
+  storeCookies: boolean
+  skipTlsVerify: boolean
+  caCertFile: string
+  useCustomCA: boolean
+  clientCertFile: string
+  clientCertKeyFile: string
+}
 
 // Which settings differ from the defaults — the Options tab's badge, so
 // a tab nobody has touched says so rather than looking the same as one
