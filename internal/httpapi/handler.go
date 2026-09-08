@@ -14,6 +14,7 @@ import (
 	"net/http"
 
 	"freeman/internal/core"
+	"freeman/internal/curlimport"
 	"freeman/internal/domain"
 	"freeman/internal/headercatalog"
 	"freeman/internal/settings"
@@ -225,6 +226,26 @@ func NewHandler(app *core.App, static fs.FS) http.Handler {
 
 	// The workspace's app-wide defaults: timeout, redirect cap, and the
 	// two response-size limits. See internal/settings.
+	// Turn a pasted curl command into a request. Returns the item rather
+	// than saving it: what to do with it is the caller's — the desktop
+	// app loads it into the editor unsaved, so it can be looked at before
+	// it joins the collection.
+	mux.HandleFunc("POST /api/import/curl", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Text string `json:"text"`
+		}
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		item, err := curlimport.Parse(req.Text)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
+	})
+
 	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) {
 		s, err := app.Settings()
 		if err != nil {

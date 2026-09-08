@@ -6,6 +6,8 @@ import {httpengine} from '../models';
 import {headercatalog} from '../models';
 import {settings} from '../models';
 
+export function CancelRequest():Promise<void>;
+
 export function ClearCachedResponse(arg1:string):Promise<void>;
 
 export function ClearResponseCache():Promise<void>;
@@ -47,6 +49,8 @@ export function GetSettings():Promise<settings.Settings>;
 export function GetTheme():Promise<Record<string, string>>;
 
 export function GetVersion():Promise<Record<string, string>>;
+
+export function ImportCurl(arg1:string):Promise<domain.Item>;
 
 export function ListCollections():Promise<Array<core.CollectionSummary>>;
 

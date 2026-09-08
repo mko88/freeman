@@ -27,6 +27,9 @@ FILE_UPLOAD_TEST_NAME = "Python File Upload Test (scratch)"
 DELETE_TEST_NAME = "Python Delete Test (scratch)"
 
 
+SMALL_WINS_NAME = "Python Small Wins Test (scratch)"
+
+
 TEST_HEADER_KEY = "X-Py-Test"
 
 
@@ -75,6 +78,7 @@ REQUEST_TEST_NAMES: dict[str, str] = {
     "large_response": "Python Large Response Test (scratch)",
     "response_cache": "Python Response Cache Test (scratch)",
     "code_tab": "Python Code Tab Test (scratch)",
+    "small_wins": SMALL_WINS_NAME,
     "auth_variations": "Python Auth Variations Test (scratch)",
     "body_variations": "Python Body Variations Test (scratch)",
     "option_variations": "Python Option Variations Test (scratch)",

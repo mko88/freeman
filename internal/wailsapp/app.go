@@ -33,6 +33,12 @@ type App struct {
 	uiStateMu      sync.RWMutex
 	uiState        string
 	controlAPIDocs string
+
+	// The cancel func of the send in flight, or nil. Its own lock: it's
+	// written by whichever goroutine is sending and read by whichever is
+	// handling the cancel, which are never the same one.
+	sendMu     sync.Mutex
+	cancelSend context.CancelFunc
 }
 
 func NewApp() *App {
@@ -89,14 +95,44 @@ func (a *App) OpenWorkspace(root string) (*core.WorkspaceInfo, error) {
 // for a body over httpengine.LargeResponseThreshold, blanks Body and
 // points BodyFile at that cache file — so the multi-MB string never
 // crosses the Wails bridge or gets re-mirrored by GET /api/ui/state.
+// ExecuteRequest sends under a context this app can cancel, so a request
+// aimed at something slow doesn't have to be waited out — see
+// CancelRequest. One at a time is enough: the Send button is disabled
+// while a request is in flight, so there is never a second one to name.
 func (a *App) ExecuteRequest(collectionID, itemID, environmentID string) (*httpengine.Response, error) {
-	resp, err := a.App.ExecuteRequest(a.ctx, collectionID, itemID, environmentID)
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.sendMu.Lock()
+	a.cancelSend = cancel
+	a.sendMu.Unlock()
+	defer func() {
+		a.sendMu.Lock()
+		a.cancelSend = nil
+		a.sendMu.Unlock()
+		cancel()
+	}()
+
+	resp, err := a.App.ExecuteRequest(ctx, collectionID, itemID, environmentID)
 	if err != nil {
 		return nil, err
 	}
 	a.saveResponseCache(itemID, resp) // best-effort; see its own doc comment
 	a.trimLargeBody(itemID, resp)
 	return resp, nil
+}
+
+// CancelRequest stops the send that's in flight, if there is one. The
+// call it interrupts returns the context error, which the editor shows
+// where a failure would go — a cancelled request is a request that
+// didn't happen, not a request that failed differently.
+//
+// Safe to call when nothing is in flight: it does nothing.
+func (a *App) CancelRequest() {
+	a.sendMu.Lock()
+	cancel := a.cancelSend
+	a.sendMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // trimLargeBody blanks resp.Body and points resp.BodyFile at itemID's

@@ -16,6 +16,8 @@
     ExecuteRequest,
     GenerateRequestCode,
     GetVersion,
+    ImportCurl,
+    CancelRequest,
     GetSettings,
     SaveSettings,
     GetCachedResponse,
@@ -90,6 +92,10 @@
     inlineResponseBytes: 1 << 20,
     maxResponseBytes: 64 << 20,
   }
+  // The saved item the editor is showing, or undefined for a new draft.
+  // Duplicate and delete act on this rather than on a sidebar row.
+  $: selectedItem = collection?.items?.find((i) => i.id === selectedItemId)
+
   $: workspaceDefaults = {
     maxRedirects: workspaceSettings.maxRedirects,
     requestTimeoutMs: workspaceSettings.requestTimeoutMs,
@@ -98,6 +104,14 @@
   let collectionId = ''
   let collection: domain.Collection | null = null
   let selectedItemId: string | null = null
+  // What the sidebar is filtered to. Not persisted: where you are right
+  // now, not a setting.
+  let requestFilter = ''
+
+  // The paste-a-curl dialog.
+  let showImport = false
+  let importText = ''
+  let importError = ''
 
   // The two pickers' open state — the collection's lives above the
   // request list, the environment's in the top bar.
@@ -289,6 +303,8 @@
       collectionId,
       environmentId,
       selectedItemId,
+      requestFilter,
+      showImport,
       tab: activeTab,
       requestPaneCollapsed,
       // name/method/url/params/headers/auth/bodyMode/bodyRaw/
@@ -386,6 +402,15 @@
       // the next makes rapid sequences apply in order, deterministically.
       let uiActionQueue: Promise<void> = Promise.resolve()
       EventsOn('ui:action', (action: string, payload: Record<string, unknown> | null) => {
+        // cancelRequest jumps the queue, and has to. The queue exists so
+        // one action's async work finishes before the next starts — but
+        // a cancel is only ever aimed at the action currently running,
+        // so queueing it behind that action means it can never arrive in
+        // time to do anything. Everything else stays in order.
+        if (action === 'cancelRequest') {
+          void cancelRequest().catch((e) => logEvent(`cancelRequest failed: ${e}`))
+          return
+        }
         uiActionQueue = uiActionQueue
           .then(() => dispatchUIAction(action, payload))
           .catch((e) => logEvent(`${action} failed: ${e}`))
@@ -433,6 +458,26 @@
       case 'newEnvironment':
         await newEnvironment()
         break
+      case 'cancelRequest':
+        // Reached only by a direct dispatchUIAction call: the ui:action
+        // event handler above takes this one out of the queue first.
+        await cancelRequest()
+        break
+      case 'importCurl':
+        await importCurl(String(payload?.text ?? ''))
+        break
+      case 'toggleImport':
+        showImport = !showImport
+        importError = ''
+        break
+      case 'filterRequests':
+        requestFilter = String(payload?.text ?? '')
+        break
+      case 'duplicateRequest': {
+        const item = collection?.items?.find((i) => i.id === payload?.id)
+        if (item) await duplicateRequest(item)
+        break
+      }
       case 'setWorkspaceSetting': {
         const field = String(payload?.field ?? '')
         const value = Number(payload?.value)
@@ -875,9 +920,11 @@
     }
   }
 
-  async function selectRequest(item: domain.Item) {
-    selectedItemId = item.id
-    draft = {
+  // A saved item as the editor's draft. Shared by selecting a request
+  // and by importing one, so an imported request is normalised exactly
+  // the way a stored one is.
+  function draftFromItem(item: domain.Item): RequestDraft {
+    return {
       name: item.name,
       method: item.method || 'GET',
       url: item.url || '',
@@ -900,6 +947,11 @@
       // applies in that case.
       options: item.options ? { ...defaultOptions(workspaceDefaults), ...item.options } : defaultOptions(workspaceDefaults),
     }
+  }
+
+  async function selectRequest(item: domain.Item) {
+    selectedItemId = item.id
+    draft = draftFromItem(item)
     sendError = ''
     responseDataUri = null
     // GetCachedResponse rejects with "nothing cached yet" for a request
@@ -912,6 +964,20 @@
       response = null
     }
     await refreshResponseData()
+  }
+
+  // Saves a copy under a new id and selects it, so the copy is what you
+  // start editing — duplicating to leave the original selected would be
+  // a surprise. The name gets a suffix because two rows with the same
+  // name are indistinguishable in the sidebar, and because a collection
+  // that holds two identically named requests is a collection you have
+  // to open both of to tell apart.
+  async function duplicateRequest(item: domain.Item) {
+    if (!collectionId) return
+    const copy = { ...item, id: '', name: `${item.name} copy` } as domain.Item
+    const saved = await SaveRequest(collectionId, copy)
+    collection = await GetCollection(collectionId)
+    selectRequest(saved)
   }
 
   function newRequest() {
@@ -1094,6 +1160,31 @@
     } finally {
       sending = false
     }
+  }
+
+  // Stops the send in flight. The Go side returns the context error,
+  // which lands in sendError like any other failure — worth saying
+  // plainly there, because "context canceled" on its own reads like a
+  // bug rather than the button you just pressed.
+  async function cancelRequest() {
+    if (!sending) return
+    await CancelRequest()
+  }
+
+  // A pasted curl becomes an unsaved draft, not a saved request: what
+  // arrived is worth looking at before it joins the collection, and an
+  // import that guessed wrong should be discardable by navigating away.
+  async function importCurl(text: string) {
+    const item = await ImportCurl(text)
+    selectedItemId = null
+    draft = draftFromItem(item)
+    response = null
+    sendError = ''
+    responseDataUri = null
+    showImport = false
+    importText = ''
+    importError = ''
+    activeTab = 'headers'
   }
 
   function toggleResponseActionsMenu() {
@@ -1425,6 +1516,7 @@
       {/if}
       <span class="top-bar-actions">
         {#if workspace}
+          <button class="icon-btn top-bar-btn" title="Import from curl" on:click={() => (showImport = true)}>↓</button>
           <button class="icon-btn top-bar-btn" title="Settings" on:click={() => (showSettings = true)}>⚙</button>
         {/if}
         <button class="icon-btn top-bar-btn" title="Control API help" on:click={() => (showHelp = true)}>?</button>
@@ -1451,9 +1543,9 @@
       bind:collectionMenuOpen={showCollectionMenu}
       onSelectCollection={(id) => void guard(() => selectCollection(id))}
       onEditCollections={() => openSettingsTab('collections')}
+      bind:filter={requestFilter}
       onNew={newRequest}
       onSelect={selectRequest}
-      onDelete={confirmDeleteRequest}
     />
 
     <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -1479,7 +1571,15 @@
           {headerCatalog}
           {sending}
           onSave={saveRequest}
+          saved={selectedItemId !== null}
           onSend={sendRequest}
+          onCancel={() => void guard(cancelRequest)}
+          onDuplicate={() => {
+            if (selectedItem) void guard(() => duplicateRequest(selectedItem))
+          }}
+          onDelete={() => {
+            if (selectedItem) confirmDeleteRequest(selectedItem)
+          }}
           onCopyCode={copyRequestCode}
           rows={requestRowActions}
         />
@@ -1561,6 +1661,58 @@
 
   {#if showHelp}
     <HelpModal {controlApiAddr} {appVersion} onClose={() => (showHelp = false)} />
+  {/if}
+
+  {#if showImport}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <div
+      class="modal-backdrop"
+      role="presentation"
+      on:click={() => (showImport = false)}
+      on:keydown={(e) => e.key === 'Escape' && (showImport = false)}
+    >
+      <!-- svelte-ignore a11y-click-events-have-key-events -->
+      <div
+        class="modal import-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-title"
+        tabindex="-1"
+        on:click|stopPropagation
+        on:keydown={(e) => e.key === 'Escape' && (showImport = false)}
+      >
+        <div class="modal-header">
+          <h2 id="import-title">Import from curl</h2>
+          <button class="icon-btn" title="Close" on:click={() => (showImport = false)}>×</button>
+        </div>
+        <p class="prose">
+          Paste a command — from an API's docs, or your browser's “Copy as cURL”. It opens as an
+          unsaved request, so you can look at it before saving.
+        </p>
+        <textarea
+          class="import-text"
+          bind:value={importText}
+          placeholder={"curl 'https://api.example.com/v1/orders' \
+  -H 'Accept: application/json'"}
+          aria-label="curl command"
+        ></textarea>
+        {#if importError}<p class="error">{importError}</p>{/if}
+        <div class="import-actions">
+          <button on:click={() => (showImport = false)}>Cancel</button>
+          <button
+            class="primary"
+            disabled={!importText.trim()}
+            on:click={async () => {
+              try {
+                await importCurl(importText)
+              } catch (e) {
+                importError = String(e)
+              }
+            }}>Import</button
+          >
+        </div>
+      </div>
+    </div>
   {/if}
 </div>
 
@@ -1654,6 +1806,26 @@
     content: '';
     position: absolute;
     inset: -3px 0;
+  }
+
+  .import-modal {
+    width: min(640px, 92vw);
+  }
+
+  .import-text {
+    width: 100%;
+    min-height: 9rem;
+    margin-top: 0.5rem;
+    font-family: inherit;
+    font-size: 0.82rem;
+    resize: vertical;
+  }
+
+  .import-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
   }
 
   .welcome {

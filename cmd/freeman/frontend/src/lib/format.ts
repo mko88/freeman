@@ -18,6 +18,24 @@ export function methodColor(method: string): string {
   return methodColorVar[method] ?? 'var(--fm-method-neutral)'
 }
 
+// Four characters, so every badge is the same width and the names beside
+// them line up in a column instead of starting wherever the method
+// happened to end. The three that don't fit get the abbreviation people
+// already use for them; anything else — a custom method — is simply cut,
+// which is enough to tell two rows apart. The full method stays in the
+// row's tooltip.
+const methodShort: Record<string, string> = {
+  DELETE: 'DEL',
+  OPTIONS: 'OPTS',
+  PATCH: 'PTCH',
+  CONNECT: 'CONN',
+  TRACE: 'TRCE',
+}
+export function methodLabel(method: string | undefined): string {
+  const m = (method || 'GET').toUpperCase()
+  return methodShort[m] ?? m.slice(0, 4)
+}
+
 // Duration in the largest unit that still reads as a number rather than
 // a lot of zeroes. Sub-millisecond keeps a decimal instead of rounding
 // to "0 ms", which would say a request took no time at all; past a

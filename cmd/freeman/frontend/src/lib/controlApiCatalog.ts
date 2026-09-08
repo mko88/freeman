@@ -44,6 +44,11 @@ export const apiEndpoints: ApiEndpoint[] = [
       'Render a request as a runnable script. Body: {item: domain.Item, environmentId, format}. ' +
       "format is 'bash', 'powershell', 'python' or 'javascript'. Returns {code}.",
   },
+  {
+    method: 'POST',
+    path: '/api/import/curl',
+    desc: 'Parse a curl command into a request. Body: {text}. Returns the domain.Item; saves nothing.',
+  },
   { method: 'GET', path: '/api/settings', desc: "The workspace's app-wide defaults: timeout, redirect cap, response limits." },
   { method: 'PUT', path: '/api/settings', desc: 'Replace them. Body: the same object; out-of-range values are clamped. Returns what was stored.' },
   { method: 'GET', path: '/api/version', desc: 'Which build is running: {version, commit, date}. Needs no open workspace.' },
@@ -100,6 +105,33 @@ export const uiActions: UiAction[] = [
       'No id closes whichever is open. The environment actions below all act on the open one.',
   },
   { action: 'newEnvironment', payload: '—', desc: 'Create a new environment and switch to it.' },
+  {
+    action: 'filterRequests',
+    payload: '{ text }',
+    desc: "Filter the request list by name or method. '' clears it. A view state, not saved.",
+  },
+  {
+    action: 'duplicateRequest',
+    payload: '{ id }',
+    desc: 'Copy a saved request under a new id, named "<name> copy", and select the copy.',
+  },
+  {
+    action: 'cancelRequest',
+    payload: '—',
+    desc: 'Stop the request in flight. Does nothing if none is. Desktop only.',
+  },
+  {
+    action: 'toggleImport',
+    payload: '—',
+    desc: 'Open/close the "Import from curl" dialog.',
+  },
+  {
+    action: 'importCurl',
+    payload: '{ text }',
+    desc:
+      'Parse a curl command and load it into the editor as an unsaved request — saveRequest ' +
+      'is what puts it in the collection. Errors if the text is not a usable curl command.',
+  },
   {
     action: 'setWorkspaceSetting',
     payload: '{ field, value }',
