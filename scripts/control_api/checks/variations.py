@@ -428,6 +428,32 @@ def test_option_variations(
         status == 200 and resp.get("statusCode") == 200,
         f"status={status} resp={str(resp)[:200]}",
     )
+
+    # The option has to cover the OAuth2 token call too, not just the
+    # request. A staging box serves its token endpoint on the same
+    # self-signed certificate, and a token call that verified anyway
+    # failed before the request's own transport was ever reached — which
+    # reads exactly like the option being ignored.
+    r.step("...and an oauth2 request whose token endpoint is on that same self-signed server")
+    run.configure(
+        f"{servers.tls.base_url}/bearer",
+        auth={
+            "type": "oauth2",
+            "tokenUrl": f"{servers.tls.base_url}/oauth/token",
+            "clientId": OAUTH_CLIENT_ID,
+            "clientSecret": OAUTH_CLIENT_SECRET,
+            "scope": "orders.read",
+        },
+        options={"skipTlsVerify": True},
+    )
+    status, resp = run.send()
+    body = body_json(resp)
+    r.check(
+        "skipTlsVerify covers the token call, not only the request it authenticates",
+        status == 200 and resp.get("statusCode") == 200 and body.get("token") == OAUTH_ACCESS_TOKEN,
+        f"status={status} resp={str(resp)[:200]}",
+    )
+    run.clear_auth()
     run.reset_options()
 
     # --- client certificates ---------------------------------------------

@@ -202,7 +202,7 @@ func Execute(ctx context.Context, item domain.Item, vars map[string]string) (*Re
 		}
 	}
 
-	if err := applyAuth(req, item.Auth, vars); err != nil {
+	if err := applyAuth(req, item.Auth, vars, opts); err != nil {
 		return nil, err
 	}
 
@@ -273,8 +273,10 @@ func readCapped(r io.Reader) ([]byte, bool, error) {
 // unauthenticated as if nothing were wrong.
 //
 // The token call runs on the request's own context, so a per-request
-// timeout covers the whole send rather than just the part after it.
-func applyAuth(req *http.Request, a *domain.Auth, vars map[string]string) error {
+// timeout covers the whole send rather than just the part after it, and
+// on the request's TLS settings — a token endpoint on the same staging
+// box has the same certificate the request had to be told to accept.
+func applyAuth(req *http.Request, a *domain.Auth, vars map[string]string, opts domain.Options) error {
 	if a == nil {
 		return nil
 	}
@@ -292,7 +294,7 @@ func applyAuth(req *http.Request, a *domain.Auth, vars map[string]string) error 
 			req.Header.Set(name, Substitute(a.Value, vars))
 		}
 	case domain.AuthTypeOAuth2:
-		token, err := oauth2Token(req.Context(), a, vars)
+		token, err := oauth2Token(req.Context(), a, vars, opts)
 		if err != nil {
 			return err
 		}

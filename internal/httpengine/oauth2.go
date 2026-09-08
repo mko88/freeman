@@ -47,7 +47,7 @@ func ResetTokens() {
 // oauth2Token returns a cached token if one is still good, otherwise
 // fetches a new one. Keyed by everything that identifies the token, so
 // two requests asking for different scopes don't share one.
-func oauth2Token(ctx context.Context, a *domain.Auth, vars map[string]string) (string, error) {
+func oauth2Token(ctx context.Context, a *domain.Auth, vars map[string]string, opts domain.Options) (string, error) {
 	tokenURL := Substitute(a.TokenURL, vars)
 	clientID := Substitute(a.ClientID, vars)
 	clientSecret := Substitute(a.ClientSecret, vars)
@@ -65,7 +65,7 @@ func oauth2Token(ctx context.Context, a *domain.Auth, vars map[string]string) (s
 	}
 	tokenMu.Unlock()
 
-	token, lifetime, stated, err := fetchToken(ctx, tokenURL, clientID, clientSecret, scope)
+	token, lifetime, stated, err := fetchToken(ctx, tokenURL, clientID, clientSecret, scope, opts)
 	if err != nil {
 		return "", err
 	}
@@ -94,7 +94,7 @@ func oauth2Token(ctx context.Context, a *domain.Auth, vars map[string]string) (s
 // what more servers accept in practice.
 // The bool reports whether the server stated a lifetime at all, which
 // the caller needs to tell "didn't say" from "said it's already spent".
-func fetchToken(ctx context.Context, tokenURL, clientID, clientSecret, scope string) (string, time.Duration, bool, error) {
+func fetchToken(ctx context.Context, tokenURL, clientID, clientSecret, scope string, opts domain.Options) (string, time.Duration, bool, error) {
 	form := url.Values{"grant_type": {"client_credentials"}}
 	if clientID != "" {
 		form.Set("client_id", clientID)
@@ -113,10 +113,27 @@ func fetchToken(ctx context.Context, tokenURL, clientID, clientSecret, scope str
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	// The token call is its own request: no cookie jar, no redirect
-	// policy, none of the request's own options. It is not the request
-	// under test.
-	resp, err := (&http.Client{}).Do(req)
+	// The token call is its own request: no cookie jar and no redirect
+	// policy, because it is not the request under test.
+	//
+	// The TLS settings are the exception, and have to be carried. A
+	// token endpoint sits on the same host as the API often enough that
+	// a certificate the request was told to accept is the same one the
+	// token call meets — and a client certificate is frequently how the
+	// token endpoint identifies you in the first place. Left off, "Skip
+	// TLS certificate check" looked broken: the request never got as far
+	// as its own transport, failing at the token step with an x509 error
+	// that reads exactly like the option being ignored.
+	client := &http.Client{}
+	if opts.TLS() {
+		tr, err := transportFor(opts)
+		if err != nil {
+			return "", 0, false, fmt.Errorf("oauth2: %w", err)
+		}
+		client.Transport = tr
+		defer tr.CloseIdleConnections()
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", 0, false, fmt.Errorf("oauth2: %w", err)
 	}

@@ -184,3 +184,64 @@ func TestOAuth2FailureStopsTheRequest(t *testing.T) {
 		t.Fatal("the request must not be sent without the credentials it asked for")
 	}
 }
+
+// The TLS options have to reach the token call, not just the request.
+// A staging box with a self-signed certificate serves its token endpoint
+// on the same certificate, so a token fetch that ignores "Skip TLS
+// certificate check" fails before the request's own transport is ever
+// used — which reads exactly like the option being ignored.
+func TestOAuth2TokenCallHonoursSkipTLSVerify(t *testing.T) {
+	ResetTokens()
+	defer ResetTokens()
+
+	// Both on certificates no system root signed, as httptest.NewTLSServer
+	// makes them — the same shape as the staging box this is about.
+	var calls atomic.Int32
+	tok := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"access_token":"tok-tls","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer tok.Close()
+	api := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, r.Header.Get("Authorization"))
+	}))
+	defer api.Close()
+
+	item := oauthItem(tok.URL, api.URL)
+	item.Options = &domain.Options{FollowRedirects: true, StoreCookies: true, SkipTLSVerify: true}
+
+	resp, err := Execute(context.Background(), item, nil)
+	if err != nil {
+		t.Fatalf("skipping the certificate check should cover the token call too: %v", err)
+	}
+	if resp.Body != "Bearer tok-tls" {
+		t.Fatalf("the token fetched over TLS should be sent as a bearer, got %q", resp.Body)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected one token call, got %d", calls.Load())
+	}
+}
+
+// The other half: without the option, a self-signed token endpoint is
+// still refused. Skipping verification is a choice, not a fallback.
+func TestOAuth2TokenCallStillVerifiesByDefault(t *testing.T) {
+	ResetTokens()
+	defer ResetTokens()
+
+	tok := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"access_token":"tok-tls","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer tok.Close()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, r.Header.Get("Authorization"))
+	}))
+	defer api.Close()
+
+	if _, err := Execute(context.Background(), oauthItem(tok.URL, api.URL), nil); err == nil {
+		t.Fatal("a self-signed token endpoint should be refused without SkipTLSVerify")
+	} else if !strings.Contains(err.Error(), "certificate") {
+		t.Fatalf("expected a certificate error, got %v", err)
+	}
+}
