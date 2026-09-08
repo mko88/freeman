@@ -90,10 +90,6 @@ export function GetVersion() {
   return window['go']['wailsapp']['App']['GetVersion']();
 }
 
-export function ImportCurl(arg1) {
-  return window['go']['wailsapp']['App']['ImportCurl'](arg1);
-}
-
 export function ListCollections() {
   return window['go']['wailsapp']['App']['ListCollections']();
 }

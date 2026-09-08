@@ -474,6 +474,51 @@
 {/if}
 
 <style>
+  /* The editor is denser than the app's defaults. It holds more controls
+     than any other pane and you read it all day, so every row here is a
+     step down from the shared sizes in style.css. Scoped, not global:
+     Svelte marks the markup this component renders, so these reach the
+     tabs and tables here without touching the settings window or the
+     response pane, which show far fewer of them at once. */
+  .request-name input,
+  .url-bar input,
+  .url-bar select,
+  .url-bar button,
+  .kv-table input,
+  .kv-table select,
+  .options-tab input,
+  .options-tab button,
+  .body-mode-option,
+  .auth-field input,
+  .auth-field select {
+    font-size: 0.82rem;
+  }
+
+  .url-bar input,
+  .url-bar select,
+  .url-bar button,
+  .kv-table input,
+  .kv-table select,
+  .options-tab input,
+  .auth-field input,
+  .auth-field select {
+    padding: 0.28rem 0.42rem;
+  }
+
+  .tabs button {
+    padding: 0.35rem 0.55rem;
+    font-size: 0.82rem;
+  }
+
+  .kv-table th {
+    padding: 2px 5px;
+    font-size: 0.74rem;
+  }
+
+  .kv-table td {
+    padding: 2px 5px;
+  }
+
   .request-name {
     display: flex;
     align-items: center;
@@ -481,7 +526,7 @@
   }
 
   .request-name input {
-    font-size: 0.95rem;
+    font-size: 0.88rem;
     font-weight: 600;
     letter-spacing: -0.01em;
     background: none;

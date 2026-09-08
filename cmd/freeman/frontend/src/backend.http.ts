@@ -95,10 +95,6 @@ export function GetVersion(): Promise<Record<string, string>> {
   return request('GET', '/api/version')
 }
 
-export function ImportCurl(text: string): Promise<domain.Item> {
-  return request('POST', '/api/import/curl', { text })
-}
-
 // Desktop-only: the web build's send is a plain fetch the browser owns,
 // with no handle for this side to cancel. A no-op rather than a missing
 // export, because backend.contract.ts requires both to have the same
