@@ -1528,7 +1528,7 @@
     ></div>
 
     <main class="editor" bind:this={editorEl}>
-      <div class="request-pane scroll-pane" class:collapsed={requestPaneCollapsed}>
+      <div class="request-pane scroll-pane dense" class:collapsed={requestPaneCollapsed}>
         <RequestEditor
           bind:draft
           bind:activeTab

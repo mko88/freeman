@@ -100,7 +100,7 @@
   const viewLabels: Record<ResponseView, string> = { pretty: 'Pretty', raw: 'Raw', hex: 'Hex' }
 </script>
 
-<section class="response" class:collapsed class:fill style:height="{height}px">
+<section class="response dense" class:collapsed class:fill style:height="{height}px">
   {#if sendError}
     <p class="error">{sendError}</p>
   {:else if response}

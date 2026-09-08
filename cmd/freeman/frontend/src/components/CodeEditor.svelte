@@ -63,7 +63,10 @@
     {
       '&': {
         height: '100%',
-        fontSize: layout === 'box' ? '0.9rem' : '0.85rem',
+        // One size for both: the request body and the response body are
+        // the same kind of reading, and sitting one above the other made
+        // the difference between them look like a mistake.
+        fontSize: '0.85rem',
         backgroundColor: 'transparent',
         color: 'var(--fm-text)',
       },
