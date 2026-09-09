@@ -51,20 +51,45 @@ func ResetCookies() {
 // address it by.
 func CookieJar() *Jar { return cookies }
 
-// optionsOf supplies the defaults for a request that has no Options —
-// everything saved before they existed, and anything nobody has touched.
-// Following redirects and keeping cookies are both on, which is what
-// every other HTTP client does and what the app did before this.
+// DefaultOptions is how a request with no Options of its own is sent:
+// the workspace's own answers, pushed here by core.applySettings when a
+// workspace opens and whenever the settings are saved. The values below
+// are what stands before that — following redirects and keeping cookies,
+// which is what every other HTTP client does.
+//
+// It has to be the workspace's answers and not a fixed set, because the
+// editor deliberately saves no options block for a request that matches
+// them (see App.svelte's buildDraftItem): that is what lets a later
+// change of default reach every request nobody has customised. Answering
+// such a request with a fixed set instead meant the two disagreed —
+// setting "Skip TLS certificate check" as the default made every request
+// that agreed with it verify anyway, and there was no way to spell the
+// setting that worked, since disagreeing wrote a block that said false.
+//
+// TimeoutMs and MaxRedirects are deliberately left at their zero values
+// here: those two already reach the engine as RequestTimeout and
+// DefaultMaxRedirects, which Execute and clientFor read when a request
+// says nothing. Setting them in both places would be two sources for one
+// number.
+//
+// Package-level for the same reason as the cookie jar and those two:
+// one workspace is open at a time.
+var DefaultOptions = domain.Options{FollowRedirects: true, StoreCookies: true}
+
+// optionsOf resolves what a request is actually sent with — its own
+// Options, or the workspace's defaults when it has none.
 //
 // The certificate paths get the same {{var}} substitution as the URL and
-// the headers: which certificate to present is a property of the
-// environment you're pointed at, so it has to be settable there rather
-// than baked into every request.
+// the headers, whichever they came from: which certificate to present is
+// a property of the environment you're pointed at, so it has to be
+// settable there rather than baked into every request — and naming one
+// as the workspace default is precisely a way of saying "whatever the
+// open environment calls it".
 func optionsOf(item domain.Item, vars map[string]string) domain.Options {
-	if item.Options == nil {
-		return domain.Options{FollowRedirects: true, StoreCookies: true}
+	opts := DefaultOptions
+	if item.Options != nil {
+		opts = *item.Options
 	}
-	opts := *item.Options
 	opts.ClientCertFile = Substitute(opts.ClientCertFile, vars)
 	opts.ClientCertKeyFile = Substitute(opts.ClientCertKeyFile, vars)
 	opts.CACertFile = Substitute(opts.CACertFile, vars)

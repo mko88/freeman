@@ -848,3 +848,23 @@ func TestGeneratePythonPrefersSkipOverCustomCA(t *testing.T) {
 		t.Errorf("skipping the check should win over the CA file:\n%s", got)
 	}
 }
+
+// A script for a request with no options of its own has to be generated
+// against the workspace's defaults, for the same reason Execute sends it
+// against them: agreeing with a default is exactly what makes the editor
+// save no options block. Against a fixed set instead, the Code tab would
+// hand back a script that talks to the server differently from Send.
+func TestGenerateUsesTheWorkspaceDefaults(t *testing.T) {
+	restore := httpengine.DefaultOptions
+	t.Cleanup(func() { httpengine.DefaultOptions = restore })
+	httpengine.DefaultOptions = domain.Options{
+		FollowRedirects: true,
+		StoreCookies:    true,
+		SkipTLSVerify:   true,
+	}
+
+	got := mustGen(t, domain.Item{Method: "GET", URL: "https://internal.example.com/x"}, nil, FormatBash)
+	if !strings.Contains(got, "--insecure") {
+		t.Errorf("the workspace default should reach the script:\n%s", got)
+	}
+}

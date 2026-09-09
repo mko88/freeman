@@ -459,3 +459,83 @@ func TestCustomCAReportsABadFile(t *testing.T) {
 		}
 	}
 }
+
+// The workspace's defaults have to reach a request that carries no
+// options of its own — which is every request that agrees with them,
+// because the editor saves no options block in that case.
+//
+// The bug this pins: with "Skip TLS certificate check" set as the
+// workspace default, a request agreeing with it was sent with a fixed
+// set of options instead and verified anyway. There was no way to spell
+// the setting that worked, since disagreeing wrote a block saying false.
+func TestDefaultOptionsReachARequestThatHasNone(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "reached")
+	}))
+	defer srv.Close()
+
+	item := domain.Item{Method: "GET", URL: srv.URL}
+	if _, err := Execute(context.Background(), item, nil); err == nil {
+		t.Fatal("expected an untrusted certificate to be refused before the default is changed")
+	}
+
+	restore := DefaultOptions
+	t.Cleanup(func() { DefaultOptions = restore })
+	DefaultOptions = domain.Options{FollowRedirects: true, StoreCookies: true, SkipTLSVerify: true}
+
+	resp, err := Execute(context.Background(), item, nil)
+	if err != nil {
+		t.Fatalf("a request with no options should be sent with the workspace's: %v", err)
+	}
+	if resp.Body != "reached" {
+		t.Fatalf("got %q", resp.Body)
+	}
+}
+
+// The other half: a request that states an option still wins over the
+// default, including when it states the quieter of the two.
+func TestARequestsOwnOptionsBeatTheDefaults(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+
+	restore := DefaultOptions
+	t.Cleanup(func() { DefaultOptions = restore })
+	DefaultOptions = domain.Options{FollowRedirects: true, StoreCookies: true, SkipTLSVerify: true}
+
+	item := domain.Item{
+		Method:  "GET",
+		URL:     srv.URL,
+		Options: &domain.Options{FollowRedirects: true, StoreCookies: true, SkipTLSVerify: false},
+	}
+	if _, err := Execute(context.Background(), item, nil); err == nil {
+		t.Fatal("a request that says not to skip the check must still verify")
+	}
+}
+
+// A certificate path set as the workspace default takes {{var}}
+// substitution too — which is the point of setting one there, since it
+// then means whatever the open environment calls it.
+func TestDefaultOptionsSubstituteVariables(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "verified")
+	}))
+	defer srv.Close()
+
+	restore := DefaultOptions
+	t.Cleanup(func() { DefaultOptions = restore })
+	DefaultOptions = domain.Options{
+		FollowRedirects: true,
+		StoreCookies:    true,
+		CACertFile:      "{{caPath}}",
+		UseCustomCA:     true,
+	}
+
+	vars := map[string]string{"caPath": writeServerCA(t, srv)}
+	resp, err := Execute(context.Background(), domain.Item{Method: "GET", URL: srv.URL}, vars)
+	if err != nil {
+		t.Fatalf("the default CA path should be substituted like any other: %v", err)
+	}
+	if resp.Body != "verified" {
+		t.Fatalf("got %q", resp.Body)
+	}
+}

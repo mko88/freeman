@@ -3,6 +3,7 @@ package core
 import (
 	"time"
 
+	"freeman/internal/domain"
 	"freeman/internal/httpengine"
 	"freeman/internal/settings"
 )
@@ -46,4 +47,18 @@ func applySettings(s settings.Settings) {
 	httpengine.DefaultMaxRedirects = s.MaxRedirects
 	httpengine.LargeResponseThreshold = s.InlineResponseBytes
 	httpengine.MaxResponseBytes = s.MaxResponseBytes
+	// The rest of the Options tab, for requests that carry no options of
+	// their own — which is every request that agrees with these, since
+	// the editor saves no block in that case. TimeoutMs and MaxRedirects
+	// are left out on purpose; they reach the engine as the two values
+	// above. See httpengine.DefaultOptions.
+	httpengine.DefaultOptions = domain.Options{
+		FollowRedirects:   s.FollowRedirects,
+		StoreCookies:      s.StoreCookies,
+		SkipTLSVerify:     s.SkipTLSVerify,
+		CACertFile:        s.CACertFile,
+		UseCustomCA:       s.UseCustomCA,
+		ClientCertFile:    s.ClientCertFile,
+		ClientCertKeyFile: s.ClientCertKeyFile,
+	}
 }

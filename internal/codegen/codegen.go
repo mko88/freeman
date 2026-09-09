@@ -162,7 +162,12 @@ func build(item domain.Item, vars map[string]string) (request, error) {
 		u.RawQuery = q.Encode()
 	}
 
-	opts := domain.Options{FollowRedirects: true, StoreCookies: true}
+	// The same fallback Execute uses, for the same reason: a request that
+	// agrees with the workspace's defaults carries no options block, and
+	// a script generated against a fixed set instead would send something
+	// other than Send does — which is the one thing this package promises
+	// it doesn't do.
+	opts := httpengine.DefaultOptions
 	if item.Options != nil {
 		opts = *item.Options
 	}
