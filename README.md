@@ -325,3 +325,16 @@ the container and takes the same flags (`-Windows`, `-Full`, …).
 | **Tab** in the raw body editor | Indent |
 | **Esc** then **Tab** | Leave the body editor |
 | **Esc** | Close a menu or dialog |
+
+---
+
+## License
+
+Copyright (C) 2026 Mihail Kolev
+
+Freeman is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License version 3, as published by
+the Free Software Foundation. It is distributed in the hope that it will
+be useful, but WITHOUT ANY WARRANTY — without even the implied warranty
+of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See [LICENSE](LICENSE)
+for the full terms.
