@@ -3,6 +3,17 @@
 from __future__ import annotations
 
 import time
+import traceback
+from pathlib import Path
+
+# Where a poll() ran out of time, as "module.py:line". A timeout is
+# almost never nothing: either the app is slower than the timeout allows,
+# or the predicate was never going to come true. poll() returns its last
+# reading either way — which is what let a setEnvironmentVariable that
+# did nothing sit unnoticed behind a six-second wait for the life of the
+# suite — so they are collected here and reported at the end rather than
+# passing in silence.
+TIMED_OUT: list[str] = []
 
 
 class Report:
@@ -32,6 +43,14 @@ class Report:
     def summary(self) -> int:
         total = self.passed + self.failed
         print("\n" + "-" * 60)
+        # Not a failure on its own — a slow machine can time out a poll
+        # whose check then passes on the next read — but worth seeing,
+        # because a predicate that is never true looks exactly like this
+        # and, where no r.check follows, asserts nothing at all.
+        if TIMED_OUT:
+            print(self._c("33", f"{len(TIMED_OUT)} poll(s) timed out waiting for a condition:"))
+            for where in TIMED_OUT:
+                print(self._c("33", f"  - {where}"))
         if self.failed:
             print(self._c("1;31", f"{self.failed}/{total} checks FAILED"))
         else:
@@ -51,10 +70,20 @@ def poll(fetch, predicate, timeout: float = 6.0, interval: float = 0.1):
     timeout is generous (6s, not ~1s) because ui:action events are
     processed through one serialized queue in App.svelte — an action
     right after `sendRequest` can be stuck waiting behind a real network
-    call to whatever API the request targets, not just local disk I/O."""
+    call to whatever API the request targets, not just local disk I/O.
+
+    Returning either way is deliberate — the caller decides what to make
+    of it, and most follow with an r.check that says so. A caller that
+    doesn't would assert nothing at all, so a timeout is recorded in
+    TIMED_OUT and listed in the summary; see that comment."""
     deadline = time.time() + timeout
     result = fetch()
     while not predicate(result) and time.time() < deadline:
         time.sleep(interval)
         result = fetch()
+    if not predicate(result):
+        # The caller's frame, not this one: what a reader needs is which
+        # wait gave up, and every poll() looks identical from in here.
+        caller = traceback.extract_stack()[-2]
+        TIMED_OUT.append(f"{Path(caller.filename).name}:{caller.lineno}")
     return result

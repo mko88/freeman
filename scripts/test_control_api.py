@@ -61,6 +61,14 @@ the running app, diffing App.svelte's `uiActions` help table against
 once rule below fails loudly instead of quietly rotting. It runs first,
 and `--consistency-only` runs just it, with no app needed.
 
+A poll() that runs out of time is listed at the end of a run. It is not
+a failure — a slow machine can time one out and have the check right
+after it pass — but it is worth seeing, because a predicate that could
+never come true looks exactly the same from here, and where nothing
+asserts it afterwards, it means the step proved nothing. That is how a
+setEnvironmentVariable driven with a payload the action doesn't accept
+sat unnoticed behind a six-second wait.
+
 Layout: this file is the entry point — argument parsing and the
 three-phase run order — and everything else lives in scripts/control_api/
 (the HTTP client, the reporter and poll(), shared fixtures, and one
