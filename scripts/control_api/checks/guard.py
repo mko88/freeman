@@ -79,3 +79,51 @@ def test_api_guard(api: ControlAPI, r: Report) -> None:
         status == 200 and body == {"status": "ok"},
         f"status={status} body={body}",
     )
+
+
+def test_action_validation(api: ControlAPI, r: Report) -> None:
+    """POST /api/ui/action refuses what the dispatcher couldn't act on,
+    rather than answering 204 and doing nothing.
+
+    Dispatching is fire-and-forget — the route emits a Wails event and
+    answers without waiting — so an ignored action used to be
+    indistinguishable from a performed one. That is a bad shape for an
+    API whose callers are scripts and agents: the two least able to
+    notice that nothing happened. The case that found it was a payload
+    sent beside "action" instead of inside it, which reads as the action
+    being broken.
+
+    Validation is against the catalogue the frontend reports (see
+    agentdocs.Catalog.Validate), so it can't describe an app that doesn't
+    exist. Nothing here changes any state: every refusal is expected to
+    stop before it dispatches, and the one accepted call is a
+    selectRequest of whatever is already selected."""
+    r.section("Action validation (POST /api/ui/action refuses what it can't act on)")
+
+    for name, body in (
+        ("an action nobody has", {"action": "noSuchAction"}),
+        ("a known action with its required payload missing", {"action": "selectRequest"}),
+        # The mistake this exists for: {"action": ..., "id": ...} rather
+        # than {"action": ..., "payload": {"id": ...}}. It reaches the
+        # route as an action with no payload at all.
+        ("the payload's fields sent beside 'action' instead of inside it", {"action": "selectRequest", "id": "r_x"}),
+        ("a null where a value was required", {"action": "selectRequest", "payload": {"id": None}}),
+    ):
+        r.step(f"POST /api/ui/action {body}")
+        status, resp = api.raw("POST", "/api/ui/action", body)
+        r.check(
+            f"{name} is refused with 400 and an error that says why",
+            status == 400 and isinstance(resp, dict) and bool(resp.get("error")),
+            f"status={status} body={resp}",
+        )
+
+    # The other half, or the checks above would pass with everything
+    # refused: a well-formed action still goes through. Re-selecting
+    # what is already selected changes nothing.
+    selected = api.state().get("selectedItemId")
+    if selected:
+        r.step(f"POST /api/ui/action selectRequest {{id: {selected}}}  (well-formed — must still be accepted)")
+        status, _ = api.raw("POST", "/api/ui/action", {"action": "selectRequest", "payload": {"id": selected}})
+        r.check("a well-formed action is still accepted", status == 204, f"status={status}")
+    else:
+        r.step("skipped the accepted-action half — nothing is selected to re-select")

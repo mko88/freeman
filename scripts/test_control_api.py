@@ -105,7 +105,7 @@ from control_api.checks.consistency import test_consistency
 from control_api.checks.cookies import test_cookie_jar
 from control_api.checks.environments import test_environment_editor
 from control_api.checks.execute import test_execute, test_file_upload, test_http_methods
-from control_api.checks.guard import test_api_guard
+from control_api.checks.guard import test_action_validation, test_api_guard
 from control_api.checks.regression import test_rapid_fire_regression
 from control_api.checks.request_editor import test_delete_request, test_request_editor, test_small_wins
 from control_api.checks.responses import (
@@ -226,6 +226,7 @@ def main() -> int:
 
         workspace = test_read_only_routes(api, r)
         test_api_guard(api, r)
+        test_action_validation(api, r)
         collection_id, environment_id = test_workspace_navigation(api, r, workspace)
 
         collection = api.get(f"/api/collections/{collection_id}")

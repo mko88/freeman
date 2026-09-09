@@ -97,6 +97,17 @@ func startControlAPI(app *wailsapp.App, addr string) {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
+		// Refused before dispatching, because dispatching cannot fail:
+		// the event goes to the frontend and this route answers without
+		// waiting, so an action the dispatcher ignored used to be
+		// indistinguishable from one it performed — a 204 and nothing on
+		// screen. See agentdocs.Catalog.Validate.
+		if err := agentdocs.Parse(app.ControlAPIDocs()).Validate(body.Action, body.Payload); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
 		app.DispatchUIAction(body.Action, body.Payload)
 		w.WriteHeader(http.StatusNoContent)
 	})

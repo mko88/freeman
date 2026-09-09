@@ -61,7 +61,14 @@ export const apiEndpoints: ApiEndpoint[] = [
   { method: 'GET', path: '/api/version', desc: 'Which build is running: {version, commit, date}. Needs no open workspace.' },
   { method: 'GET', path: '/api/theme', desc: 'Resolved color palette.' },
   { method: 'GET', path: '/api/headers', desc: 'Common request-header names/values for editor autocomplete (from headers.yaml).' },
-  { method: 'POST', path: '/api/ui/action', desc: 'Drive the GUI itself (desktop only, see below). Body: {action, payload}.' },
+  {
+    method: 'POST',
+    path: '/api/ui/action',
+    desc:
+      "Drive the GUI itself (desktop only, see below). Body: {action, payload} — an action's fields go " +
+      'inside payload, not beside action. 400 with an error for an unknown action or a payload the ' +
+      'action cannot be performed with; 204 once it has been dispatched.',
+  },
   {
     method: 'GET',
     path: '/api/ui/state',

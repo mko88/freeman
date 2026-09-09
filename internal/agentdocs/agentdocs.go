@@ -90,7 +90,11 @@ Two endpoints do the driving. Everything else is data access.
 
 1. ` + "`POST /api/ui/action`" + ` with ` + "`{\"action\": \"...\", \"payload\": {...}}`" + ` performs
    one thing a person could do in the UI. It answers 204 as soon as the
-   action is queued.
+   action is queued, or 400 with an error if the action isn't one of
+   those below or its payload is one the action can't be performed with.
+   The action's own fields go **inside** ` + "`payload`" + `, not beside
+   ` + "`action`" + ` — that mistake used to be answered with a 204 and no
+   effect.
 2. ` + "`GET /api/ui/state`" + ` returns the whole editor as one JSON object —
    the unsaved draft, which tabs are open, and the last response.
 
@@ -148,4 +152,96 @@ improvise.
 func cell(s string) string {
 	s = strings.ReplaceAll(s, "|", "\\|")
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// Validate reports whether an action name and payload are ones the app
+// can act on, for POST /api/ui/action to refuse before dispatching.
+//
+// It exists because dispatching is fire-and-forget: the event goes to the
+// frontend and the route answers 204 without waiting, so an action the
+// dispatcher ignored was indistinguishable from one it performed. A
+// script — or an agent, which is the caller this API is for — got a
+// success and no effect, with nothing to go on.
+//
+// The catalogue is the schema, rather than a second list written here,
+// for the same reason the docs are: consistency.py already holds it to
+// the dispatcher, so validation checked against it cannot describe an
+// app that doesn't exist. The payload column's convention is the whole
+// grammar — see requiredKeys.
+//
+// Fails open when the frontend hasn't reported a catalogue yet (before
+// the window mounts): with nothing to check against, refusing everything
+// would be worse than the silence this replaces.
+func (c Catalog) Validate(action string, payload map[string]any) error {
+	if len(c.Actions) == 0 {
+		return nil
+	}
+	for _, a := range c.Actions {
+		if a.Action != action {
+			continue
+		}
+		alts := requiredKeys(a.Payload)
+		if len(alts) == 0 {
+			return nil
+		}
+		for _, required := range alts {
+			if hasAll(payload, required) {
+				return nil
+			}
+		}
+		// Naming the wrapper explicitly: sending the fields beside
+		// "action" instead of inside "payload" is the way this goes
+		// wrong, and it looks like the action being broken.
+		return fmt.Errorf(
+			"action %q needs payload %s — the fields go inside a \"payload\" object, beside \"action\"",
+			action, a.Payload,
+		)
+	}
+	return fmt.Errorf("unknown action %q — GET /api/agent lists every action this app answers to", action)
+}
+
+// requiredKeys reads the catalogue's payload column as a schema. The
+// column is written for a person, but consistently enough to be one:
+//
+//	—                      nothing required
+//	{ id }                 id is required
+//	{ name, id? }          name is required, id is not
+//	{ index } | { key }    either an index or a key
+//
+// Anything with no braces at all (the em dash) requires nothing, which
+// is also the safe answer for a row written in some shape this doesn't
+// know: the check is here to catch a caller's mistake, not to become one.
+func requiredKeys(doc string) [][]string {
+	if !strings.Contains(doc, "{") {
+		return nil
+	}
+	var alternatives [][]string
+	for _, group := range strings.Split(doc, "|") {
+		group = strings.TrimSpace(group)
+		group = strings.TrimSuffix(strings.TrimPrefix(group, "{"), "}")
+		var required []string
+		for _, field := range strings.Split(group, ",") {
+			field = strings.TrimSpace(field)
+			if field == "" || strings.HasSuffix(field, "?") {
+				continue
+			}
+			required = append(required, field)
+		}
+		alternatives = append(alternatives, required)
+	}
+	return alternatives
+}
+
+// hasAll reports whether every named key is present and not null. Present
+// is the test, not truthy: false and "" are both things an action is
+// meant to be sent — setRequestOption turns things off, filterRequests
+// clears the filter with "".
+func hasAll(payload map[string]any, required []string) bool {
+	for _, key := range required {
+		v, ok := payload[key]
+		if !ok || v == nil {
+			return false
+		}
+	}
+	return true
 }
