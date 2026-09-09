@@ -131,3 +131,27 @@ documenting a non-obvious *constraint* the current code exists to
 satisfy (e.g. why a reactive statement is written a particular way to
 avoid a real bug) — that's about the present code being correct, not
 about what used to be there.
+
+## Release notes are short
+
+**Rule: two sections, `## Changes` and `## Bug fixes`, and nothing
+else.** No Downloads list — the assets are on the page already. No
+account of what was verified. No known gaps — that is what `TODO.md` is
+for.
+
+**One line each, saying what changed rather than how it was found or
+fixed.** The investigation belongs in the commit message, which still
+has it:
+
+    - Request options set as workspace defaults were ignored.
+
+not a paragraph on which layer answered with the wrong defaults and why
+the editor omits an options block in the first place.
+
+Spend length only where the reader has to *do* something. A breaking
+change goes first, marked, and may take a paragraph with the before and
+after — everything else is a line.
+
+The first release of anything is the exception: there is nothing to have
+changed from, so it gets a sentence saying what the thing is and one list
+of what it does.
