@@ -201,10 +201,10 @@ picker.
 
 ### Fonts and scale
 
-Two faces, split by what the text is. Chrome — labels, buttons, tabs,
-names — is proportional; anything showing what went over the wire is
-fixed-width: the editors, the response, the URL, the key/value grids, the
-cookie lists and the control-API log.
+Two faces. The interface is proportional; the fixed-width one is kept
+for the panes that hold a whole document — the raw request body, the
+response body, and the generated code beside them — where indentation and
+line-by-line reading are the point.
 
 **Settings → Appearance** replaces either with a font installed on your
 machine (leave a field empty for the bundled IBM Plex), and scales the

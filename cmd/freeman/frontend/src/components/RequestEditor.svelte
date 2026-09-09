@@ -552,10 +552,6 @@
 
   .url-bar input[type='text'] {
     flex: 1;
-    /* A URL is the request, not a label for it — fixed width, where a
-       stray l/1 or O/0 in a token is the difference between a 200 and an
-       afternoon. */
-    font-family: var(--fm-font-mono);
   }
 
   /* --m (set inline from methodColor()) makes the currently selected

@@ -45,10 +45,15 @@ option {
    sits in. Chrome — labels, buttons, tabs, names, settings, prose — is
    proportional, because none of it is protocol data and monospace
    everywhere reads as a terminal emulator rather than an application.
-   Anything that shows what went over the wire keeps the fixed-width
-   face, where column alignment and an unambiguous l/1/I actually earn
-   their space: the editors, the response, the URL, the key/value grids,
-   the control-API log, and inline <code>.
+   The fixed-width face is kept for the two places the text is a
+   document rather than a value: the raw request body and the response
+   body, both of which are indented, wrapped and read line by line. Its
+   only other use is inline <code>, where a filename in running prose
+   should read as a filename.
+
+   Notably not fixed-width: the URL, the key/value grids and the log.
+   They hold protocol data, but each value is short and sits in its own
+   box, so the alignment monospace buys has nothing to align.
 
    Both are custom properties so Settings -> Appearance can replace
    either with whatever is installed on the machine (see
@@ -134,13 +139,6 @@ body {
    looser line-height that a paragraph wants and a label doesn't. */
 .prose {
   line-height: 1.55;
-}
-
-/* The fixed-width face, for text that is protocol data: applied by class
-   so the split is stated where it applies rather than re-declared as a
-   font-family stack in each component. */
-.mono {
-  font-family: var(--fm-font-mono);
 }
 
 :focus-visible {
@@ -392,7 +390,6 @@ table {
 .cookie-table {
   font-size: 0.78rem;
   text-align: left;
-  font-family: var(--fm-font-mono);
 }
 
 .cookie-table th {
@@ -448,9 +445,6 @@ table {
 
 .kv-table input[type='text'] {
   width: 100%;
-  /* Header names, param values, variable values — what goes on the wire,
-     so the fixed-width face, while the labels around them stay chrome. */
-  font-family: var(--fm-font-mono);
 }
 
 /* Every "enabled"-style checkbox (header/param/form-field/variable rows)
@@ -469,6 +463,12 @@ input[type='checkbox'] {
   display: inline-grid;
   place-content: center;
   cursor: pointer;
+  /* An inline-grid's baseline comes from its first grid item, or from
+     its bottom margin edge when it has none — so a box that gains its
+     tick on check would change baseline and shift the whole row. The
+     tick below is laid out in both states for the same reason; this
+     pins the box against the text regardless. */
+  vertical-align: middle;
 }
 
 input[type='checkbox']:checked {
@@ -481,13 +481,22 @@ input[type='checkbox']:checked:hover {
   border-color: color-mix(in srgb, var(--fm-accent) 85%, white);
 }
 
-input[type='checkbox']:checked::after {
+/* Always laid out, only shown when checked: making the tick appear and
+   disappear changed what the grid had to centre, and the row moved with
+   it. Hiding it costs nothing and keeps every box the same shape in both
+   states. */
+input[type='checkbox']::after {
   content: '';
   width: 0.4rem;
   height: 0.75rem;
   border: solid var(--fm-bg);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg) translate(-1px, -2px);
+  opacity: 0;
+}
+
+input[type='checkbox']:checked::after {
+  opacity: 1;
 }
 
 /* The X that removes one row from a .kv-table (a header/param/

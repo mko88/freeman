@@ -406,9 +406,10 @@
               <th scope="row">
                 <span>Interface font
                   <InfoTip label="About the interface font">
-                    Labels, buttons, tabs, names — everything that isn't protocol data. Any font
-                    installed on this machine; leave it empty for the bundled IBM Plex Sans. A name
-                    that isn't installed falls back rather than breaking.
+                    Everything except the body editors — labels, buttons, tabs, names, the URL, the
+                    key/value grids. Any font installed on this machine; leave it empty for the
+                    bundled IBM Plex Sans. A name that isn't installed falls back rather than
+                    breaking.
                   </InfoTip>
                 </span>
               </th>
@@ -426,9 +427,9 @@
               <th scope="row">
                 <span>Editor font
                   <InfoTip label="About the editor font">
-                    The fixed-width face, used where the text is what went over the wire: the
-                    request and response editors, the URL, the key/value grids, the cookie lists and
-                    the control-API log. Empty means the bundled IBM Plex Mono.
+                    The fixed-width face, for the panes holding a whole document: the raw request
+                    body, the response body, and the generated code beside them. Empty means the
+                    bundled IBM Plex Mono.
                   </InfoTip>
                 </span>
               </th>
