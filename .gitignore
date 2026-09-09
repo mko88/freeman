@@ -8,6 +8,11 @@
 # workspace folder" (Settings > Workspace > Change…).
 /workspace*/
 
+# Personal scratch that lives beside the repo but isn't part of it —
+# presentation notes, screenshots, drafts. Nothing here is source, and
+# nothing here should ever be committed.
+.local/
+
 # Python bytecode cache (scripts/test_control_api.py)
 __pycache__/
 
