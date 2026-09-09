@@ -252,7 +252,21 @@ def test_workspace_settings(api: ControlAPI, r: Report) -> None:
     if not isinstance(original, dict) or not keys <= set(original):
         return
 
+    # Driven with the window open on the tab that holds each field, so a
+    # run shows the setting being changed rather than a dialog nobody
+    # opened writing to a file nobody sees. Only closed again if this
+    # section is what opened it — a window someone left open is theirs.
+    opened_settings = not api.state().get("showSettings")
+
     try:
+        if opened_settings:
+            r.step("toggleSettings  (watch: these are the fields the settings window shows)")
+            api.action("toggleSettings")
+            poll(api.state, lambda s: s.get("showSettings") is True)
+        r.step("selectSettingsTab {tab: 'requests'}")
+        api.action("selectSettingsTab", {"tab": "requests"})
+        poll(api.state, lambda s: s.get("settingsTab") == "requests")
+
         r.step("setWorkspaceSetting {field: 'maxRedirects', value: 7}")
         api.action("setWorkspaceSetting", {"field": "maxRedirects", "value": 7})
         state = poll(api.state, lambda s: (s.get("workspaceSettings") or {}).get("maxRedirects") == 7)
@@ -293,6 +307,10 @@ def test_workspace_settings(api: ControlAPI, r: Report) -> None:
 
         # The typography is the one group whose effect is the window
         # itself, so it has to survive the same round trip as the rest.
+        r.step("selectSettingsTab {tab: 'appearance'}  (where the scale lives)")
+        api.action("selectSettingsTab", {"tab": "appearance"})
+        poll(api.state, lambda s: s.get("settingsTab") == "appearance")
+
         r.step("setWorkspaceSetting {field: 'fontScalePercent', value: 125}")
         api.action("setWorkspaceSetting", {"field": "fontScalePercent", "value": 125})
         state = poll(api.state, lambda s: (s.get("workspaceSettings") or {}).get("fontScalePercent") == 125)
@@ -336,3 +354,7 @@ def test_workspace_settings(api: ControlAPI, r: Report) -> None:
     finally:
         r.step("PUT /api/settings  (restoring what this workspace had)")
         api.raw("PUT", "/api/settings", original)
+        if opened_settings:
+            r.step("selectSettingsTab 'workspace', toggleSettings  (closing the window this section opened)")
+            api.action("selectSettingsTab", {"tab": "workspace"})
+            api.action("toggleSettings")

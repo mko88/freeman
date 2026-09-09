@@ -79,7 +79,11 @@ class Runner:
     section needs. Every send goes out twice on purpose: sendRequest so
     the app window visibly does the thing, then POST /api/execute for
     the response the checks read — the same split the older modules use,
-    since the rendered pane isn't readable over the control API."""
+    since the rendered pane isn't readable over the control API.
+
+    configure() opens the tab each group of settings belongs to before
+    editing it, for the same reason: a run of this suite should show what
+    it is doing, not change panes nobody is looking at."""
 
     def __init__(self, api: ControlAPI, r: Report, collection_id: str, environment_id: str, item_id: str) -> None:
         self.api = api
@@ -102,13 +106,23 @@ class Runner:
         self.url, self.method = url, method
         self.api.action("setRequestField", {"field": "method", "value": method})
         self.api.action("setRequestField", {"field": "url", "value": url})
+        # Each group is edited with its own tab showing. The suite is
+        # meant to be watched — --delay exists for nothing else — and an
+        # auth type set while the Body tab is open changes a pane nobody
+        # can see, which reads as the action doing nothing. It is also
+        # what a person doing the same thing would have to do.
+        if auth:
+            self.api.action("selectRequestTab", {"tab": "auth"})
         for field, value in (auth or {}).items():
             self.api.action("setRequestAuth", {"field": field, "value": value})
         self.auth.update(auth or {})
+        if options:
+            self.api.action("selectRequestTab", {"tab": "options"})
         for field, value in (options or {}).items():
             self.api.action("setRequestOption", {"field": field, "value": value})
         self.options.update(options or {})
         if body_mode is not None:
+            self.api.action("selectRequestTab", {"tab": "body"})
             self.api.action("setRequestField", {"field": "bodyMode", "value": body_mode})
             self.body_mode = body_mode
         self.api.action("saveRequest")
@@ -143,11 +157,13 @@ class Runner:
         )
 
     def reset_options(self) -> None:
+        self.api.action("selectRequestTab", {"tab": "options"})
         for field, value in DEFAULT_OPTIONS.items():
             self.api.action("setRequestOption", {"field": field, "value": value})
         self.options = dict(DEFAULT_OPTIONS)
 
     def clear_auth(self) -> None:
+        self.api.action("selectRequestTab", {"tab": "auth"})
         self.api.action("setRequestAuth", {"field": "type", "value": "none"})
         self.auth = {"type": "none"}
 
@@ -183,7 +199,7 @@ def test_auth_variations(
         f"status={status} resp={resp}",
     )
 
-    r.step("setRequestAuth type='bearer', token  (watch: the Auth tab switches)")
+    r.step("setRequestAuth type='bearer', token  (watch: the editor switches to the Auth tab)")
     run.configure(f"{base}/bearer", auth={"type": "bearer", "token": "t0ken-from-the-auth-tab"})
     status, resp = run.send()
     body = body_json(resp)
