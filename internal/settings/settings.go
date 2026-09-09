@@ -1,6 +1,7 @@
 // Package settings holds the app-wide defaults: every setting on a
-// request's Options tab, which a new request starts from, plus how big a
-// response may get before it stops being shown inline or read at all.
+// request's Options tab, which a new request starts from, how big a
+// response may get before it stops being shown inline or read at all,
+// and how the interface is typeset.
 //
 // Persisted as settings.yaml in the workspace rather than the app-data
 // directory: they describe how this collection of requests should be
@@ -53,6 +54,19 @@ type Settings struct {
 	UseCustomCA       bool   `yaml:"useCustomCA" json:"useCustomCA"`
 	ClientCertFile    string `yaml:"clientCertFile" json:"clientCertFile"`
 	ClientCertKeyFile string `yaml:"clientCertKeyFile" json:"clientCertKeyFile"`
+
+	// How the interface is typeset. Empty means the bundled face — IBM
+	// Plex Sans for the chrome, IBM Plex Mono for anything showing what
+	// went over the wire. Either can name a font installed on the
+	// machine instead; an unknown name falls back rather than breaking,
+	// since the frontend puts it at the head of a stack.
+	FontUI   string `yaml:"fontUi" json:"fontUi"`
+	FontMono string `yaml:"fontMono" json:"fontMono"`
+	// FontScalePercent scales the whole interface, not only its text:
+	// every size in the frontend is expressed in rem, so this is applied
+	// once at the root and spacing follows the type. 100 is the browser's
+	// own 16px.
+	FontScalePercent int `yaml:"fontScalePercent" json:"fontScalePercent"`
 }
 
 // Defaults are what Freeman shipped with as constants.
@@ -67,6 +81,8 @@ func Defaults() Settings {
 		// value — nothing to state.
 		FollowRedirects: true,
 		StoreCookies:    true,
+		// The bundled faces, at the size the browser would pick.
+		FontScalePercent: 100,
 	}
 }
 
@@ -92,6 +108,19 @@ func Clamp(s Settings) Settings {
 	// was about to render whole.
 	if s.MaxResponseBytes < s.InlineResponseBytes {
 		s.MaxResponseBytes = s.InlineResponseBytes
+	}
+	// A scale of 0 is a settings.yaml that predates the field or a bad
+	// call; the bounds are where the window stops being usable — small
+	// enough to be unreadable, or large enough that the request editor's
+	// own chrome fills the pane.
+	if s.FontScalePercent == 0 {
+		s.FontScalePercent = d.FontScalePercent
+	}
+	if s.FontScalePercent < 70 {
+		s.FontScalePercent = 70
+	}
+	if s.FontScalePercent > 200 {
+		s.FontScalePercent = 200
 	}
 	return s
 }

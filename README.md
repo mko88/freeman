@@ -196,6 +196,21 @@ picker.
   cookies** on draws from: forget one, or empty it. It lasts until you
   clear it or close Freeman, so this is where you go to sign out of a
   session without restarting.
+- **Appearance** — the two fonts and the interface scale, applied as you
+  change them
+
+### Fonts and scale
+
+Two faces, split by what the text is. Chrome — labels, buttons, tabs,
+names — is proportional; anything showing what went over the wire is
+fixed-width: the editors, the response, the URL, the key/value grids, the
+cookie lists and the control-API log.
+
+**Settings → Appearance** replaces either with a font installed on your
+machine (leave a field empty for the bundled IBM Plex), and scales the
+whole interface from 70% to 200%. The scale moves spacing as well as
+type, so it reads as one size rather than large text in boxes that stayed
+put.
 
 ### Theming
 

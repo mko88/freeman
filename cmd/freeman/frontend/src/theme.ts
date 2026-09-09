@@ -44,3 +44,32 @@ export async function applyTheme(): Promise<void> {
     if (value) root.style.setProperty(`--fm-${name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`, value)
   }
 }
+
+// The fallback stacks the settings' font names are prepended to, kept
+// identical to style.css's :root — a named font that isn't installed
+// then degrades to the bundled face rather than to whatever the platform
+// picks for a missing family.
+const UI_STACK = `"IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif`
+const MONO_STACK = `"IBM Plex Mono", "Cascadia Code", Consolas, "SF Mono", "Liberation Mono", monospace`
+
+/**
+ * Applies the workspace's typography to <html>: the two font stacks, and
+ * the scale.
+ *
+ * The scale is one custom property rather than a pass over every rule
+ * because every font size in this app is expressed in rem — style.css's
+ * `html { font-size: calc(100% * var(--fm-font-scale)) }` is the whole
+ * mechanism. Spacing is in rem too, so the interface scales as a piece
+ * instead of growing text inside boxes that stayed the same size.
+ */
+export function applyTypography(s: { fontUi?: string; fontMono?: string; fontScalePercent?: number }): void {
+  const root = document.documentElement
+  const ui = (s.fontUi ?? '').trim()
+  const mono = (s.fontMono ?? '').trim()
+  root.style.setProperty('--fm-font-ui', ui ? `"${ui}", ${UI_STACK}` : UI_STACK)
+  root.style.setProperty('--fm-font-mono', mono ? `"${mono}", ${MONO_STACK}` : MONO_STACK)
+  // Go clamps this on save; the fallback is for the moment before the
+  // settings have loaded, and for a value that never went through Go.
+  const scale = s.fontScalePercent && s.fontScalePercent > 0 ? s.fontScalePercent : 100
+  root.style.setProperty('--fm-font-scale', String(scale / 100))
+}

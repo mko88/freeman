@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { applyTypography } from './theme'
   import {
     CurrentWorkspace,
     OpenWorkspace,
@@ -101,7 +102,16 @@
     useCustomCA: false,
     clientCertFile: '',
     clientCertKeyFile: '',
+    fontUi: '',
+    fontMono: '',
+    fontScalePercent: 100,
   }
+
+  // Typography is the one setting that changes the page rather than the
+  // next request, so it is pushed onto <html> as soon as it loads or
+  // changes — including from the control API, which is why this is
+  // reactive rather than called from the load.
+  $: applyTypography(workspaceSettings)
   // The saved item the editor is showing, or undefined for a new draft.
   // Duplicate and delete act on this rather than on a sidebar row.
   $: selectedItem = collection?.items?.find((i) => i.id === selectedItemId)
@@ -141,7 +151,7 @@
   // rather than from the pickers, which only pick one — creating and
   // deleting are occasional, and don't belong a slip away from a control
   // used several times an hour.
-  type SettingsTab = 'workspace' | 'collections' | 'environments' | 'requests' | 'cookies'
+  type SettingsTab = 'workspace' | 'collections' | 'environments' | 'requests' | 'cookies' | 'appearance'
   let settingsTab: SettingsTab = 'workspace'
   // The shared cookie jar. Re-read when the Cookies tab opens and after
   // every send, since a send is what puts cookies on it — and because
@@ -385,6 +395,19 @@
     workspaceSettings = await SaveSettings(workspaceSettings)
   }
 
+  // The Appearance tab's controls change on every keystroke and every
+  // pixel of a slider drag, because their effect *is* the window you're
+  // looking at. The change is already applied — applyTypography reads
+  // workspaceSettings directly — so the write waits for a pause rather
+  // than rewriting settings.yaml per character. Waiting also keeps Go's
+  // clamped value from coming back and snapping a field mid-typing:
+  // 7 on the way to 75 would otherwise be answered with 70.
+  let settingsSaveTimer: ReturnType<typeof setTimeout> | undefined
+  function saveWorkspaceSettingsSoon() {
+    clearTimeout(settingsSaveTimer)
+    settingsSaveTimer = setTimeout(() => void guard(saveWorkspaceSettings), 400)
+  }
+
   onMount(async () => {
     // Before the workspace: it needs none, and the welcome screen shows
     // it while there's nothing else on screen.
@@ -480,7 +503,8 @@
           tab === 'collections' ||
           tab === 'environments' ||
           tab === 'requests' ||
-          tab === 'cookies'
+          tab === 'cookies' ||
+          tab === 'appearance'
         ) {
           settingsTab = tab
         }
@@ -1730,6 +1754,7 @@
       onClose={() => (showSettings = false)}
       onOpenWorkspace={openWorkspace}
       onClearResponseCache={clearResponseCache}
+      onSaveSettingsSoon={saveWorkspaceSettingsSoon}
       bind:settings={workspaceSettings}
       onSaveSettings={saveWorkspaceSettings}
     />
@@ -1897,10 +1922,14 @@
      a pane that looks collapsed but isn't; this leaves about 100px of
      the open tab, which is the part worth keeping on screen. The
      collapsed rule below drops the floor entirely, since collapsed
-     means those three rows and nothing else. */
+     means those three rows and nothing else.
+
+     In rem, not px, so it follows the interface scale: the floor exists
+     to keep some of the open tab visible, and at 150% the chrome it has
+     to clear is 150% taller too. 12.5rem is 200px at the default. */
   .request-pane {
     flex: 1 1 0;
-    min-height: 200px;
+    min-height: 12.5rem;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;

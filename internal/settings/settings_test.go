@@ -76,13 +76,35 @@ func TestClamp(t *testing.T) {
 	}
 }
 
+// Written as a value Clamp would leave alone, so this tests the round
+// trip and not the clamping — every field that has a floor is set above
+// it. MaxRedirects stays 0 because 0 there means "no cap", not "unset".
 func TestSaveRoundTrips(t *testing.T) {
 	dir := t.TempDir()
-	want := Settings{RequestTimeoutMs: 1500, MaxRedirects: 0, InlineResponseBytes: 2 << 20, MaxResponseBytes: 8 << 20}
+	want := Settings{
+		RequestTimeoutMs:    1500,
+		MaxRedirects:        0,
+		InlineResponseBytes: 2 << 20,
+		MaxResponseBytes:    8 << 20,
+		FontUI:              "Inter",
+		FontMono:            "Cascadia Code",
+		FontScalePercent:    115,
+	}
 	if err := Save(dir, want); err != nil {
 		t.Fatal(err)
 	}
 	if got := Load(dir); got != want {
 		t.Fatalf("round trip lost something: got %+v, want %+v", got, want)
+	}
+}
+
+// The scale has a floor and a ceiling like every other setting, and a 0
+// — a settings.yaml written before the field existed — means the default
+// rather than an interface scaled to nothing.
+func TestClampFontScale(t *testing.T) {
+	for in, want := range map[int]int{0: 100, 10: 70, 69: 70, 70: 70, 130: 130, 201: 200, -5: 70} {
+		if got := Clamp(Settings{FontScalePercent: in}).FontScalePercent; got != want {
+			t.Errorf("Clamp(FontScalePercent: %d) = %d, want %d", in, got, want)
+		}
 	}
 }

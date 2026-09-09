@@ -87,7 +87,7 @@
     min-height: 0;
     overflow-y: auto;
     padding: 4px 10px;
-    font-family: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
+    font-family: var(--fm-font-mono);
     font-size: 0.72rem;
   }
 

@@ -157,6 +157,16 @@ def test_settings_window(api: ControlAPI, r: Report) -> None:
     stand-in, which is the whole point of the control API having it."""
     r.section("Settings window (toggleSettings / selectSettingsTab / openWorkspace)")
 
+    # toggleSettings is a toggle, so this section has to know where it
+    # starts. It can find the window already open — a previous section, a
+    # previous interrupted run, or simply someone having left it open
+    # before running the suite — and asserting "one toggle opens it"
+    # would then be asserting the opposite of what happened.
+    if api.state().get("showSettings"):
+        r.step("toggleSettings  (it was already open — closing it, so this section starts from shut)")
+        api.action("toggleSettings")
+        poll(api.state, lambda s: s.get("showSettings") is False)
+
     r.step("toggleSettings  (watch: the settings window should open)")
     api.action("toggleSettings")
     state = poll(api.state, lambda s: s.get("showSettings") is True)
@@ -180,6 +190,11 @@ def test_settings_window(api: ControlAPI, r: Report) -> None:
     api.action("selectSettingsTab", {"tab": "requests"})
     state = poll(api.state, lambda s: s.get("settingsTab") == "requests")
     r.check("state.settingsTab reflects selectSettingsTab 'requests'", state.get("settingsTab") == "requests", str(state.get("settingsTab")))
+
+    r.step("selectSettingsTab {tab: 'appearance'}  (fonts and scale)")
+    api.action("selectSettingsTab", {"tab": "appearance"})
+    state = poll(api.state, lambda s: s.get("settingsTab") == "appearance")
+    r.check("state.settingsTab reflects selectSettingsTab 'appearance'", state.get("settingsTab") == "appearance", str(state.get("settingsTab")))
 
     r.step("selectSettingsTab {tab: 'environments'}")
     api.action("selectSettingsTab", {"tab": "environments"})
@@ -224,6 +239,9 @@ def test_workspace_settings(api: ControlAPI, r: Report) -> None:
         "useCustomCA",
         "clientCertFile",
         "clientCertKeyFile",
+        "fontUi",
+        "fontMono",
+        "fontScalePercent",
     }
     original = api.get("/api/settings")
     r.check(
@@ -271,6 +289,26 @@ def test_workspace_settings(api: ControlAPI, r: Report) -> None:
             (state.get("workspaceSettings") or {}).get("caCertFile") == ca
             and api.get("/api/settings").get("caCertFile") == ca,
             str(api.get("/api/settings")),
+        )
+
+        # The typography is the one group whose effect is the window
+        # itself, so it has to survive the same round trip as the rest.
+        r.step("setWorkspaceSetting {field: 'fontScalePercent', value: 125}")
+        api.action("setWorkspaceSetting", {"field": "fontScalePercent", "value": 125})
+        state = poll(api.state, lambda s: (s.get("workspaceSettings") or {}).get("fontScalePercent") == 125)
+        r.check(
+            "the interface scale round trips",
+            (state.get("workspaceSettings") or {}).get("fontScalePercent") == 125
+            and api.get("/api/settings").get("fontScalePercent") == 125,
+            str(api.get("/api/settings")),
+        )
+
+        r.step("PUT /api/settings with fontScalePercent 500  (expect it clamped to the ceiling)")
+        status, saved = api.raw("PUT", "/api/settings", {**original, "fontScalePercent": 500})
+        r.check(
+            "an unusable scale is clamped rather than refused",
+            status == 200 and isinstance(saved, dict) and saved.get("fontScalePercent") == 200,
+            f"status={status} body={saved}",
         )
 
         # Go clamps rather than rejecting, and returns what it kept: a

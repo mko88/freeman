@@ -47,7 +47,9 @@ export const apiEndpoints: ApiEndpoint[] = [
   {
     method: 'GET',
     path: '/api/settings',
-    desc: "The workspace's app-wide defaults: every request option a new request starts from, plus the response limits.",
+    desc:
+      "The workspace's app-wide defaults: every request option a new request starts from, the " +
+      'response limits, and the interface typography.',
   },
   { method: 'PUT', path: '/api/settings', desc: 'Replace them. Body: the same object; out-of-range values are clamped. Returns what was stored.' },
   { method: 'GET', path: '/api/cookies', desc: 'The shared cookie jar: every stored cookie, with domain, path, expiry and flags.' },
@@ -88,14 +90,14 @@ export const uiActions: UiAction[] = [
   {
     action: 'toggleSettings',
     payload: '—',
-    desc: 'Open/close the settings window (workspace, collections, environments, requests, cookies).',
+    desc: 'Open/close the settings window (workspace, collections, environments, requests, cookies, appearance).',
   },
   {
     action: 'selectSettingsTab',
     payload: '{ tab }',
     desc:
       "Switch the settings window tab. tab is 'workspace', 'collections', 'environments', 'requests' " +
-      "(what a new request's options start as) or 'cookies'.",
+      "(what a new request's options start as), 'cookies' or 'appearance' (fonts and scale).",
   },
   {
     action: 'refreshCookies',
@@ -147,9 +149,11 @@ export const uiActions: UiAction[] = [
       "field is 'inlineResponseBytes' or 'maxResponseBytes' (numbers), or any setRequestOption field — " +
       "'requestTimeoutMs' (named so here, 0 waits forever), 'maxRedirects', 'followRedirects', " +
       "'storeCookies', 'skipTlsVerify', 'useCustomCA', 'caCertFile', 'clientCertFile', " +
-      "'clientCertKeyFile' — which is what a new request starts from. The value must match the " +
-      "field's own type. Out-of-range numbers are clamped, and GET /api/settings reports what was " +
-      'actually stored.',
+      "'clientCertKeyFile' — which is what a new request starts from; or the typography: 'fontUi' " +
+      "and 'fontMono' (a font installed on the machine, '' for the bundled one) and " +
+      "'fontScalePercent' (70-200, scales the whole interface). The value must match the field's " +
+      'own type. Out-of-range numbers are clamped, and GET /api/settings reports what was actually ' +
+      'stored.',
   },
   {
     action: 'setEnvironmentField',

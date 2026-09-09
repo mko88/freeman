@@ -73,7 +73,10 @@
       '&.cm-focused': { outline: 'none' },
       '.cm-scroller': {
         overflow: 'auto',
-        fontFamily: "'IBM Plex Mono', 'Cascadia Code', Consolas, monospace",
+        // The token, not a literal stack: Settings -> Appearance can
+        // replace the fixed-width face, and CodeMirror is the one place
+        // the font is set from JavaScript rather than CSS.
+        fontFamily: "var(--fm-font-mono)",
         lineHeight: '1.5',
       },
       '.cm-content': { caretColor: 'var(--fm-text)' },

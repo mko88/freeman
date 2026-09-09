@@ -482,6 +482,9 @@ export namespace settings {
 	    useCustomCA: boolean;
 	    clientCertFile: string;
 	    clientCertKeyFile: string;
+	    fontUi: string;
+	    fontMono: string;
+	    fontScalePercent: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -500,6 +503,9 @@ export namespace settings {
 	        this.useCustomCA = source["useCustomCA"];
 	        this.clientCertFile = source["clientCertFile"];
 	        this.clientCertKeyFile = source["clientCertKeyFile"];
+	        this.fontUi = source["fontUi"];
+	        this.fontMono = source["fontMono"];
+	        this.fontScalePercent = source["fontScalePercent"];
 	    }
 	}
 

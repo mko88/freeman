@@ -19,7 +19,7 @@
   // edited here, and the variable rows below write straight into
   // `environment` — App.svelte's reportUIState mirrors all three, so the
   // changes have to travel back up.
-  export let settingsTab: 'workspace' | 'collections' | 'environments' | 'requests' | 'cookies'
+  export let settingsTab: 'workspace' | 'collections' | 'environments' | 'requests' | 'cookies' | 'appearance'
   export let environmentId: string
   export let environment: domain.Environment | null
   // Only the id: the list names every collection from
@@ -36,6 +36,9 @@
   // edited in MiB here because nobody wants to type 67108864.
   export let settings: settings_.Settings
   export let onSaveSettings: () => void
+  // For the Appearance tab, whose controls fire continuously — debounced
+  // in App.svelte, since what they change is already on screen.
+  export let onSaveSettingsSoon: () => void
 
   const MIB = 1024 * 1024
   // Derived one way only — reactive statements in both directions would
@@ -124,6 +127,9 @@
       >
       <button class:active={settingsTab === 'requests'} on:click={() => (settingsTab = 'requests')}>Requests</button>
       <button class:active={settingsTab === 'cookies'} on:click={() => (settingsTab = 'cookies')}>Cookies</button>
+      <button class:active={settingsTab === 'appearance'} on:click={() => (settingsTab = 'appearance')}
+        >Appearance</button
+      >
     </div>
 
     <div class="settings-body scroll-pane">
@@ -371,6 +377,86 @@
                   bind:value={settings.clientCertKeyFile}
                   on:change={onSaveSettings}
                 />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      {:else if settingsTab === 'appearance'}
+        <!-- Two faces and one scale. Applied live as you type — this is
+             the one group of settings whose effect is the window you are
+             looking at, so a Save button between the change and seeing
+             it would be the wrong shape. -->
+        <table class="options-table">
+          <tbody>
+            <tr>
+              <th scope="row">
+                <span>Interface font
+                  <InfoTip label="About the interface font">
+                    Labels, buttons, tabs, names — everything that isn't protocol data. Any font
+                    installed on this machine; leave it empty for the bundled IBM Plex Sans. A name
+                    that isn't installed falls back rather than breaking.
+                  </InfoTip>
+                </span>
+              </th>
+              <td class="option-path">
+                <input
+                  type="text"
+                  placeholder="IBM Plex Sans"
+                  bind:value={settings.fontUi}
+                  on:input={onSaveSettingsSoon}
+                />
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row">
+                <span>Editor font
+                  <InfoTip label="About the editor font">
+                    The fixed-width face, used where the text is what went over the wire: the
+                    request and response editors, the URL, the key/value grids, the cookie lists and
+                    the control-API log. Empty means the bundled IBM Plex Mono.
+                  </InfoTip>
+                </span>
+              </th>
+              <td class="option-path">
+                <input
+                  type="text"
+                  placeholder="IBM Plex Mono"
+                  bind:value={settings.fontMono}
+                  on:input={onSaveSettingsSoon}
+                />
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row">
+                <span>Scale
+                  <InfoTip label="About the scale">
+                    Scales the whole interface, not only its text — spacing follows the type, so it
+                    reads as one size rather than large text in small boxes. 100% is the default.
+                  </InfoTip>
+                </span>
+              </th>
+              <td class="option-scale">
+                <input
+                  type="range"
+                  min="70"
+                  max="200"
+                  step="5"
+                  bind:value={settings.fontScalePercent}
+                  on:input={onSaveSettingsSoon}
+                  aria-label="Interface scale"
+                />
+                <input
+                  type="number"
+                  min="70"
+                  max="200"
+                  class="option-number"
+                  bind:value={settings.fontScalePercent}
+                  on:change={onSaveSettingsSoon}
+                />
+                <span class="settings-unit">%</span>
+                <button on:click={() => { settings.fontScalePercent = 100; onSaveSettings() }}>Reset</button>
               </td>
             </tr>
           </tbody>
@@ -662,6 +748,20 @@
   .settings-unit {
     font-size: 0.78rem;
     color: var(--fm-text-muted);
+  }
+
+  /* The scale row: a slider to find the size by eye, a number to say it
+     exactly, and a way back to 100 without dragging for it. */
+  .option-scale {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .option-scale input[type='range'] {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--fm-accent);
   }
 
   /* The delete column, like .kv-table's: narrow, flush with the table's

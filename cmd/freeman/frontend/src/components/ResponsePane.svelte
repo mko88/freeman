@@ -299,8 +299,9 @@
        to the bottom of the window, or shrinking the window itself, still
        leaves something of the response showing. Only .collapsed drops
        the floor, since collapsed means the meta strip and nothing
-       else. */
-    min-height: 100px;
+       else. In rem so it follows the interface scale, like the request
+       pane's own floor — 6.25rem is 100px at the default. */
+    min-height: 6.25rem;
   }
 
   /* Collapsed it's just the meta strip: no splitter above it any more,
