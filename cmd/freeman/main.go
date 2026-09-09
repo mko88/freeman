@@ -30,7 +30,6 @@ func main() {
 	app.SetControlAPIAddr(controlAddr)
 	go startControlAPI(app, controlAddr)
 
-	// Create application with options
 	err := wails.Run(&options.App{
 		Title:  "freeman",
 		Width:  1024,
@@ -38,7 +37,22 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
+		// No OS title bar: the app draws its own, which is the top bar it
+		// already had — an app name on the left and its controls on the
+		// right was the shape of a title bar before it became one. The
+		// frontend marks that bar --wails-draggable and adds the
+		// minimise/maximise/close buttons the frame used to provide (see
+		// App.svelte's .window-controls).
+		//
+		// Frameless, not undecorated: DisableFramelessWindowDecorations
+		// is left off, so Windows still draws the drop shadow and rounded
+		// corners, and still resizes from the edges.
+		Frameless: true,
+		// The colour behind the webview — seen at the window's own edges
+		// and for the instant before the first paint. Matched to
+		// theme.css's --fm-bg, so a frameless window has no seam between
+		// the frame's colour and the app's.
+		BackgroundColour: &options.RGBA{R: 0x14, G: 0x18, B: 0x1a, A: 1},
 		OnStartup:        app.Startup,
 		Bind: []interface{}{
 			app,

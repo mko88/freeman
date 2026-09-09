@@ -29,6 +29,8 @@ from .. import Report
 UNDRIVEABLE = {
     "openResponseCacheExternally": "launches the OS-associated application",
     "openResponseCacheInFileExplorer": "launches the OS file manager",
+    "minimizeWindow": "hides the window this run is being watched in, and only the taskbar brings it back",
+    "closeWindow": "quits the app, taking the control API and the rest of the run with it",
 }
 
 

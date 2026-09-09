@@ -81,7 +81,8 @@ export const apiEndpoints: ApiEndpoint[] = [
       'The shared cookie jar as of the last read: cookies — see refreshCookies. ' +
       'Chrome: tab, bodyLanguage, requestPaneCollapsed, responsePaneCollapsed, ' +
       'responseHeight, showCollectionMenu, showEnvironmentMenu, showResponseActionsMenu, showSettings, ' +
-      'settingsTab, workspaceSettings, showHelp, sidebarWidth, statusBarHeight, showControlApiLog. ' +
+      'settingsTab, workspaceSettings, windowMaximised, showHelp, sidebarWidth, statusBarHeight, ' +
+      'showControlApiLog. ' +
       'Read this after every action instead of screenshotting the window (desktop only).',
   },
 ]
@@ -98,6 +99,21 @@ export const uiActions: UiAction[] = [
     desc:
       "Switch the settings window tab. tab is 'workspace', 'collections', 'environments', 'requests' " +
       "(what a new request's options start as), 'cookies' or 'appearance' (fonts and scale).",
+  },
+  {
+    action: 'minimizeWindow',
+    payload: '—',
+    desc: 'Minimise the window. Desktop only, and nothing in the app restores it — that is the taskbar.',
+  },
+  {
+    action: 'toggleMaximizeWindow',
+    payload: '—',
+    desc: 'Maximise the window, or restore it if it already is. Read state.windowMaximised for which it did.',
+  },
+  {
+    action: 'closeWindow',
+    payload: '—',
+    desc: "Quit the app, the same as the title bar's ✕. Desktop only, and it ends the control API with it.",
   },
   {
     action: 'refreshCookies',

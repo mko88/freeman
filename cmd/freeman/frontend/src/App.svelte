@@ -23,6 +23,11 @@
     GetCookies,
     DeleteCookie,
     ClearCookies,
+    MinimiseWindow,
+    ToggleMaximiseWindow,
+    IsWindowMaximised,
+    CloseWindow,
+    IS_DESKTOP,
     GetCachedResponse,
     ClearResponseCache,
     ClearCachedResponse,
@@ -348,6 +353,10 @@
       environment,
       showSettings,
       settingsTab,
+      // Which way toggleMaximizeWindow will go, and the getter for what
+      // it did. Always false in the web build, which has no window of
+      // its own to maximise.
+      windowMaximised,
       // The jar as of the last read — refreshCookies is what re-reads
       // it, and the two deletes leave this holding what they answered
       // with. GET /api/cookies asks the jar directly, without needing
@@ -417,6 +426,28 @@
     if (next === workspaceSettings.fontScalePercent) return
     workspaceSettings = { ...workspaceSettings, fontScalePercent: next }
     saveWorkspaceSettingsSoon()
+  }
+
+  // The window is frameless (see cmd/freeman/main.go), so the top bar is
+  // the title bar and these are the controls the OS frame used to draw.
+  // Tracked rather than asked for on every render: the button's glyph
+  // has to say which way it will go, and the window can also be
+  // maximised from outside the app — a double-click on the drag region,
+  // a Windows snap, the keyboard.
+  let windowMaximised = false
+
+  async function refreshWindowState() {
+    if (!IS_DESKTOP) return
+    try {
+      windowMaximised = await IsWindowMaximised()
+    } catch {
+      // A runtime that isn't there is not worth a broken title bar.
+    }
+  }
+
+  async function toggleMaximiseWindow() {
+    ToggleMaximiseWindow()
+    await refreshWindowState()
   }
 
   // Ctrl +, Ctrl - and Ctrl 0, the shortcuts every application with a
@@ -591,6 +622,15 @@
         }
         break
       }
+      case 'minimizeWindow':
+        MinimiseWindow()
+        break
+      case 'toggleMaximizeWindow':
+        await toggleMaximiseWindow()
+        break
+      case 'closeWindow':
+        CloseWindow()
+        break
       case 'refreshCookies':
         await loadCookies()
         break
@@ -1634,7 +1674,12 @@
 />
 
 <div class="app-shell" class:is-resizing={draggingSplitter !== null}>
-  <header class="top-bar">
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <header
+    class="top-bar"
+    class:draggable={IS_DESKTOP}
+    on:dblclick={() => IS_DESKTOP && void toggleMaximiseWindow()}
+  >
     <span class="top-bar-title">Freeman</span>
     <!-- What {{vars}} resolve against. It belongs here rather than in
          Settings: reaching it through a preferences window meant opening
@@ -1662,6 +1707,21 @@
         {/if}
         <button class="icon-btn top-bar-btn" title="Control API help" on:click={() => (showHelp = true)}>?</button>
       </span>
+      {#if IS_DESKTOP}
+        <!-- The frame's buttons, drawn by the app because there is no
+             frame. Glyphs rather than an icon font: one box-drawing
+             character each, which every platform has. -->
+        <span class="window-controls">
+          <button class="window-btn" title="Minimise" aria-label="Minimise" on:click={MinimiseWindow}>─</button>
+          <button
+            class="window-btn"
+            title={windowMaximised ? 'Restore' : 'Maximise'}
+            aria-label={windowMaximised ? 'Restore' : 'Maximise'}
+            on:click={() => void toggleMaximiseWindow()}>{windowMaximised ? '❐' : '☐'}</button
+          >
+          <button class="window-btn window-close" title="Close" aria-label="Close" on:click={CloseWindow}>✕</button>
+        </span>
+      {/if}
     </div>
   </header>
 
@@ -1827,6 +1887,23 @@
     border-bottom: 1px solid var(--fm-border);
   }
 
+  /* The window is frameless, so this bar is what you drag it by.
+     --wails-draggable is Wails' own property; everything interactive
+     inside it opts back out below, or a click on a button would move the
+     window instead of pressing it. */
+  .top-bar.draggable {
+    --wails-draggable: drag;
+  }
+
+  /* Custom properties inherit, so no-drag on .top-bar-right covers
+     everything grouped there — including the environment switcher, whose
+     own markup this component's styles can't reach. The button rule
+     guards anything added to the bar outside that group later. */
+  .top-bar.draggable button,
+  .top-bar.draggable .top-bar-right {
+    --wails-draggable: no-drag;
+  }
+
   .top-bar-title {
     font-weight: 600;
     letter-spacing: -0.01em;
@@ -1841,6 +1918,40 @@
   .top-bar-actions {
     display: flex;
     gap: 0.35rem;
+  }
+
+  /* Set against the app's own buttons rather than beside them: these
+     belong to the window, not to what's in it. Square, flush to the
+     bar's top-right, and pushed to the very edge by cancelling the
+     header's padding on that side. */
+  .window-controls {
+    display: flex;
+    align-self: stretch;
+    margin: -0.3rem -0.9rem -0.3rem 0.5rem;
+  }
+
+  .window-btn {
+    background: none;
+    border: none;
+    border-radius: 0;
+    padding: 0 0.85rem;
+    font-size: 0.8rem;
+    line-height: 1;
+    color: var(--fm-text-muted);
+  }
+
+  .window-btn:hover {
+    background: var(--fm-bg-hover);
+    border-color: transparent;
+    color: var(--fm-text);
+  }
+
+  /* The one button whose mistake can't be undone gets the one colour
+     that says so — the same red as an error, and the convention every
+     desktop shares. */
+  .window-close:hover {
+    background: var(--fm-error);
+    color: var(--fm-bg);
   }
 
   .top-bar-btn {

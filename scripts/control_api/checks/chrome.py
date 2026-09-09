@@ -12,7 +12,29 @@ def test_layout_comfort(api: ControlAPI, r: Report) -> None:
     work. Restores every value to what it found before it started,
     rather than assuming defaults, since it runs against whatever state
     earlier sections already left."""
-    r.section("Layout comfort (splitters, collapsible panes)")
+    r.section("Layout comfort (splitters, collapsible panes, the window itself)")
+
+    # The window is frameless, so maximise/restore is the app's own
+    # button rather than the OS frame's — which makes it something this
+    # suite can and should drive. Left as it was found: someone watching
+    # the run should not have their window resized by it.
+    original_maximised = api.state().get("windowMaximised")
+    r.step("toggleMaximizeWindow  (watch: the window should maximise, or restore if it already was)")
+    api.action("toggleMaximizeWindow")
+    state = poll(api.state, lambda s: s.get("windowMaximised") is not original_maximised)
+    r.check(
+        "state.windowMaximised reflects toggleMaximizeWindow",
+        state.get("windowMaximised") is not original_maximised,
+        f"was {original_maximised}, now {state.get('windowMaximised')}",
+    )
+    r.step("toggleMaximizeWindow  (back to how this test found it)")
+    api.action("toggleMaximizeWindow")
+    state = poll(api.state, lambda s: s.get("windowMaximised") is original_maximised)
+    r.check(
+        "toggling twice leaves the window as it was",
+        state.get("windowMaximised") is original_maximised,
+        str(state.get("windowMaximised")),
+    )
 
     state = api.state()
     original_sidebar_width = state.get("sidebarWidth")

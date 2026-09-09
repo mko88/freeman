@@ -156,3 +156,20 @@ export function GetResponseCacheDataURI(_itemId: string): Promise<string> {
 export function OpenResponseCacheInFileExplorer(_itemId: string): Promise<void> {
   return Promise.reject(new Error('OpenResponseCacheInFileExplorer is not available in web mode — the server does not cache responses'))
 }
+
+// Window controls are desktop-only: in a browser the window belongs to
+// the browser. No-ops rather than missing exports, because
+// backend.contract.ts requires both modules to have the same shape — and
+// IS_DESKTOP is what stops the title bar rendering at all, so these are
+// never reached.
+export function MinimiseWindow(): void {}
+
+export function ToggleMaximiseWindow(): void {}
+
+export function IsWindowMaximised(): Promise<boolean> {
+  return Promise.resolve(false)
+}
+
+export function CloseWindow(): void {}
+
+export const IS_DESKTOP: boolean = false
