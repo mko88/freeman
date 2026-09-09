@@ -17,6 +17,7 @@ which also makes it the one part of the suite that can run in CI.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -63,6 +64,85 @@ def _driven_actions(checks_dir: Path) -> set[str]:
             continue
         driven |= set(re.findall(r'\.action\(\s*"([A-Za-z]+)"', path.read_text(encoding="utf-8")))
     return driven
+
+
+# The payload column read as a schema, the same reading Go applies at
+# runtime (agentdocs.requiredKeys): a bare name is required, a trailing ?
+# is optional, "|" separates alternatives, "field: 'name'" documents a
+# key and the value it carries (only the key is checked), and no braces
+# at all means nothing is required. Keep the two readings in step — they
+# are what decides whether a call this suite makes is one the app will
+# accept.
+def _required_keys(doc: str) -> list[list[str]]:
+    if "{" not in doc:
+        return []
+    alternatives = []
+    for group in doc.split("|"):
+        group = group.strip().lstrip("{").rstrip("}")
+        required = []
+        for field in group.split(","):
+            field = field.strip()
+            if not field or field.endswith("?"):
+                continue
+            required.append(field.split(":")[0].strip())
+        alternatives.append([f for f in required if f])
+    return alternatives
+
+
+def _documented_payloads(app_svelte: str) -> dict:
+    """Each action's payload column, from the `uiActions` catalogue.
+
+    Paired entry by entry rather than by zipping two findall lists: a row
+    whose payload contains an apostrophe is written with double quotes
+    ("{ field: 'name', value }"), so a single-quote-only pattern returned
+    two lists of different lengths — and this returning nothing made the
+    check that uses it pass on everything.
+    """
+    table = _slice(app_svelte, "uiActions: UiAction[] = [", "\n]")
+    found = {}
+    for entry in re.finditer(r"""action:\s*['"]([A-Za-z]+)['"](.*?)(?=action:\s*['"]|\Z)""", table, re.S):
+        payload = re.search(r"""payload:\s*(?:'([^']*)'|"([^"]*)")""", entry.group(2))
+        if payload:
+            found[entry.group(1)] = payload.group(1) if payload.group(1) is not None else payload.group(2)
+    return found
+
+
+def _fired_calls(checks_dir: Path) -> list[tuple[str, str, int, set, bool]]:
+    """Every api.action(...) this suite makes, as
+    (action, module, line, literal payload keys, whether they're literal).
+
+    Read as a syntax tree rather than by regex because the interesting
+    part is the payload's *keys*, and a dict literal spanning lines is
+    not something a regex reads honestly. A payload that isn't a literal
+    dict — a variable, a comprehension — is reported as unreadable and
+    skipped rather than guessed at.
+    """
+    calls = []
+    for path in sorted(checks_dir.glob("*.py")):
+        if path.name == Path(__file__).name:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr != "action" or not node.args:
+                continue
+            name = node.args[0]
+            if not isinstance(name, ast.Constant) or not isinstance(name.value, str):
+                continue
+            keys, literal = set(), True
+            if len(node.args) > 1:
+                payload = node.args[1]
+                if isinstance(payload, ast.Dict):
+                    for k in payload.keys:
+                        if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                            keys.add(k.value)
+                        else:
+                            literal = False
+                elif not (isinstance(payload, ast.Constant) and payload.value is None):
+                    literal = False
+            calls.append((name.value, path.name, node.lineno, keys, literal))
+    return calls
 
 
 def _documented_routes(app_svelte: str) -> set[str]:
@@ -145,6 +225,53 @@ def test_consistency(r: Report, repo_root: Path) -> None:
         not never_driven,
         f"documented but never fired by a check: {never_driven}",
     )
+
+    # Every call this suite makes has to satisfy the payload column it is
+    # documented with — the same reading POST /api/ui/action applies at
+    # runtime (see agentdocs.Catalog.Validate), done here against the
+    # source so a wrong call is a failed check rather than a 400 partway
+    # through a two-minute run.
+    #
+    # This exists because such a call went unnoticed for the life of the
+    # suite: setEnvironmentVariable was driven by key, which that action
+    # does not accept — key is a field it writes, not a way to choose a
+    # row — so it did nothing at all, and poll() returns its last reading
+    # whether or not the predicate ever came true.
+    payloads = _documented_payloads(help_modal)
+    # A parser that finds nothing would make the check below pass on
+    # everything, which is exactly how it failed the first time. Prove it
+    # read the column before trusting what it says about it.
+    if len(payloads) != len(documented):
+        r.check(
+            "consistency.py reads a payload column for every documented action",
+            False,
+            f"{len(payloads)} payloads for {len(documented)} actions — the table changed shape, update _documented_payloads",
+        )
+        return
+
+    bad, unreadable = [], []
+    for action, module, line, keys, literal in _fired_calls(Path(__file__).parent):
+        doc = payloads.get(action)
+        if doc is None:
+            continue  # an undocumented action is the check above's business
+        alternatives = _required_keys(doc)
+        if not alternatives:
+            continue
+        if not literal:
+            unreadable.append(f"{module}:{line} {action}")
+            continue
+        if not any(all(k in keys for k in required) for required in alternatives):
+            bad.append(f"{module}:{line} {action} sent {sorted(keys) or 'no payload'}, needs {doc}")
+    r.check(
+        "every action this suite fires carries the payload it is documented to need",
+        not bad,
+        "; ".join(bad),
+    )
+    # Not a failure: a payload built at run time can't be read from
+    # source. Named so the gap in this check is visible rather than
+    # implied.
+    if unreadable:
+        r.check(f"({len(unreadable)} call(s) build their payload at run time, unchecked here)", True)
 
     # The allow-list is only allowed to name real actions — otherwise a
     # renamed action would silently stay exempt forever.

@@ -92,6 +92,7 @@ func TestRequiredKeys(t *testing.T) {
 		"{ key?, value?, enabled? }": {nil},
 		"{ index } | { key }":        {{"index"}, {"key"}},
 		"{ index, key?, enabled? }":  {{"index"}},
+		"{ field: 'name', value }":   {{"field", "value"}},
 	}
 	for doc, want := range cases {
 		got := requiredKeys(doc)

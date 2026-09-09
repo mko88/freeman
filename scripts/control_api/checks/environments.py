@@ -42,10 +42,24 @@ def test_environment_editor(api: ControlAPI, r: Report, environment_id: str, tes
 
     r.step(f"addEnvironmentVariable {{key: {SCRATCH_VAR_KEY!r}, secret: true}}  (scratch)")
     api.action("addEnvironmentVariable", {"key": SCRATCH_VAR_KEY, "value": "temp", "secret": True})
-    poll(api.state, lambda s: env_var(s, SCRATCH_VAR_KEY) is not None)
-    r.step(f"setEnvironmentVariable {{key: {SCRATCH_VAR_KEY!r}, value: 'updated'}}")
-    api.action("setEnvironmentVariable", {"key": SCRATCH_VAR_KEY, "value": "updated"})
-    poll(api.state, lambda s: (env_var(s, SCRATCH_VAR_KEY) or {}).get("value") == "updated")
+    state = poll(api.state, lambda s: env_var(s, SCRATCH_VAR_KEY) is not None)
+
+    # By index, not by key: unlike removeEnvironmentVariable, the set
+    # actions target a row by position only — `key` is a field they
+    # *write*, so it can't also select what to write to. Called by key,
+    # this did nothing at all, and the poll below returned its last
+    # reading either way, so a silent no-op sat here unnoticed. Hence the
+    # check after it.
+    index = find_variable_index((state.get("environment") or {}).get("variables"), SCRATCH_VAR_KEY)
+    r.step(f"setEnvironmentVariable {{index: {index}, value: 'updated'}}")
+    api.action("setEnvironmentVariable", {"index": index, "value": "updated"})
+    state = poll(api.state, lambda s: (env_var(s, SCRATCH_VAR_KEY) or {}).get("value") == "updated")
+    r.check(
+        f"setEnvironmentVariable changed {SCRATCH_VAR_KEY}'s value",
+        (env_var(state, SCRATCH_VAR_KEY) or {}).get("value") == "updated",
+        str(env_var(state, SCRATCH_VAR_KEY)),
+    )
+
     r.step(f"removeEnvironmentVariable {{key: {SCRATCH_VAR_KEY!r}}}")
     api.action("removeEnvironmentVariable", {"key": SCRATCH_VAR_KEY})
     poll(api.state, lambda s: env_var(s, SCRATCH_VAR_KEY) is None)

@@ -21,9 +21,16 @@ def test_rapid_fire_regression(api: ControlAPI, r: Report, environment_id: str) 
     r.section("Regression: rapid-fire ui:action ordering (no delay)")
 
     key = "pyRaceVar"
+    # addEnvironmentVariable appends, so the row this burst creates lands
+    # at the end — read the length first, because the set below has to
+    # name a position and nothing here waits long enough to look one up.
+    # (The set actions target by index only; key is a field they write.)
+    before = api.get(f"/api/environments/{environment_id}")
+    index = len(before.get("variables") or [])
+
     r.step(f"add/set/save/remove/save {key!r} back-to-back, no waiting between calls")
     api.action("addEnvironmentVariable", {"key": key, "value": "v1"}, wait=False)
-    api.action("setEnvironmentVariable", {"key": key, "value": "v2"}, wait=False)
+    api.action("setEnvironmentVariable", {"index": index, "value": "v2"}, wait=False)
     api.action("saveEnvironment", wait=False)
     api.action("removeEnvironmentVariable", {"key": key}, wait=False)
     api.action("saveEnvironment", wait=False)

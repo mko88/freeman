@@ -203,10 +203,15 @@ func (c Catalog) Validate(action string, payload map[string]any) error {
 // requiredKeys reads the catalogue's payload column as a schema. The
 // column is written for a person, but consistently enough to be one:
 //
-//	—                      nothing required
-//	{ id }                 id is required
-//	{ name, id? }          name is required, id is not
-//	{ index } | { key }    either an index or a key
+//	—                          nothing required
+//	{ id }                     id is required
+//	{ name, id? }              name is required, id is not
+//	{ index } | { key }        either an index or a key
+//	{ field: 'name', value }   field and value are required
+//
+// The last shape names the value a field has to carry. Only the key is
+// taken from it: what a caller may put in that key is the dispatcher's
+// business, and a check that guessed at it would refuse calls that work.
 //
 // Anything with no braces at all (the em dash) requires nothing, which
 // is also the safe answer for a row written in some shape this doesn't
@@ -223,6 +228,14 @@ func requiredKeys(doc string) [][]string {
 		for _, field := range strings.Split(group, ",") {
 			field = strings.TrimSpace(field)
 			if field == "" || strings.HasSuffix(field, "?") {
+				continue
+			}
+			// "field: 'name'" documents the key and an expected value;
+			// the key is the part this checks for.
+			if colon := strings.Index(field, ":"); colon >= 0 {
+				field = strings.TrimSpace(field[:colon])
+			}
+			if field == "" {
 				continue
 			}
 			required = append(required, field)
