@@ -45,6 +45,12 @@ export async function applyTheme(): Promise<void> {
   }
 }
 
+// The interface scale's bounds and step, matching internal/settings.Clamp
+// — Go is the authority, these keep the controls from offering a value it
+// would refuse. Here rather than in either caller because both the
+// settings window's buttons and App.svelte's Ctrl +/- reach for them.
+export const FONT_SCALE = { min: 70, max: 200, step: 5, default: 100 } as const
+
 // The fallback stacks the settings' font names are prepended to, kept
 // identical to style.css's :root — a named font that isn't installed
 // then degrades to the bundled face rather than to whatever the platform

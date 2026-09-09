@@ -9,6 +9,7 @@
   // to stay in one place, or a scripted selectEnvironment and a clicked
   // one would take different paths.
   import InfoTip from './InfoTip.svelte'
+  import { FONT_SCALE } from '../theme'
   import type { core, domain, httpengine, settings as settings_ } from '../../wailsjs/go/models'
 
   export let workspace: core.WorkspaceInfo
@@ -39,6 +40,10 @@
   // For the Appearance tab, whose controls fire continuously — debounced
   // in App.svelte, since what they change is already on screen.
   export let onSaveSettingsSoon: () => void
+  // The scale steps through App.svelte rather than being set here, so
+  // these buttons and the Ctrl +/- shortcut take one path. `to` sets an
+  // absolute value, for Reset.
+  export let onStepScale: (by: number, to?: number) => void
 
   const MIB = 1024 * 1024
   // Derived one way only — reactive statements in both directions would
@@ -80,20 +85,6 @@
     refresh: () => void
     remove: (cookie: httpengine.Cookie) => void
     clear: () => void
-  }
-
-  // The scale's bounds, matching internal/settings.Clamp — Go is still
-  // the authority; these only keep the buttons from offering a step it
-  // would refuse.
-  const SCALE_MIN = 70
-  const SCALE_MAX = 200
-  const SCALE_STEP = 5
-  const SCALE_DEFAULT = 100
-
-  function stepScale(by: number, to?: number) {
-    const next = to ?? settings.fontScalePercent + by
-    settings.fontScalePercent = Math.min(SCALE_MAX, Math.max(SCALE_MIN, next))
-    onSaveSettingsSoon()
   }
 
   // Go's zero time crosses as year 1, which is how a session cookie —
@@ -449,6 +440,8 @@
                   <InfoTip label="About the scale">
                     Scales the whole interface, not only its text — spacing follows the type, so it
                     reads as one size rather than large text in small boxes. 100% is the default.
+                    <strong>Ctrl +</strong> and <strong>Ctrl -</strong> do the same from anywhere in
+                    the app, and <strong>Ctrl 0</strong> goes back to 100%.
                   </InfoTip>
                 </span>
               </th>
@@ -457,8 +450,8 @@
                   class="icon-btn"
                   title="Smaller"
                   aria-label="Smaller"
-                  disabled={settings.fontScalePercent <= SCALE_MIN}
-                  on:click={() => stepScale(-SCALE_STEP)}>−</button
+                  disabled={settings.fontScalePercent <= FONT_SCALE.min}
+                  on:click={() => onStepScale(-FONT_SCALE.step)}>−</button
                 >
                 <!-- Shown, not typed: the two buttons are the only way to
                      change it, so a half-typed "7" on the way to "75" can
@@ -475,10 +468,10 @@
                   class="icon-btn"
                   title="Larger"
                   aria-label="Larger"
-                  disabled={settings.fontScalePercent >= SCALE_MAX}
-                  on:click={() => stepScale(SCALE_STEP)}>+</button
+                  disabled={settings.fontScalePercent >= FONT_SCALE.max}
+                  on:click={() => onStepScale(FONT_SCALE.step)}>+</button
                 >
-                <button on:click={() => stepScale(0, SCALE_DEFAULT)}>Reset</button>
+                <button on:click={() => onStepScale(0, FONT_SCALE.default)}>Reset</button>
               </td>
             </tr>
           </tbody>

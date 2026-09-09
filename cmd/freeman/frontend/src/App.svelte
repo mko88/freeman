@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { applyTypography } from './theme'
+  import { applyTypography, FONT_SCALE } from './theme'
   import {
     CurrentWorkspace,
     OpenWorkspace,
@@ -406,6 +406,45 @@
   function saveWorkspaceSettingsSoon() {
     clearTimeout(settingsSaveTimer)
     settingsSaveTimer = setTimeout(() => void guard(saveWorkspaceSettings), 400)
+  }
+
+  // The one implementation of "change the scale", for the settings
+  // window's buttons and for Ctrl +/- below — the same rule as every
+  // other pair of routes to one change in this app.
+  function stepFontScale(by: number, to?: number) {
+    const current = workspaceSettings.fontScalePercent || FONT_SCALE.default
+    const next = Math.min(FONT_SCALE.max, Math.max(FONT_SCALE.min, to ?? current + by))
+    if (next === workspaceSettings.fontScalePercent) return
+    workspaceSettings = { ...workspaceSettings, fontScalePercent: next }
+    saveWorkspaceSettingsSoon()
+  }
+
+  // Ctrl +, Ctrl - and Ctrl 0, the shortcuts every application with a
+  // zoom has. No new ui:action for them: this is a second route to the
+  // field setWorkspaceSetting {field: 'fontScalePercent'} already sets,
+  // the way Enter in the URL bar is a second route to sendRequest.
+  //
+  // Both spellings of each key, because a keyboard offers two: the main
+  // row's + is Shift and =, so the event arrives as either depending on
+  // the layout, and the numpad sends its own codes.
+  //
+  // Bound in the capture phase (see <svelte:window>) so it fires
+  // wherever focus is — CodeMirror handles its own keys on the editor's
+  // DOM, and a shortcut that stopped working while you were typing in a
+  // body would be worse than no shortcut.
+  //
+  // preventDefault because WebView2 has a zoom of its own on these keys.
+  // Wails leaves it off (windows.Options.IsZoomControlEnabled is false
+  // unless set), but a window that scaled twice — once here, once in the
+  // webview — is not something to leave resting on a default.
+  function onWindowKeydown(e: KeyboardEvent) {
+    if (!e.ctrlKey || e.altKey) return
+    let by = 0
+    if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') by = FONT_SCALE.step
+    else if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') by = -FONT_SCALE.step
+    else if (e.key !== '0' && e.code !== 'Numpad0') return
+    e.preventDefault()
+    stepFontScale(by, by === 0 ? FONT_SCALE.default : undefined)
   }
 
   onMount(async () => {
@@ -1588,7 +1627,11 @@
   $: responseView, void refreshResponseData()
 </script>
 
-<svelte:window on:pointermove={onWindowPointerMove} on:pointerup={onWindowPointerUp} />
+<svelte:window
+  on:pointermove={onWindowPointerMove}
+  on:pointerup={onWindowPointerUp}
+  on:keydown|capture={onWindowKeydown}
+/>
 
 <div class="app-shell" class:is-resizing={draggingSplitter !== null}>
   <header class="top-bar">
@@ -1755,6 +1798,7 @@
       onOpenWorkspace={openWorkspace}
       onClearResponseCache={clearResponseCache}
       onSaveSettingsSoon={saveWorkspaceSettingsSoon}
+      onStepScale={stepFontScale}
       bind:settings={workspaceSettings}
       onSaveSettings={saveWorkspaceSettings}
     />

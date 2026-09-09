@@ -208,7 +208,8 @@ line-by-line reading are the point.
 
 **Settings → Appearance** replaces either with a font installed on your
 machine (leave a field empty for the bundled IBM Plex), and scales the
-whole interface from 70% to 200%. The scale moves spacing as well as
+whole interface from 70% to 200%. **Ctrl +** and **Ctrl -** step the
+scale from anywhere in the app, and **Ctrl 0** goes back to 100%. The scale moves spacing as well as
 type, so it reads as one size rather than large text in boxes that stayed
 put.
 
