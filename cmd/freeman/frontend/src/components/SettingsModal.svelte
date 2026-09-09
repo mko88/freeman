@@ -82,6 +82,20 @@
     clear: () => void
   }
 
+  // The scale's bounds, matching internal/settings.Clamp — Go is still
+  // the authority; these only keep the buttons from offering a step it
+  // would refuse.
+  const SCALE_MIN = 70
+  const SCALE_MAX = 200
+  const SCALE_STEP = 5
+  const SCALE_DEFAULT = 100
+
+  function stepScale(by: number, to?: number) {
+    const next = to ?? settings.fontScalePercent + by
+    settings.fontScalePercent = Math.min(SCALE_MAX, Math.max(SCALE_MIN, next))
+    onSaveSettingsSoon()
+  }
+
   // Go's zero time crosses as year 1, which is how a session cookie —
   // one with no expiry at all — arrives here.
   function expiryLabel(expires: unknown): string {
@@ -438,25 +452,32 @@
                 </span>
               </th>
               <td class="option-scale">
+                <button
+                  class="icon-btn"
+                  title="Smaller"
+                  aria-label="Smaller"
+                  disabled={settings.fontScalePercent <= SCALE_MIN}
+                  on:click={() => stepScale(-SCALE_STEP)}>−</button
+                >
+                <!-- Shown, not typed: the two buttons are the only way to
+                     change it, so a half-typed "7" on the way to "75" can
+                     never be applied as a scale of 7. -->
                 <input
-                  type="range"
-                  min="70"
-                  max="200"
-                  step="5"
-                  bind:value={settings.fontScalePercent}
-                  on:input={onSaveSettingsSoon}
+                  class="option-scale-value"
+                  type="text"
+                  readonly
+                  value={settings.fontScalePercent}
                   aria-label="Interface scale"
                 />
-                <input
-                  type="number"
-                  min="70"
-                  max="200"
-                  class="option-number"
-                  bind:value={settings.fontScalePercent}
-                  on:change={onSaveSettingsSoon}
-                />
                 <span class="settings-unit">%</span>
-                <button on:click={() => { settings.fontScalePercent = 100; onSaveSettings() }}>Reset</button>
+                <button
+                  class="icon-btn"
+                  title="Larger"
+                  aria-label="Larger"
+                  disabled={settings.fontScalePercent >= SCALE_MAX}
+                  on:click={() => stepScale(SCALE_STEP)}>+</button
+                >
+                <button on:click={() => stepScale(0, SCALE_DEFAULT)}>Reset</button>
               </td>
             </tr>
           </tbody>
@@ -750,18 +771,27 @@
     color: var(--fm-text-muted);
   }
 
-  /* The scale row: a slider to find the size by eye, a number to say it
-     exactly, and a way back to 100 without dragging for it. */
+  /* The scale row: a step either way, the current value, and a way back
+     to 100. Stepping rather than typing because every usable value is
+     five apart, and every intermediate keystroke of a typed one would be
+     a scale the window jumped to on the way. */
   .option-scale {
     display: flex;
     align-items: center;
     gap: 0.4rem;
   }
 
-  .option-scale input[type='range'] {
-    flex: 1;
-    min-width: 0;
-    accent-color: var(--fm-accent);
+  /* Sized to three digits and centred: a readout, so it shouldn't take a
+     text field's width or sit against one edge of it. */
+  .option-scale-value {
+    width: 3.5rem;
+    text-align: center;
+  }
+
+  /* Still focusable, which is right — it's how the value is announced —
+     but it shouldn't offer a caret it can do nothing with. */
+  .option-scale-value:read-only {
+    cursor: default;
   }
 
   /* The delete column, like .kv-table's: narrow, flush with the table's
