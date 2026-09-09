@@ -101,6 +101,71 @@
         color: 'var(--fm-text)',
         border: '1px solid var(--fm-border)',
       },
+      // Ctrl-F's panel. basicSetup binds it already; what it lacked was
+      // any of this — CodeMirror's stock controls are a light-theme
+      // field and a grey gradient button, which against the app's own
+      // panel read as a rendering fault rather than a search box.
+      '.cm-panel.cm-search': {
+        padding: '6px 8px',
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: '6px',
+        fontSize: '0.8rem',
+      },
+      '.cm-panel.cm-search label': {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '3px',
+        color: 'var(--fm-text-muted)',
+        fontSize: '0.75rem',
+      },
+      '.cm-panel.cm-search .cm-textfield': {
+        backgroundColor: 'var(--fm-bg)',
+        color: 'var(--fm-text)',
+        border: '1px solid var(--fm-border)',
+        borderRadius: 'var(--fm-radius)',
+        padding: '2px 6px',
+        // The stock field is sized in ems off a font it no longer has.
+        fontSize: 'inherit',
+        fontFamily: 'inherit',
+      },
+      '.cm-panel.cm-search .cm-textfield:focus': {
+        outline: 'none',
+        borderColor: 'var(--fm-accent)',
+      },
+      '.cm-panel.cm-search .cm-button': {
+        backgroundColor: 'var(--fm-bg-elevated)',
+        backgroundImage: 'none',
+        color: 'var(--fm-text)',
+        border: '1px solid var(--fm-border)',
+        borderRadius: 'var(--fm-radius)',
+        padding: '2px 8px',
+        fontSize: 'inherit',
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      },
+      '.cm-panel.cm-search .cm-button:hover': { backgroundColor: 'var(--fm-bg-hover)' },
+      '.cm-panel.cm-search [name="close"]': {
+        color: 'var(--fm-text-muted)',
+        cursor: 'pointer',
+        fontSize: '1rem',
+        padding: '0 4px',
+      },
+      '.cm-panel.cm-search [name="close"]:hover': { color: 'var(--fm-text)' },
+      // What the search actually found. highlightSelectionMatches comes
+      // with basicSetup too, and had the same problem: no colour of its
+      // own here meant the matches were invisible.
+      '.cm-searchMatch': {
+        backgroundColor: 'color-mix(in srgb, var(--fm-warning) 30%, transparent)',
+        outline: '1px solid color-mix(in srgb, var(--fm-warning) 55%, transparent)',
+      },
+      '.cm-searchMatch.cm-searchMatch-selected': {
+        backgroundColor: 'color-mix(in srgb, var(--fm-accent) 45%, transparent)',
+      },
+      '.cm-selectionMatch': {
+        backgroundColor: 'color-mix(in srgb, var(--fm-accent) 22%, transparent)',
+      },
     },
     { dark: true },
   )
