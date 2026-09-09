@@ -84,7 +84,9 @@ export const apiEndpoints: ApiEndpoint[] = [
       'silently replace them. Also truncated with bodyFile in place of body when it was too large — ' +
       'bodyFile is its path in the per-request on-disk cache, see clearResponseCache; capped when the ' +
       'response outgrew the in-memory ceiling and body holds only what was read), plus responseTab ' +
-      '(body/headers/cookies) and responseView (pretty/raw/hex). ' +
+      '(body/headers/cookies), responseView (pretty/raw/hex), and — as what the body panel is actually ' +
+      'showing under that view — responseBody (capped, empty for an image) and responseKind ' +
+      '(json/xml/html/image/text). ' +
       'The shared cookie jar as of the last read: cookies — see refreshCookies. ' +
       'Chrome: tab, bodyLanguage, requestPaneCollapsed, responsePaneCollapsed, ' +
       'responseHeight, showCollectionMenu, showEnvironmentMenu, showResponseActionsMenu, showSettings, ' +
@@ -237,9 +239,10 @@ export const uiActions: UiAction[] = [
     action: 'setResponseView',
     payload: '{ view }',
     desc:
-      "Switch the response view. view is 'pretty' (JSON/XML pretty-printed + highlighted, an image rendered, " +
-      "headers as a table), 'raw' (the payload as text, uncoloured) or 'hex' (a hexdump of its bytes). " +
-      'Applies to whichever panel is open, body or headers.',
+      "Switch the response view. view is 'pretty' (JSON/XML/HTML pretty-printed + highlighted, an image " +
+      "rendered, headers as a table), 'raw' (the payload as text, uncoloured) or 'hex' (a hexdump of its " +
+      'bytes). Applies to whichever panel is open, body or headers. Read the result back as responseBody ' +
+      'and responseKind in GET /api/ui/state.',
   },
   {
     action: 'openResponseCacheExternally',

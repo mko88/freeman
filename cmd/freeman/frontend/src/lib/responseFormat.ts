@@ -10,6 +10,12 @@ import type { httpengine } from '../../wailsjs/go/models'
 // just for keeping the formatted path snappy.)
 export const RESPONSE_PRETTY_MAX = 256 * 1024
 
+// How much of the formatted body GET /api/ui/state carries. The state
+// object is read after every action, so it stays a readable answer
+// rather than a copy of the response — enough to tell a reindented body
+// from an untouched one, and to check the head of a long one.
+export const RESPONSE_STATE_MAX = 16 * 1024
+
 export type ResponseKind = 'json' | 'xml' | 'html' | 'image' | 'text'
 
 // How the body panel is showing what came back. 'pretty' is the
@@ -72,6 +78,10 @@ export function detectResponseKind(r: httpengine.Response | null): ResponseKind 
   if (ct) return 'text'
   const s = (r?.body ?? '').trimStart()
   if (s.startsWith('{') || s.startsWith('[')) return 'json'
+  // A doctype or a root <html> is HTML even with nothing declaring it.
+  // Any other tag stays XML — which is what an HTML document that says
+  // neither would fall back to anyway, once its parse fails.
+  if (/^<!doctype\s+html/i.test(s) || /^<html[\s>]/i.test(s)) return 'html'
   if (s.startsWith('<')) return 'xml'
   return 'text'
 }
@@ -95,6 +105,135 @@ export function prettyXml(xml: string): string {
       return out
     })
     .join('\n')
+}
+
+// Elements that never take a closing tag, so — unlike <div> — they must
+// not open a level for everything that follows them.
+const HTML_VOID = new Set([
+  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+  'link', 'meta', 'param', 'source', 'track', 'wbr',
+])
+
+// Elements whose content is not markup and whose whitespace carries
+// meaning: reindenting inside <pre> changes what the page renders, and
+// inside <script>/<style> it can change what the code does. Their
+// bodies are copied through byte for byte.
+const HTML_RAW_TEXT = new Set(['script', 'style', 'pre', 'textarea'])
+
+// Elements a browser closes for you when the next one of the same name
+// opens. Without these, the <p>one<p>two that real pages are full of
+// would nest one level deeper on every paragraph and walk off the right
+// edge of the pane.
+const HTML_IMPLICIT_CLOSE = new Set(['p', 'li', 'dt', 'dd', 'option', 'tr', 'td', 'th'])
+
+// Reindents HTML by walking it tag by tag. HTML is not well-formed XML —
+// void elements never close, and real documents leave others unclosed
+// too — so prettyXml's "every opening tag is a level" rule drifts
+// steadily deeper down a page. This keeps a stack of the elements
+// actually open, which makes a stray close tag harmless and lets the
+// implicit closes above unwind properly. Like prettyXml it reshapes
+// rather than parses, and returns plain text.
+export function prettyHtml(html: string): string {
+  const out: string[] = []
+  const open: string[] = []
+  const pad = () => '  '.repeat(open.length)
+  const emit = (text: string) => {
+    if (text) out.push(pad() + text)
+  }
+  // Text runs collapse onto one line; a whitespace-only run is the
+  // document's own indentation and drops out entirely.
+  const flat = (text: string) => text.replace(/\s+/g, ' ').trim()
+  const escapeName = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+  let i = 0
+  while (i < html.length) {
+    const lt = html.indexOf('<', i)
+    if (lt < 0) {
+      emit(flat(html.slice(i)))
+      break
+    }
+    if (lt > i) emit(flat(html.slice(i, lt)))
+    i = lt
+
+    if (html.startsWith('<!--', i)) {
+      const end = html.indexOf('-->', i + 4)
+      const stop = end < 0 ? html.length : end + 3
+      emit(html.slice(i, stop).trim())
+      i = stop
+      continue
+    }
+    // <!doctype …> and <?xml …>: neither nests.
+    if (html.startsWith('<!', i) || html.startsWith('<?', i)) {
+      const end = html.indexOf('>', i)
+      const stop = end < 0 ? html.length : end + 1
+      emit(html.slice(i, stop).trim())
+      i = stop
+      continue
+    }
+
+    const tag = /^<\/?[a-zA-Z][^>]*>/.exec(html.slice(i))
+    if (!tag) {
+      // A '<' that begins no tag at all — text, not markup.
+      const next = html.indexOf('<', i + 1)
+      const stop = next < 0 ? html.length : next
+      emit(flat(html.slice(i, stop)))
+      i = stop
+      continue
+    }
+
+    const text = tag[0]
+    const name = (/^<\/?\s*([a-zA-Z][\w:.-]*)/.exec(text)?.[1] ?? '').toLowerCase()
+    i += text.length
+
+    if (text.startsWith('</')) {
+      // Unwind to the matching element if it is genuinely open. A close
+      // tag for something that never opened is left where it is rather
+      // than pulling the rest of the document out a level.
+      const at = open.lastIndexOf(name)
+      if (at >= 0) open.length = at
+      emit(text)
+      continue
+    }
+
+    // <p> after an unclosed <p> ends it, rather than nesting inside it.
+    if (HTML_IMPLICIT_CLOSE.has(name) && open[open.length - 1] === name) open.pop()
+
+    const selfClosing = /\/>$/.test(text)
+
+    if (HTML_RAW_TEXT.has(name) && !selfClosing) {
+      const close = new RegExp(`</${escapeName(name)}\\s*>`, 'i').exec(html.slice(i))
+      const body = close ? html.slice(i, i + close.index) : html.slice(i)
+      emit(text)
+      i += body.length
+      // The content goes through untouched, its own indentation
+      // included, which is why these lines bypass emit(). The element
+      // still opens a level so its close tag lands back where it began.
+      open.push(name)
+      const kept = body.replace(/^\n/, '').replace(/\s+$/, '')
+      if (kept) out.push(...kept.split('\n'))
+      continue
+    }
+
+    if (HTML_VOID.has(name) || selfClosing) {
+      emit(text)
+      continue
+    }
+
+    // An element holding nothing but text stays on one line, the way
+    // prettyXml leaves <a>x</a> alone — three lines for <title>Hi</title>
+    // is harder to read than the document was to begin with.
+    const inline = new RegExp(`^([^<]*)</${escapeName(name)}\\s*>`).exec(html.slice(i))
+    if (inline) {
+      emit(text + flat(inline[1]) + `</${name}>`)
+      i += inline[0].length
+      continue
+    }
+
+    emit(text)
+    open.push(name)
+  }
+
+  return out.join('\n')
 }
 
 // Derived once per response/view change: the detected kind, whether a
@@ -154,6 +293,13 @@ export function formatResponse(
     const doc = new DOMParser().parseFromString(body, 'application/xml')
     if (doc.getElementsByTagName('parsererror').length > 0) return { kind: 'text', text: body }
     return { kind, text: view === 'pretty' ? prettyXml(body) : body }
+  }
+
+  // No parse gate here, unlike XML: an HTML parser accepts anything, so
+  // there is no such thing as a body that "isn't HTML enough" to show.
+  // prettyHtml copes with the malformed ones instead.
+  if (inRange && kind === 'html') {
+    return { kind, text: view === 'pretty' ? prettyHtml(body) : body }
   }
 
   return { kind, text: body }

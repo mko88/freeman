@@ -46,7 +46,7 @@
   import SettingsModal from './components/SettingsModal.svelte'
   import Switcher from './components/Switcher.svelte'
   import { formatBytes, formatDuration, methodColor, reasonPhrase, statusTone } from './lib/format'
-  import { detectResponseKind, formatResponse } from './lib/responseFormat'
+  import { detectResponseKind, formatResponse, RESPONSE_STATE_MAX } from './lib/responseFormat'
   import type { BodyLanguage, ResponseView } from './lib/responseFormat'
   import {
     bodyModes,
@@ -371,6 +371,18 @@
       response,
       responseTab,
       responseView,
+      // setResponseView's getter: the text the body panel is actually
+      // showing — reindented for 'pretty', the payload for 'raw', a
+      // hexdump for 'hex' — and the kind it was detected as. response
+      // above carries what arrived; these carry what is on screen, so a
+      // script can tell a pretty-printed body from an untouched one
+      // without screenshotting the window. An image renders from a data
+      // URI rather than text and reports its formatted body as empty;
+      // the rest is capped, since a hexdump runs several times the
+      // length of the response it describes.
+      responseBody:
+        formattedResponse.kind === 'image' ? '' : formattedResponse.text.slice(0, RESPONSE_STATE_MAX),
+      responseKind: formattedResponse.kind,
       responsePaneCollapsed,
       showResponseActionsMenu,
       sidebarWidth,

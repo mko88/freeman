@@ -293,6 +293,69 @@ def test_response_cache(api: ControlAPI, r: Report, collection_id: str, environm
     api.action("setResponseView", {"view": "pretty"})
     poll(api.state, lambda s: s.get("responseView") == "pretty")
 
+    r.step("setRequestField url -> /html, saveRequest, sendRequest  (watch: the body should come back indented)")
+    api.action("setRequestField", {"field": "url", "value": f"{{{{{TEST_VAR_KEY}}}}}/html"})
+    api.action("saveRequest")
+    api.action("sendRequest")
+    state = poll(
+        api.state,
+        lambda s: (s.get("response") or {}).get("statusCode") == 200 and "html" in response_content_type(s),
+        timeout=15.0,
+    )
+    raw_html = (state.get("response") or {}).get("body") or ""
+    r.check(
+        "an HTML endpoint answers with an HTML document",
+        raw_html.lstrip().lower().startswith("<!doctype html"),
+        raw_html[:120],
+    )
+    r.check("state.responseKind detects HTML", state.get("responseKind") == "html", str(state.get("responseKind")))
+
+    # The document goes out minified onto a single line, so "did the
+    # pretty view reindent it" is a question the state can answer rather
+    # than one that needs the window looked at. Were prettyHtml to do
+    # nothing at all, responseBody would still be that one line and
+    # every check below would fail.
+    state = poll(api.state, lambda s: s.get("responseView") == "pretty" and (s.get("responseBody") or ""))
+    pretty_html = state.get("responseBody") or ""
+    r.check(
+        "the pretty view reindents an HTML body onto many lines",
+        len(pretty_html.splitlines()) > 10,
+        f"{len(pretty_html.splitlines())} line(s)",
+    )
+    r.check(
+        "the pretty view indents nested HTML elements",
+        "\n  <head>" in pretty_html and "\n    <title>" in pretty_html,
+        pretty_html[:200],
+    )
+    # <meta> and <br> never close. Counting them as levels would put
+    # <h1> two indents deeper than <body> instead of one.
+    r.check(
+        "a void element does not push everything after it a level deeper",
+        "\n    <h1>" in pretty_html,
+        pretty_html[:400],
+    )
+    r.check(
+        "<pre> keeps the whitespace it arrived with",
+        "  keep   this\n     exactly" in pretty_html,
+        pretty_html[-240:],
+    )
+    r.check(
+        "a '<' inside <script> is not mistaken for a tag",
+        "if (1 < 2) { widgets() }" in pretty_html,
+        pretty_html[-240:],
+    )
+
+    r.step("setResponseView {view: 'raw'}  (watch: the HTML should collapse back to the one line it arrived as)")
+    api.action("setResponseView", {"view": "raw"})
+    state = poll(api.state, lambda s: s.get("responseView") == "raw")
+    r.check(
+        "the raw view hands back the HTML exactly as it arrived",
+        (state.get("responseBody") or "") == raw_html,
+        (state.get("responseBody") or "")[:120],
+    )
+    api.action("setResponseView", {"view": "pretty"})
+    poll(api.state, lambda s: s.get("responseView") == "pretty")
+
     r.step("setResponseView {view: 'hex'}  (watch: the body should become a hexdump — offsets, bytes, ASCII gutter)")
     api.action("setResponseView", {"view": "hex"})
     state = poll(api.state, lambda s: s.get("responseView") == "hex")

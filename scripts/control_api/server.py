@@ -80,6 +80,20 @@ XML_DOC = b"""<?xml version="1.0" encoding="UTF-8"?>
 </slideshow>
 """
 
+# Deliberately minified onto one line, and carrying the three shapes a
+# naive reindenter gets wrong: a void element that never closes (<meta>,
+# <br>), an element whose whitespace must survive (<pre>), and a script
+# holding a '<' that is not a tag. A working pretty view turns this into
+# indented lines; a broken one hands back the single line it arrived as,
+# so the check that reads it back cannot pass either way.
+HTML_DOC = (
+    b'<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+    b"<title>Freeman test page</title></head><body><h1>Wake up to WonderWidgets!</h1>"
+    b"<p>One<br>Two</p><ul><li>alpha</li><li>beta</li></ul>"
+    b"<pre>  keep   this\n     exactly</pre>"
+    b"<script>if (1 < 2) { widgets() }</script></body></html>"
+)
+
 # The token this server's /oauth/token hands out, and the credentials it
 # insists on first. Fixed rather than random so a failing check reads as
 # a mismatch rather than a mystery.
@@ -327,6 +341,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
         if path == "/xml":
             self._send(200, XML_DOC, "application/xml")
+            return
+
+        if path == "/html":
+            self._send(200, HTML_DOC, "text/html; charset=utf-8")
             return
 
         if path == "/brotli":
