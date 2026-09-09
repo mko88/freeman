@@ -1711,6 +1711,7 @@
           {codeError}
           {headerCatalog}
           {sending}
+          {workspaceDefaults}
           onSave={saveRequest}
           saved={selectedItemId !== null}
           onSend={sendRequest}

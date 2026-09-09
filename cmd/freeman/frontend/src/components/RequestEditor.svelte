@@ -14,6 +14,7 @@
   import { resolveBodyLanguage } from '../lib/responseFormat'
   import type { BodyLanguage } from '../lib/responseFormat'
   import { bodyModes, changedOptionCount, codeFormats, methods } from '../lib/requestDraft'
+  import type { WorkspaceDefaults } from '../lib/requestDraft'
   import type { CodeFormat, RequestDraft, RequestTab } from '../lib/requestDraft'
 
   // Common request headers (and, per header, common values) offered as
@@ -31,6 +32,10 @@
   export let codeError: string
   export let headerCatalog: HeaderCatalogEntry[]
   export let sending: boolean
+  // What a new request starts from (Settings -> Requests). Needed here
+  // for the Options badge: "changed" means different from these, not
+  // from the values compiled into the app.
+  export let workspaceDefaults: WorkspaceDefaults
 
   // Whether the request in the editor is one that exists in the
   // collection: an unsaved draft has nothing to duplicate or delete.
@@ -119,7 +124,7 @@
   $: bodyTabBadge = draft.bodyMode === 'x-www-form-urlencoded' ? 'urlencoded' : draft.bodyMode
   // How the request is sent: 'default' until something is changed, so an
   // untouched tab says so rather than looking like one that was.
-  $: optionsChanged = changedOptionCount(draft.options)
+  $: optionsChanged = changedOptionCount(draft.options, workspaceDefaults)
   $: optionsTabBadge = optionsChanged === 0 ? 'default' : `${optionsChanged} changed`
 </script>
 

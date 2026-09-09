@@ -62,8 +62,16 @@ export type WorkspaceDefaults = {
 
 // Which settings differ from the defaults — the Options tab's badge, so
 // a tab nobody has touched says so rather than looking the same as one
-// that has.
-export function changedOptionCount(o: RequestOptions, workspace?: WorkspaceDefaults): number {
+// that has, and what decides whether a saved request carries an options
+// block at all.
+//
+// The defaults are required, unlike defaultOptions' own parameter: a
+// caller that omits them gets a count measured against the built-in
+// fallbacks instead of the workspace's own, which is wrong rather than
+// merely approximate — a request matching a workspace default of 5
+// redirects would read as "1 changed". That is exactly what the badge
+// did until the editor was given these.
+export function changedOptionCount(o: RequestOptions, workspace: WorkspaceDefaults): number {
   const d = defaultOptions(workspace)
   return (Object.keys(d) as (keyof RequestOptions)[]).filter((k) => o[k] !== d[k]).length
 }
