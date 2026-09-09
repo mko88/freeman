@@ -445,9 +445,15 @@
     }
   }
 
-  async function toggleMaximiseWindow() {
+  // No read after the toggle: asking straight back raced the window
+  // manager and answered with the state from *before* it, so the button
+  // showed the wrong glyph and a check on state.windowMaximised was
+  // timing-dependent. The window's own resize event is the signal that
+  // it actually happened — see <svelte:window> — and it arrives however
+  // the window was maximised, including from outside the app: a Windows
+  // snap, a drag to the top edge, the keyboard.
+  function toggleMaximiseWindow() {
     ToggleMaximiseWindow()
-    await refreshWindowState()
   }
 
   // Ctrl +, Ctrl - and Ctrl 0, the shortcuts every application with a
@@ -479,6 +485,12 @@
   }
 
   onMount(async () => {
+    // resize only fires on a change, so the title bar would show the
+    // wrong glyph for a window that *started* maximised — which Windows
+    // does when the last session left it that way. Read it once here;
+    // resize keeps it right from then on.
+    void refreshWindowState()
+
     // Before the workspace: it needs none, and the welcome screen shows
     // it while there's nothing else on screen.
     try {
@@ -626,7 +638,7 @@
         MinimiseWindow()
         break
       case 'toggleMaximizeWindow':
-        await toggleMaximiseWindow()
+        toggleMaximiseWindow()
         break
       case 'closeWindow':
         CloseWindow()
@@ -1670,6 +1682,7 @@
 <svelte:window
   on:pointermove={onWindowPointerMove}
   on:pointerup={onWindowPointerUp}
+  on:resize={refreshWindowState}
   on:keydown|capture={onWindowKeydown}
 />
 
@@ -1678,7 +1691,7 @@
   <header
     class="top-bar"
     class:draggable={IS_DESKTOP}
-    on:dblclick={() => IS_DESKTOP && void toggleMaximiseWindow()}
+    on:dblclick={() => IS_DESKTOP && toggleMaximiseWindow()}
   >
     <span class="top-bar-title">Freeman</span>
     <!-- What {{vars}} resolve against. It belongs here rather than in
@@ -1717,7 +1730,7 @@
             class="window-btn"
             title={windowMaximised ? 'Restore' : 'Maximise'}
             aria-label={windowMaximised ? 'Restore' : 'Maximise'}
-            on:click={() => void toggleMaximiseWindow()}>{windowMaximised ? '❐' : '☐'}</button
+            on:click={toggleMaximiseWindow}>{windowMaximised ? '❐' : '☐'}</button
           >
           <button class="window-btn window-close" title="Close" aria-label="Close" on:click={CloseWindow}>✕</button>
         </span>
